@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.DS_Store
+.env
+.env.local
+.env.*.local
+backend/public/qr/*.png
+coverage/
+.idea/
+.vscode/
+.vercel/

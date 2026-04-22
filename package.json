@@ -1,0 +1,11 @@
+{
+  "name": "hostel-management-platform",
+  "version": "1.0.0",
+  "description": "Smart Campus Access & Hostel Management Platform",
+  "scripts": {
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm run dev",
+    "seed": "cd backend && node seed.js",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install"
+  }
+}
