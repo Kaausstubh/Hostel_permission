@@ -13,7 +13,7 @@ const { protect } = require('../middleware/auth');
 const { normalizeToE164 } = require('../utils/phone');
 
 // College email domain restriction for student self-registration
-const COLLEGE_EMAIL_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
+const COLLEGE_EMAIL_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitp.ac.in';
 
 // Helper: generate 1-day JWT
 const signToken = (id) =>

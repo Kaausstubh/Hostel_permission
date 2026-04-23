@@ -3,9 +3,6 @@
   "version": "1.0.0",
   "description": "Smart Campus Access & Hostel Management Platform - Backend",
   "main": "server.js",
-  "engines": {
-    "node": ">=20 <23"
-  },
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",

@@ -14,7 +14,7 @@ const DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
 const seedUsers = [
   // ─── Warden ─────────────────────────────────────────────────────────────────
   {
-    name: 'Dr. Ramesh Kumar',
+    name: 'Dr. Mahesh Joshi',
     phone: '+919900001111',
     email: 'warden@campus.edu',
     password: 'warden123',
@@ -22,7 +22,7 @@ const seedUsers = [
   },
   // ─── Security Guard ──────────────────────────────────────────────────────────
   {
-    name: 'Suresh Guard',
+    name: 'MSF Guard',
     phone: '+919900002222',
     email: 'security@campus.edu',
     password: 'security123',
@@ -30,9 +30,9 @@ const seedUsers = [
   },
   // ─── Students (college email domain) ─────────────────────────────────────────
   {
-    name: 'Arjun Sharma',
+    name: 'Kaustubh Khandare',
     phone: '+919800011001',
-    email: `arjun@${DOMAIN}`,
+    email: `kaustubh@${DOMAIN}`,
     password: 'student123',
     role: 'student',
     hostel: 'BH1',
