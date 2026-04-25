@@ -30,6 +30,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(u));
     setToken(t);
     setUser(u);
+    await new Promise(resolve => setTimeout(resolve, 100));
     return u;
   };
 
