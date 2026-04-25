@@ -78,7 +78,7 @@ const seed = async () => {
     console.log('─'.repeat(55));
     console.log(`  Warden:   warden@campus.edu       / warden123`);
     console.log(`  Security: security@campus.edu     / security123`);
-    console.log(`  Student:  arjun@${DOMAIN}  / student123`);
+    console.log(`  Student:  kaustubh@${DOMAIN}  / student123`);
     console.log(`  Student:  priya@${DOMAIN}  / student123`);
     console.log('─'.repeat(55));
     process.exit(0);

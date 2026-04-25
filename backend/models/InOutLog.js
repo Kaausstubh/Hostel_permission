@@ -23,6 +23,7 @@ const inOutLogSchema = new mongoose.Schema(
     phone:       { type: String, default: '' },
     parentPhone: { type: String, default: '' },
     hostel:      { type: String, default: '' },
+    place:       { type: String, default: '' },
 
     // ── QR & Status ───────────────────────────────────────────────────────────
     qr_token: {

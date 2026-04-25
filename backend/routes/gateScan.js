@@ -1,7 +1,7 @@
 /**
  * Unified Gate Scanner Routes
- * - GET  /api/gatescan/pending-qrs  - Combined pending list (in/out + home visit)
- * - POST /api/gatescan/scan         - Scan token and dispatch by payload.type
+ * - GET  /api/gatescan/pending-qrs - Combined pending list (daily requests + home visit QR)
+ * - POST /api/gatescan/scan        - Scan token and dispatch by payload.type
  *
  * This keeps the security UI simple: one scanner for all QR types.
  */
@@ -18,14 +18,26 @@ const {
   registerActiveQR,
   removeActiveQR,
 } = require('../services/qrService');
+const {
+  listPendingInOutRequests,
+  getPendingInOutRequest,
+  getPendingInOutRequestByToken,
+  movePendingRequestToReturn,
+  removePendingInOutRequest,
+} = require('../services/inOutRequestService');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
 router.use(protect, authorize('warden', 'security'));
 
 router.get('/pending-qrs', async (req, res) => {
-  const qrs = await getActiveQRs();
-  res.json({ success: true, count: qrs.length, qrs });
+  const [requests, qrs] = await Promise.all([
+    listPendingInOutRequests(),
+    getActiveQRs(),
+  ]);
+
+  const items = [...requests, ...qrs];
+  res.json({ success: true, count: items.length, qrs: items });
 });
 
 router.post('/scan', async (req, res) => {
@@ -33,22 +45,40 @@ router.post('/scan', async (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
-    const { valid, payload, error } = validateQR(token);
-    if (!valid) return res.status(400).json({ success: false, message: error });
+    let { valid, payload, error } = validateQR(token);
+    if (!valid) {
+      const pendingCompactRequest = await getPendingInOutRequestByToken(token);
+      if (!pendingCompactRequest) {
+        return res.status(400).json({ success: false, message: error });
+      }
+      valid = true;
+      payload = { type: 'inout_request', student_id: pendingCompactRequest.studentId };
+    }
 
-    // ── In/Out single-QR flow ───────────────────────────────────────────────
-    if (payload.type === 'inout') {
+    // ── Daily In/Out request QR flow ────────────────────────────────────────
+    if (payload.type === 'inout_request') {
+      const pendingRequest = await getPendingInOutRequest(payload.student_id);
+      if (!pendingRequest || pendingRequest.token !== token) {
+        return res.status(400).json({ success: false, message: 'Request not found or expired' });
+      }
+
       const student = await User.findById(payload.student_id);
       if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
 
-      const existing = await InOutLog.findOne({ qr_token: token });
       const now = new Date();
-
       let log;
-      let status;
 
-      if (!existing) {
-        status = 'OUT';
+      if (pendingRequest.scanType === 'OUT') {
+        const existingOpenLog = await InOutLog.findOne({
+          student_id: payload.student_id,
+          date: todayStr(),
+          returned: false,
+        }).sort({ createdAt: -1 });
+
+        if (existingOpenLog) {
+          return res.status(400).json({ success: false, message: 'Student is already marked OUT' });
+        }
+
         log = await InOutLog.create({
           student_id: payload.student_id,
           name: student.name || '',
@@ -58,7 +88,7 @@ router.post('/scan', async (req, res) => {
           parentPhone: student.parentPhone || '',
           hostel: student.hostel || '',
           qr_token: token,
-          status,
+          status: 'OUT',
           out_time: now,
           in_time: null,
           timestamp: now,
@@ -67,37 +97,40 @@ router.post('/scan', async (req, res) => {
           scannedBy: req.user._id,
         });
 
-        // Keep token pending for the second scan (ENTRY)
-        await registerActiveQR(token, {
-          qrType: 'inout',
-          studentId: payload.student_id,
-          studentName: student.name,
-          hostel: student.hostel || 'N/A',
-          rollNumber: student.rollNo || 'N/A',
-          scanType: 'IN',
-        });
+        await movePendingRequestToReturn(pendingRequest);
       } else {
-        if (existing.returned) {
-          return res.status(400).json({ success: false, message: 'QR code already fully used (OUT+IN complete)' });
-        }
-        status = 'IN';
-        existing.status = 'IN';
-        existing.in_time = now;
-        existing.timestamp = now;
-        existing.returned = true;
-        existing.scannedBy = req.user._id;
-        await existing.save();
-        log = existing;
+        log = await InOutLog.findOne({
+          student_id: payload.student_id,
+          date: todayStr(),
+          returned: false,
+        }).sort({ createdAt: -1 });
 
-        await removeActiveQR(token);
+        if (!log) {
+          return res.status(400).json({ success: false, message: 'No active OUT record found for this student' });
+        }
+
+        log.status = 'IN';
+        log.in_time = now;
+        log.timestamp = now;
+        log.returned = true;
+        log.scannedBy = req.user._id;
+        await log.save();
+
+        await removePendingInOutRequest(payload.student_id);
       }
 
       return res.json({
         success: true,
-        message: `Student marked as ${status}`,
-        kind: 'inout',
+        message: `Student marked as ${pendingRequest.scanType}`,
+        kind: 'inout_request',
         student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
-        log: { status, timestamp: log.timestamp, out_time: log.out_time, in_time: log.in_time, returned: log.returned },
+        log: {
+          status: pendingRequest.scanType,
+          timestamp: log.timestamp,
+          out_time: log.out_time,
+          in_time: log.in_time,
+          returned: log.returned,
+        },
       });
     }
 
@@ -156,4 +189,3 @@ router.post('/scan', async (req, res) => {
 });
 
 module.exports = router;
-

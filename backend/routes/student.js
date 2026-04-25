@@ -4,7 +4,7 @@
  * All routes require: JWT + role=student
  *
  * GET  /api/student/status     - Current status summary
- * POST /api/student/generate-qr - Generate gate pass QR
+ * POST /api/student/request-inout - Create daily in/out request for security approval
  * POST /api/student/home-visit  - Submit home visit request
  * POST /api/student/complaint   - File a complaint
  * GET  /api/student/complaints  - My complaints
@@ -17,7 +17,12 @@ const { protect, authorize } = require('../middleware/auth');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
-const { generateQR, registerActiveQR } = require('../services/qrService');
+const {
+  INOUT_REQUEST_EXPIRY,
+  createPendingInOutRequest,
+  getPendingInOutRequest,
+  removePendingInOutRequest,
+} = require('../services/inOutRequestService');
 const { normalizeToE164 } = require('../utils/phone');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -44,6 +49,8 @@ router.get('/status', async (req, res) => {
       returned: false,
       date: todayStr(),
     });
+
+    const pendingInOutRequest = await getPendingInOutRequest(studentId.toString());
 
     // Pending home visit requests
     const pendingVisits = await HomeVisitLog.find({
@@ -77,6 +84,7 @@ router.get('/status', async (req, res) => {
         currentStatus: todayOut ? 'OUT' : 'IN',
         isOutside: !!todayOut,
         outSince: todayOut ? todayOut.timestamp : null,
+        pendingInOutRequest,
         pendingVisits,
         approvedVisits,
         recentComplaints,
@@ -88,9 +96,9 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// ── POST /generate-qr ─────────────────────────────────────────────────────────
-// Generate an IN or OUT gate-pass QR for the student
-router.post('/generate-qr', async (req, res) => {
+// ── POST /request-inout ───────────────────────────────────────────────────────
+// Create a short-lived IN or OUT request for security approval
+router.post('/request-inout', async (req, res) => {
   try {
     const user = req.user;
     const studentId = user._id.toString();
@@ -104,38 +112,49 @@ router.post('/generate-qr', async (req, res) => {
     });
     const scanType = existingOut ? 'IN' : 'OUT';
 
-    const payload = {
-      type: 'inout',
-      student_id: studentId,
-      scan_type: scanType,
-      date: todayStr(),
-    };
+    let request = await getPendingInOutRequest(studentId);
+    if (request && request.scanType !== scanType) {
+      await removePendingInOutRequest(studentId);
+      request = null;
+    }
 
-    const { token, qrDataUrl, qrPublicUrl, qrFilename } = await generateQR(
-      payload,
-      `inout_${studentId}_${Date.now()}`
-    );
+    if (request) {
+      return res.json({
+        success: true,
+        message: `Active ${request.scanType} request already exists`,
+        scan_type: request.scanType,
+        request,
+        qrDataUrl: request.qrDataUrl,
+        qrPublicUrl: request.qrPublicUrl,
+        token: request.token,
+        expiresIn: request.expiresAt ? `${INOUT_REQUEST_EXPIRY} seconds` : null,
+        student: {
+          name: user.name,
+          rollNo: user.rollNo,
+          hostel: user.hostel,
+        },
+      });
+    }
 
-    // Register in active store for Security Dashboard panel
-    await registerActiveQR(token, {
-      studentId,
-      studentName: user.name,
-      hostel: user.hostel || 'N/A',
-      rollNo: user.rollNo || 'N/A',
-      scanType,
-      qrFilename,
-      qrPublicUrl,
-      qrDataUrl,
-    });
+    if (!request) {
+      request = await createPendingInOutRequest({
+        studentId,
+        studentName: user.name,
+        hostel: user.hostel || 'N/A',
+        rollNumber: user.rollNo || 'N/A',
+        scanType,
+      });
+    }
 
     res.json({
       success: true,
-      message: `QR generated for ${scanType}`,
+      message: `In/Out request sent for ${scanType}`,
       scan_type: scanType,
-      qrDataUrl,
-      qrPublicUrl,
-      token,
-      expiresIn: `${process.env.QR_EXPIRY_SECONDS || 3600} seconds`,
+      request,
+      qrDataUrl: request.qrDataUrl,
+      qrPublicUrl: request.qrPublicUrl,
+      token: request.token,
+      expiresIn: `${INOUT_REQUEST_EXPIRY} seconds`,
       student: {
         name: user.name,
         rollNo: user.rollNo,
@@ -143,7 +162,7 @@ router.post('/generate-qr', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Student QR error:', err);
+    console.error('Student in/out request error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

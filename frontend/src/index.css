@@ -99,13 +99,24 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   margin-left: var(--sidebar-width);
   transition: var(--transition);
+}
+
+.main-content > .fade-in {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-area {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 24px;
   background: var(--bg-base);
 }

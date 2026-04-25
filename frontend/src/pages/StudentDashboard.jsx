@@ -2,7 +2,7 @@
  * Student Dashboard — In-Portal WhatsApp-Style Chatbot
  *
  * A fully client-side state-machine chatbot that calls the backend
- * student API to perform: QR generation, home visit requests,
+ * student API to perform: in/out requests, home visit requests,
  * complaints, and status checks — all rendered as chat bubbles.
  */
 import { useState, useEffect, useRef } from 'react';
@@ -144,9 +144,9 @@ export default function StudentDashboard() {
       if (id === '1') {
         setStep(STEPS.INOUT_CONFIRM);
         botSay(
-          `🔄 *In/Out Gate Pass*\n\nThis will generate a QR code for gate entry/exit.\n\nShould I generate your QR now?`,
+          `🔄 *In/Out Request*\n\nThis will send your gate-pass request to security for approval. The request stays valid for 10 minutes.\n\nShould I send it now?`,
           'buttons',
-          { buttons: [{ id: 'yes', label: '✅ Yes, Generate QR' }, { id: 'no', label: '❌ Cancel' }] }
+          { buttons: [{ id: 'yes', label: '✅ Yes, Send Request' }, { id: 'no', label: '❌ Cancel' }] }
         );
       } else if (id === '2') {
         setStep(STEPS.HV_REASON);
@@ -168,7 +168,7 @@ export default function StudentDashboard() {
       }
     } else if (step === STEPS.INOUT_CONFIRM) {
       if (id === 'yes') {
-        await generateQR();
+        await submitInOutRequest();
       } else {
         botSay('Cancelled. Here\'s the main menu:');
         resetToMenu();
@@ -248,14 +248,14 @@ export default function StudentDashboard() {
 
   // ── API Calls ─────────────────────────────────────────────────────────────
 
-  const generateQR = async () => {
+  const submitInOutRequest = async () => {
     setLoading(true);
     try {
-      const res = await api.post('/student/generate-qr');
-      const { scan_type, qrDataUrl, student, expiresIn } = res.data;
+      const res = await api.post('/student/request-inout');
+      const { scan_type, student, expiresIn, qrDataUrl } = res.data;
 
       botSay(
-        `✅ *Gate Pass Generated!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nShow the QR code below to the security guard at the gate:`,
+        `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nYour request is now visible on the security dashboard. Show the QR below at the gate so security can scan it.`,
       );
       push(msg(BOT, '', 'qr', { qrDataUrl, scanType: scan_type, student }));
       setStep(STEPS.DONE);
@@ -264,7 +264,7 @@ export default function StudentDashboard() {
         resetToMenu();
       }, 2000);
     } catch (err) {
-      botSay(`❌ ${err.response?.data?.message || 'Failed to generate QR. Try again.'}`);
+      botSay(`❌ ${err.response?.data?.message || 'Failed to send in/out request. Try again.'}`);
     } finally {
       setLoading(false);
     }
@@ -325,6 +325,16 @@ export default function StudentDashboard() {
       statusMsg += `🚦 Right now: *${s.currentStatus}*`;
       if (s.outSince) {
         statusMsg += `\n⏰ Out since: ${new Date(s.outSince).toLocaleTimeString('en-IN')}`;
+      }
+
+      if (s.pendingInOutRequest) {
+        statusMsg += `\n\n🛂 *Pending In/Out Request:*`;
+        statusMsg += `\nType: ${s.pendingInOutRequest.scanType}`;
+        if (s.pendingInOutRequest.expiresAt) {
+          statusMsg += `\nExpires: ${new Date(s.pendingInOutRequest.expiresAt).toLocaleTimeString('en-IN')}`;
+        } else {
+          statusMsg += `\nStatus: Same QR is active for return scan`;
+        }
       }
 
       if (s.pendingVisits?.length > 0) {
@@ -637,6 +647,26 @@ export default function StudentDashboard() {
             }}>
               🎓 Student
             </div>
+            {isMobile && (
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 99,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  background: 'transparent',
+                  color: '#fca5a5',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+              >
+                <MdLogout size={12} /> Logout
+              </button>
+            )}
             <button
               onClick={exitChat}
               disabled={loading}

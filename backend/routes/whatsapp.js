@@ -24,6 +24,11 @@ const {
 const { enqueueWhatsAppMessage, enqueueWhatsAppMediaMessage } = require('../queues/whatsappQueue');
 const { getSession, updateSession, clearSession } = require('../services/sessionService');
 const { generateQR, registerActiveQR } = require('../services/qrService');
+const {
+  INOUT_REQUEST_EXPIRY,
+  createPendingInOutRequest,
+  getPendingInOutRequest,
+} = require('../services/inOutRequestService');
 
 const sendWhatsAppMessage = (to, body) => enqueueWhatsAppMessage({ to, body });
 const sendWhatsAppMediaMessage = (to, mediaUrl, qrDataUrl, caption = '') =>
@@ -181,53 +186,36 @@ const handleInOutConfirm = async (phone, choice, user) => {
       });
 
       const scanType = existingOut ? 'IN' : 'OUT';
-      const payload = {
-        type: 'inout',
-        student_id: user._id.toString(),
-        scan_type: scanType,
-        date: todayStr,
-      };
-
-      // Generate QR — saves PNG to disk and returns public URL
-      const { token, qrDataUrl, qrPublicUrl, qrFilename } = await generateQR(
-        payload,
-        `inout_${user._id}_${Date.now()}`
-      );
-
-      // Register in active store so Security Dashboard can see it
-      await registerActiveQR(token, {
-        studentId: user._id.toString(),
-        studentName: user.name,
-        hostel: user.hostel || 'N/A',
-        rollNumber: user.rollNumber || 'N/A',
-        scanType,
-        qrFilename,
-        qrPublicUrl,
-        qrDataUrl,
-      });
+      let request = await getPendingInOutRequest(user._id.toString());
+      if (!request || request.scanType !== scanType) {
+        request = await createPendingInOutRequest({
+          studentId: user._id.toString(),
+          studentName: user.name,
+          hostel: user.hostel || 'N/A',
+          rollNumber: user.rollNo || user.rollNumber || 'N/A',
+          scanType,
+        });
+      }
 
       await clearSession(phone);
 
-      // 1. Send text intro message
       await sendWhatsAppMessage(
         phone,
-        `✅ *QR Code Generated!*\n\n` +
+        `✅ *In/Out Request Sent!*\n\n` +
         `👤 Student: *${user.name}*\n` +
-        `🔄 Scan Type: *${scanType}*\n` +
-        `⏳ Valid for: ${process.env.QR_EXPIRY_SECONDS || 3600} seconds\n\n` +
-        `📲 Show the QR code below to the security guard at the gate.`
+        `🔄 Request Type: *${scanType}*\n` +
+        `⏳ Valid for: ${INOUT_REQUEST_EXPIRY} seconds\n\n` +
+        `🛂 Your request is now visible on the security dashboard. Show the QR below at the gate within 10 minutes for scanning.`
       );
 
-      // 2. Send actual QR image
       await sendWhatsAppMediaMessage(
         phone,
-        qrPublicUrl,
-        qrDataUrl,
-        `🏫 Smart Campus — Gate ${scanType} Pass\nStudent: ${user.name} | ${user.hostel || ''}`
+        request.qrPublicUrl,
+        request.qrDataUrl,
+        `🏫 Smart Campus — Gate ${scanType} Request\nStudent: ${user.name} | ${user.hostel || ''}`
       );
-
     } catch (err) {
-      return await sendWhatsAppMessage(phone, `❌ Error generating QR: ${err.message}`);
+      return await sendWhatsAppMessage(phone, `❌ Error sending request: ${err.message}`);
     }
   } else if (choice === 'menu' || choice === 'no' || choice === 'n') {
     await clearSession(phone);

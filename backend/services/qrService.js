@@ -23,6 +23,29 @@ const ACTIVE_QR_INDEX = 'active_qr_tokens';
 const activeQrKey = (token) => `active_qr:${token}`;
 const fallbackActiveQRStore = new Map();
 
+const renderQRValue = async (value, filename, options = {}) => {
+  const stem = filename || `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const qrFilename = `${stem}.png`;
+  const qrFilePath = path.join(QR_DIR, qrFilename);
+
+  if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
+
+  const qrOptions = {
+    errorCorrectionLevel: options.errorCorrectionLevel || 'H',
+    width: options.width || 400,
+    margin: options.margin ?? 2,
+    color: options.color || { dark: '#1a1a2e', light: '#ffffff' },
+  };
+
+  const qrDataUrl = await QRCode.toDataURL(value, qrOptions);
+  await QRCode.toFile(qrFilePath, value, qrOptions);
+
+  const PUBLIC_BASE = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 8000}`;
+  const qrPublicUrl = `${PUBLIC_BASE}/qr/${qrFilename}`;
+
+  return { token: value, qrDataUrl, qrPublicUrl, qrFilename };
+};
+
 /**
  * Register a newly-generated QR in the active store.
  * @param {string} token - The signed JWT token
@@ -108,36 +131,7 @@ const getActiveQRs = async () => {
 const generateQR = async (payload, filename) => {
   // Sign the payload with an expiry
   const token = jwt.sign(payload, QR_SECRET, { expiresIn: QR_EXPIRY });
-
-  // Determine filename
-  const stem = filename || `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const qrFilename = `${stem}.png`;
-  const qrFilePath = path.join(QR_DIR, qrFilename);
-
-  // Ensure QR directory exists
-  if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
-
-  // Generate QR as base64 data URL (for inline use)
-  const qrDataUrl = await QRCode.toDataURL(token, {
-    errorCorrectionLevel: 'H',
-    width: 400,
-    margin: 2,
-    color: { dark: '#1a1a2e', light: '#ffffff' },
-  });
-
-  // Save QR as PNG file to disk
-  await QRCode.toFile(qrFilePath, token, {
-    errorCorrectionLevel: 'H',
-    width: 400,
-    margin: 2,
-    color: { dark: '#1a1a2e', light: '#ffffff' },
-  });
-
-  // Build public URL for media messages
-  const PUBLIC_BASE = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 8000}`;
-  const qrPublicUrl = `${PUBLIC_BASE}/qr/${qrFilename}`;
-
-  return { token, qrDataUrl, qrPublicUrl, qrFilename };
+  return renderQRValue(token, filename);
 };
 
 /**
@@ -145,30 +139,7 @@ const generateQR = async (payload, filename) => {
  * Useful when we want to re-issue the same QR to the client.
  */
 const renderQRFromToken = async (token, filename) => {
-  const stem = filename || `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const qrFilename = `${stem}.png`;
-  const qrFilePath = path.join(QR_DIR, qrFilename);
-
-  if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
-
-  const qrDataUrl = await QRCode.toDataURL(token, {
-    errorCorrectionLevel: 'H',
-    width: 400,
-    margin: 2,
-    color: { dark: '#1a1a2e', light: '#ffffff' },
-  });
-
-  await QRCode.toFile(qrFilePath, token, {
-    errorCorrectionLevel: 'H',
-    width: 400,
-    margin: 2,
-    color: { dark: '#1a1a2e', light: '#ffffff' },
-  });
-
-  const PUBLIC_BASE = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 8000}`;
-  const qrPublicUrl = `${PUBLIC_BASE}/qr/${qrFilename}`;
-
-  return { token, qrDataUrl, qrPublicUrl, qrFilename };
+  return renderQRValue(token, filename);
 };
 
 /**
@@ -191,6 +162,7 @@ const validateQR = (token) => {
 module.exports = {
   generateQR,
   renderQRFromToken,
+  renderQRValue,
   validateQR,
   registerActiveQR,
   removeActiveQR,

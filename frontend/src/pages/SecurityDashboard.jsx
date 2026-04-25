@@ -1,14 +1,14 @@
 /**
- * Security Dashboard — QR Scanner + Live Pending QRs Panel
- * - Camera/manual QR scanner using html5-qrcode
- * - Live "Pending QRs" panel that polls /api/inout/pending-qrs every 5s
- * - Clicking a pending QR auto-fills the manual token for quick processing
+ * Security Dashboard — Daily approvals + Home-Visit QR scanner
+ * - Daily IN/OUT requests carry a QR that security can scan
+ * - Home-visit gate passes still use QR scanning
+ * - Pending items refresh every 5 seconds
  */
 import { useState, useEffect, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { MdCheckCircle, MdError, MdQrCodeScanner, MdRefresh, MdAccessTime } from 'react-icons/md';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
@@ -19,9 +19,20 @@ export default function SecurityDashboard() {
   const [loading, setLoading] = useState(false);
   const [manualToken, setManualToken] = useState('');
   const [pendingQRs, setPendingQRs] = useState([]);
-  const [pendingLoading, setPendingLoading] = useState(false);
   const [selectedQR, setSelectedQR] = useState(null);
+  const [scannerStatus, setScannerStatus] = useState('Scanner idle');
+  const [cameraError, setCameraError] = useState('');
+  const [scanTone, setScanTone] = useState('idle');
+  const [searchByColumn, setSearchByColumn] = useState({
+    dailyOut: '',
+    dailyIn: '',
+    homeGone: '',
+    homeReturn: '',
+  });
   const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const isProcessingScanRef = useRef(false);
+  const lastDecodedRef = useRef({ token: '', at: 0 });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   useEffect(() => {
@@ -47,40 +58,114 @@ export default function SecurityDashboard() {
   }, []);
 
   // ── Scanner Controls ──────────────────────────────────────────────────────
-  const startScanner = () => {
-    if (scannerRef.current) return;
-    setResult(null);
+  const pickBestCamera = async () => {
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras.length) throw new Error('No camera found');
 
-    const scanner = new Html5QrcodeScanner(
-      SCANNER_ELEMENT_ID,
-      { fps: 10, qrbox: { width: 260, height: 260 }, aspectRatio: 1.0 },
-      false
+    const preferred = cameras.find((camera) =>
+      /back|rear|environment|external|iphone|android/i.test(camera.label || '')
     );
 
-    scanner.render(
-      async (decodedText) => {
-        scanner.clear();
-        scannerRef.current = null;
-        setScanning(false);
-        await processToken(decodedText);
-      },
-      () => {}
-    );
-
-    scannerRef.current = scanner;
-    setScanning(true);
+    return preferred?.id || cameras[0].id;
   };
 
-  const stopScanner = () => {
+  const startScanner = async () => {
+    if (scannerRef.current) return;
+    setResult(null);
+    setCameraError('');
+    setScanTone('idle');
+    setScannerStatus('Starting camera...');
+
+    try {
+      const scanner = new Html5Qrcode(
+        SCANNER_ELEMENT_ID,
+        {
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          useBarCodeDetectorIfSupported: true,
+          verbose: false,
+        }
+      );
+
+      const cameraId = await pickBestCamera();
+      await scanner.start(
+        cameraId,
+        {
+          fps: 20,
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const size = Math.max(240, Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.82));
+            return { width: size, height: size };
+          },
+          aspectRatio: 1.0,
+          disableFlip: false,
+          videoConstraints: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        },
+        async (decodedText) => {
+          const now = Date.now();
+          if (isProcessingScanRef.current) return;
+          if (lastDecodedRef.current.token === decodedText && now - lastDecodedRef.current.at < 3000) return;
+          isProcessingScanRef.current = true;
+          lastDecodedRef.current = { token: decodedText, at: now };
+          setScanTone('success');
+          setScannerStatus('QR detected');
+          await stopScanner(true);
+          await processToken(decodedText);
+        },
+        (errorMessage) => {
+          if (!errorMessage?.includes('No MultiFormat Readers')) {
+            setScannerStatus('Scanning for QR...');
+          }
+        }
+      );
+
+      scannerRef.current = scanner;
+      setScanning(true);
+      setScannerStatus('Camera ready. Hold the QR steady inside the box.');
+    } catch (error) {
+      setCameraError(error.message || 'Unable to start scanner');
+      setScannerStatus('Scanner failed to start');
+      setScanTone('error');
+      toast.error(error.message || 'Unable to start scanner');
+      if (scannerRef.current) {
+        try {
+          await scannerRef.current.clear();
+        } catch {}
+        scannerRef.current = null;
+      }
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = async (preserveFeedback = false) => {
     if (scannerRef.current) {
-      scannerRef.current.clear().catch(() => {});
+      try {
+        await scannerRef.current.stop();
+      } catch {}
+      try {
+        scannerRef.current.clear();
+      } catch {}
       scannerRef.current = null;
     }
     setScanning(false);
+    if (!preserveFeedback) {
+      setScannerStatus('Scanner stopped');
+      setScanTone('idle');
+    }
   };
 
   useEffect(() => {
-    return () => stopScanner();
+    return () => {
+      if (scannerRef.current) {
+        try {
+          scannerRef.current.stop();
+        } catch {}
+        try {
+          scannerRef.current.clear();
+        } catch {}
+      }
+    };
   }, []);
 
   // ── Process Token ─────────────────────────────────────────────────────────
@@ -98,6 +183,8 @@ export default function SecurityDashboard() {
         message: data.message,
       });
       toast.success(data.message);
+      setScanTone('success');
+      setScannerStatus('Scan successful');
       // Consume the scan: clear manual input + selection so it can't be re-submitted accidentally
       setManualToken('');
       // Refresh pending list immediately
@@ -106,8 +193,11 @@ export default function SecurityDashboard() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Scan failed';
       setResult({ success: false, message: msg });
+      setScanTone('error');
+      setScannerStatus(msg);
       toast.error(msg);
     } finally {
+      isProcessingScanRef.current = false;
       setLoading(false);
     }
   };
@@ -119,8 +209,45 @@ export default function SecurityDashboard() {
     setManualToken('');
   };
 
+  const handleScanFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    setResult(null);
+    setCameraError('');
+    setScanTone('idle');
+    setScannerStatus('Reading QR from image...');
+
+    try {
+      const scanner = new Html5Qrcode(
+        SCANNER_ELEMENT_ID,
+        {
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          useBarCodeDetectorIfSupported: true,
+          verbose: false,
+        }
+      );
+      const decodedText = await scanner.scanFile(file, false);
+      scanner.clear();
+      setScanTone('success');
+      setScannerStatus('QR decoded from image');
+      await processToken(decodedText);
+    } catch (error) {
+      const message = error.message || 'Could not read QR from image';
+      setCameraError(message);
+      setScannerStatus('Image scan failed');
+      setScanTone('error');
+      toast.error(message);
+      setLoading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   // ── Select a pending QR from the panel ───────────────────────────────────
   const handleSelectPendingQR = (qr) => {
+    if (!qr.token) return;
     setSelectedQR(qr.token === selectedQR?.token ? null : qr);
     setManualToken(qr.token === selectedQR?.token ? '' : qr.token);
   };
@@ -133,15 +260,31 @@ export default function SecurityDashboard() {
     return `${Math.floor(diff / 3600)}h ago`;
   };
 
+  const timeLeft = (isoStr) => {
+    const diff = Math.max(0, Math.ceil((new Date(isoStr).getTime() - Date.now()) / 1000));
+    if (diff < 60) return `${diff}s left`;
+    return `${Math.ceil(diff / 60)}m left`;
+  };
+
+  const matchesSearch = (items, searchValue) => {
+    const needle = searchValue.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter((item) =>
+      [item.studentName, item.rollNumber, item.hostel]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle))
+    );
+  };
+
   return (
     <div className="fade-in">
-      <Navbar title="QR Scanner" />
+      <Navbar title="Gate Requests" />
       <div className="page-area">
 
         <div className="section-header">
           <div>
             <div className="section-title"><MdQrCodeScanner /> Gate QR Scanner</div>
-            <div className="section-subtitle">Scan student QR codes to mark entry or exit</div>
+            <div className="section-subtitle">Scan daily in/out request QR codes and home-visit QR passes</div>
           </div>
         </div>
 
@@ -155,15 +298,23 @@ export default function SecurityDashboard() {
 
           {/* Scanner Panel */}
           <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>📷 Camera Scanner</div>
+            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>📷 Home-Visit QR Scanner</div>
 
             <div
               id={SCANNER_ELEMENT_ID}
               style={{
                 borderRadius: 'var(--radius-md)',
                 overflow: 'hidden',
-                border: scanning ? '2px solid var(--primary)' : 'none',
-                minHeight: scanning ? 'auto' : 0,
+                border:
+                  scanTone === 'success'
+                    ? '2px solid #10b981'
+                    : scanTone === 'error'
+                      ? '2px solid #ef4444'
+                      : scanning
+                        ? '2px solid var(--primary)'
+                        : '1px solid rgba(255,255,255,0.08)',
+                boxShadow: scanTone === 'success' ? '0 0 0 2px rgba(16,185,129,0.16)' : 'none',
+                minHeight: 320,
               }}
             />
 
@@ -180,12 +331,34 @@ export default function SecurityDashboard() {
               ) : (
                 <button
                   className="btn btn-ghost"
-                  onClick={stopScanner}
+                  onClick={() => stopScanner()}
                   style={{ flex: 1, justifyContent: 'center' }}
                 >
                   ⏹ Stop Scanner
                 </button>
               )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                Upload QR Image
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleScanFile}
+                style={{ display: 'none' }}
+              />
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 12, color: cameraError ? '#fca5a5' : 'var(--text-muted)' }}>
+              {cameraError || scannerStatus}
             </div>
 
             {/* Manual Token Entry */}
@@ -219,7 +392,7 @@ export default function SecurityDashboard() {
             {loading && (
               <div className="card" style={{ textAlign: 'center', padding: 40 }}>
                 <div className="loading-spinner" style={{ width: 40, height: 40, margin: '0 auto 16px' }} />
-                <div style={{ color: 'var(--text-muted)' }}>Processing scan...</div>
+                <div style={{ color: 'var(--text-muted)' }}>Processing request...</div>
               </div>
             )}
 
@@ -241,7 +414,7 @@ export default function SecurityDashboard() {
                     : <MdError size={36} color="#ef4444" />}
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 18, color: result.success ? '#10b981' : '#ef4444' }}>
-                      {result.success ? '✅ Scan Successful' : '❌ Scan Failed'}
+                      {result.success ? '✅ Request Processed' : '❌ Request Failed'}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{result.message}</div>
                   </div>
@@ -285,7 +458,7 @@ export default function SecurityDashboard() {
                   Ready to Scan
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-                  Start the camera, paste a token, or click a pending QR below
+                  Scan the student's QR, paste a token, or click a pending card to fill the token
                 </div>
               </div>
             )}
@@ -306,7 +479,7 @@ export default function SecurityDashboard() {
                   boxShadow: pendingQRs.length > 0 ? '0 0 6px #10b981' : 'none',
                   animation: pendingQRs.length > 0 ? 'pulse 2s infinite' : 'none',
                 }} />
-                Live Pending QR Scans
+                Live Pending Gate Requests
                 {pendingQRs.length > 0 && (
                   <span style={{
                     background: 'rgba(16,185,129,0.15)', color: '#10b981',
@@ -318,7 +491,7 @@ export default function SecurityDashboard() {
                 )}
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 3 }}>
-                Students who generated QR codes but haven't been scanned yet — updates every 5s
+                Daily in/out requests expire automatically after 10 minutes; home-visit QR passes stay scannable
               </div>
             </div>
             <button
@@ -336,22 +509,34 @@ export default function SecurityDashboard() {
               color: 'var(--text-muted)', fontSize: 13,
             }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>🟢</div>
-              No pending QRs — all students processed
+              No pending requests — all students processed
             </div>
           ) : (
             (() => {
               const isHome = (q) => q.qrType === 'home_visit';
-              const isDaily = (q) => !isHome(q);
+              const isDaily = (q) => q.requestType === 'inout_request';
 
               // Group by next required scan action:
               // - OUT: student is requesting to go out (first scan pending)
               // - IN: student is outside and returning (second scan pending)
-              const dailyOut = pendingQRs.filter((q) => isDaily(q) && q.scanType === 'OUT');
-              const dailyIn  = pendingQRs.filter((q) => isDaily(q) && q.scanType === 'IN');
-              const homeGone = pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME OUT');
-              const homeReturn = pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME IN');
+              const dailyOut = matchesSearch(
+                pendingQRs.filter((q) => isDaily(q) && q.scanType === 'OUT'),
+                searchByColumn.dailyOut
+              );
+              const dailyIn = matchesSearch(
+                pendingQRs.filter((q) => isDaily(q) && q.scanType === 'IN'),
+                searchByColumn.dailyIn
+              );
+              const homeGone = matchesSearch(
+                pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME OUT'),
+                searchByColumn.homeGone
+              );
+              const homeReturn = matchesSearch(
+                pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME IN'),
+                searchByColumn.homeReturn
+              );
 
-              const Column = ({ title, subtitle, items, tone }) => (
+              const Column = ({ title, subtitle, items, tone, searchKey }) => (
                 <div style={{
                   background: 'rgba(255,255,255,0.02)',
                   border: '1px solid rgba(255,255,255,0.06)',
@@ -379,6 +564,20 @@ export default function SecurityDashboard() {
                   <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--text-muted)' }}>
                     {subtitle}
                   </div>
+                  <input
+                    type="text"
+                    value={searchByColumn[searchKey]}
+                    onChange={(e) => setSearchByColumn((prev) => ({ ...prev, [searchKey]: e.target.value }))}
+                    placeholder="Search name / roll no..."
+                    className="form-input"
+                    style={{
+                      marginTop: 10,
+                      width: '100%',
+                      fontSize: 12,
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                    }}
+                  />
 
                   {items.length === 0 ? (
                     <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -387,10 +586,11 @@ export default function SecurityDashboard() {
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
                       {items.map((qr, idx) => {
-                        const isSelected = selectedQR?.token === qr.token;
+                        const cardKey = qr.token || qr.requestId;
+                        const isSelected = Boolean(qr.token) && selectedQR?.token === qr.token;
                         return (
                           <div
-                            key={qr.token}
+                            key={cardKey}
                             id={`pending-qr-${title.replace(/\s+/g, '-').toLowerCase()}-${idx}`}
                             onClick={() => handleSelectPendingQR(qr)}
                             style={{
@@ -405,7 +605,7 @@ export default function SecurityDashboard() {
                               background: isSelected
                                 ? 'rgba(99,102,241,0.10)'
                                 : 'rgba(255,255,255,0.02)',
-                              cursor: 'pointer',
+                              cursor: qr.token ? 'pointer' : 'default',
                               transition: 'all 0.15s',
                             }}
                           >
@@ -441,7 +641,7 @@ export default function SecurityDashboard() {
                               flexShrink: 0,
                             }}>
                               <MdAccessTime size={12} />
-                              {relativeTime(qr.createdAt)}
+                              {qr.expiresAt ? timeLeft(qr.expiresAt) : relativeTime(qr.createdAt)}
                             </div>
                           </div>
                         );
@@ -463,27 +663,31 @@ export default function SecurityDashboard() {
                 >
                   <Column
                     title="Daily OUT Pass"
-                    subtitle="Going outside campus (next scan: OUT)"
+                    subtitle="Approve requests for students going out"
                     items={dailyOut}
                     tone="danger"
+                    searchKey="dailyOut"
                   />
                   <Column
                     title="Daily IN Pass"
-                    subtitle="Returning to hostel (next scan: IN)"
+                    subtitle="Approve requests for students returning in"
                     items={dailyIn}
                     tone="ok"
+                    searchKey="dailyIn"
                   />
                   <Column
                     title="Home Visit GOING"
                     subtitle="Leaving for home"
                     items={homeGone}
                     tone="danger"
+                    searchKey="homeGone"
                   />
                   <Column
                     title="Home Visit RETURNING"
                     subtitle="Coming back from home"
                     items={homeReturn}
                     tone="ok"
+                    searchKey="homeReturn"
                   />
                 </div>
               );
