@@ -65,7 +65,7 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
     const filter = { role: 'student' };
     const [students, count] = await Promise.all([
       User.find(filter)
-        .select('name rollNumber hostel phone email createdAt')
+        .select('name rollNo hostel phone email parentPhone createdAt')
         .sort({ hostel: 1, name: 1 })
         .skip(skip)
         .limit(limit),

@@ -23,6 +23,7 @@ const {
   getPendingInOutRequest,
   removePendingInOutRequest,
 } = require('../services/inOutRequestService');
+const { renderQRFromToken } = require('../services/qrService');
 const { normalizeToE164 } = require('../utils/phone');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -60,12 +61,23 @@ router.get('/status', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(3);
 
-    const approvedVisits = await HomeVisitLog.find({
+    const approvedVisitsRaw = await HomeVisitLog.find({
       student_id: studentId,
       overall_status: 'approved',
     })
       .sort({ createdAt: -1 })
       .limit(3);
+
+    const approvedVisits = await Promise.all(
+      approvedVisitsRaw.map(async (visit) => {
+        const v = visit.toObject();
+        if (v.qr_token) {
+          const { qrDataUrl } = await renderQRFromToken(v.qr_token);
+          v.qrDataUrl = qrDataUrl;
+        }
+        return v;
+      })
+    );
 
     // Recent complaints
     const recentComplaints = await Complaint.find({ student_id: studentId })

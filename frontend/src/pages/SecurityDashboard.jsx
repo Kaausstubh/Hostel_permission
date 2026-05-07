@@ -4,7 +4,7 @@
  * - Home-visit gate passes still use QR scanning
  * - Pending items refresh every 5 seconds
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -35,6 +35,87 @@ export default function SecurityDashboard() {
   const lastDecodedRef = useRef({ token: '', at: 0 });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
+  // Camera management
+  const [cameras, setCameras] = useState([]);          // [{id, label}]
+  const [activeCameraId, setActiveCameraId] = useState(null); // currently selected camera id
+  const [cameraFacing, setCameraFacing] = useState('front'); // 'front' | 'back'
+
+  // ── Audio Feedback (Web Audio API — no external files needed) ──────────────
+  const audioCtxRef = useRef(null);
+
+  const getAudioCtx = () => {
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  };
+
+  const unlockAudio = () => {
+    try {
+      const ctx = getAudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      // Play a silent oscillator for 1ms to forcefully unlock audio context
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.001);
+    } catch (e) {}
+  };
+
+  /** Play a short professional beep tone */
+  const playTone = useCallback((type) => {
+    try {
+      const ctx = getAudioCtx();
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0, ctx.currentTime);
+      master.connect(ctx.destination);
+
+      if (type === 'success') {
+        // Three ascending clean beeps: C5 → E5 → G5
+        const notes = [523.25, 659.25, 783.99];
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          gain.gain.setValueAtTime(0, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.28, ctx.currentTime + i * 0.13 + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.13 + 0.18);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + i * 0.13);
+          osc.stop(ctx.currentTime + i * 0.13 + 0.2);
+        });
+      } else {
+        // Two descending low tones: G3 → D3
+        const notes = [196.0, 146.83];
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.22);
+          gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.22);
+          gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + i * 0.22 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.22 + 0.28);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + i * 0.22);
+          osc.stop(ctx.currentTime + i * 0.22 + 0.3);
+        });
+      }
+    } catch (e) {
+      // Audio not supported — silent fallback
+    }
+  }, []);
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', onResize);
@@ -58,25 +139,70 @@ export default function SecurityDashboard() {
   }, []);
 
   // ── Scanner Controls ──────────────────────────────────────────────────────
-  const pickBestCamera = async () => {
-    const cameras = await Html5Qrcode.getCameras();
-    if (!cameras.length) throw new Error('No camera found');
 
-    const preferred = cameras.find((camera) =>
-      /back|rear|environment|external|iphone|android/i.test(camera.label || '')
+  /**
+   * Load all available cameras and pick the best default.
+   * Primary = front-facing (user/selfie); secondary = back/environment.
+   * Returns the id of the chosen camera.
+   */
+  const loadCameras = async () => {
+    const list = await Html5Qrcode.getCameras();
+    if (!list || list.length === 0) throw new Error('No camera found on this device');
+    setCameras(list);
+
+    // Prefer front-facing by label hint; fall back to first camera
+    const front = list.find((c) =>
+      /front|selfie|user|face/i.test(c.label || '')
+    );
+    const back = list.find((c) =>
+      /back|rear|environment|main|primary/i.test(c.label || '')
     );
 
-    return preferred?.id || cameras[0].id;
+    // Default: front camera (selfie). If not identified by label but only 2 cams exist,
+    // index-1 is typically the front camera on mobile.
+    let chosen;
+    if (front) {
+      chosen = front;
+      setCameraFacing('front');
+    } else if (list.length >= 2) {
+      // On most phones camera[1] = front
+      chosen = list[1];
+      setCameraFacing('front');
+    } else {
+      chosen = back || list[0];
+      setCameraFacing('back');
+    }
+
+    setActiveCameraId(chosen.id);
+    return chosen.id;
   };
 
-  const startScanner = async () => {
-    if (scannerRef.current) return;
+  /**
+   * Start the QR scanner with the given cameraId (defaults to activeCameraId).
+   * Always cleans up any stale instance before creating a fresh one.
+   */
+  const startScanner = async (overrideCameraId) => {
+    unlockAudio(); // Force unlock audio context on user click
+
+    // Always teardown stale instance first
+    if (scannerRef.current) {
+      try { await scannerRef.current.stop(); } catch {}
+      try { scannerRef.current.clear(); } catch {}
+      scannerRef.current = null;
+    }
+
     setResult(null);
     setCameraError('');
     setScanTone('idle');
     setScannerStatus('Starting camera...');
 
     try {
+      // Resolve which camera to use
+      let cameraId = overrideCameraId || activeCameraId;
+      if (!cameraId) {
+        cameraId = await loadCameras();  // first run: enumerate + pick default
+      }
+
       const scanner = new Html5Qrcode(
         SCANNER_ELEMENT_ID,
         {
@@ -86,7 +212,6 @@ export default function SecurityDashboard() {
         }
       );
 
-      const cameraId = await pickBestCamera();
       await scanner.start(
         cameraId,
         {
@@ -97,7 +222,10 @@ export default function SecurityDashboard() {
           },
           aspectRatio: 1.0,
           disableFlip: false,
+          // ⚠️  Do NOT add facingMode here — mixing deviceId + facingMode causes
+          // OverconstrainedError on most browsers. Resolution constraints are safe.
           videoConstraints: {
+            deviceId: { exact: cameraId },
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
@@ -108,33 +236,68 @@ export default function SecurityDashboard() {
           if (lastDecodedRef.current.token === decodedText && now - lastDecodedRef.current.at < 3000) return;
           isProcessingScanRef.current = true;
           lastDecodedRef.current = { token: decodedText, at: now };
-          setScanTone('success');
-          setScannerStatus('QR detected');
-          await stopScanner(true);
+          setScannerStatus('QR detected — processing...');
           await processToken(decodedText);
+
+          // Revert status so security knows they can scan the next one
+          setTimeout(() => {
+            setScannerStatus('Camera ready — hold QR inside the box');
+            setScanTone('idle');
+          }, 3000);
         },
-        (errorMessage) => {
-          if (!errorMessage?.includes('No MultiFormat Readers')) {
-            setScannerStatus('Scanning for QR...');
-          }
+        () => {
+          // Frame-level errors (no QR in frame) are normal — keep status steady
+          setScannerStatus('Scanning... hold QR steady inside the box');
         }
       );
 
       scannerRef.current = scanner;
       setScanning(true);
-      setScannerStatus('Camera ready. Hold the QR steady inside the box.');
+      setScannerStatus('Camera ready — hold QR inside the box');
     } catch (error) {
-      setCameraError(error.message || 'Unable to start scanner');
+      const msg = error?.message || 'Unable to start scanner';
+      setCameraError(msg);
       setScannerStatus('Scanner failed to start');
       setScanTone('error');
-      toast.error(error.message || 'Unable to start scanner');
+      toast.error(msg);
       if (scannerRef.current) {
-        try {
-          await scannerRef.current.clear();
-        } catch {}
+        try { await scannerRef.current.clear(); } catch {}
         scannerRef.current = null;
       }
       setScanning(false);
+    }
+  };
+
+  /**
+   * Switch between front and back cameras while keeping the scanner running.
+   */
+  const switchCamera = async () => {
+    if (cameras.length < 2) {
+      toast('Only one camera detected on this device', { icon: '📷' });
+      return;
+    }
+
+    const newFacing = cameraFacing === 'front' ? 'back' : 'front';
+    setCameraFacing(newFacing);
+
+    // Find the camera in the list that matches the new facing
+    let targetCam;
+    if (newFacing === 'front') {
+      targetCam =
+        cameras.find((c) => /front|selfie|user|face/i.test(c.label || '')) ||
+        (cameras.length >= 2 ? cameras[1] : cameras[0]);
+    } else {
+      targetCam =
+        cameras.find((c) => /back|rear|environment|main|primary/i.test(c.label || '')) ||
+        cameras[0];
+    }
+
+    const newId = targetCam?.id || cameras[0].id;
+    setActiveCameraId(newId);
+
+    if (scanning) {
+      // Restart the scanner with the new camera
+      await startScanner(newId);
     }
   };
 
@@ -182,17 +345,17 @@ export default function SecurityDashboard() {
         timestamp: data.log.timestamp,
         message: data.message,
       });
+      playTone('success');          // ✅ professional success beep
       toast.success(data.message);
       setScanTone('success');
       setScannerStatus('Scan successful');
-      // Consume the scan: clear manual input + selection so it can't be re-submitted accidentally
       setManualToken('');
-      // Refresh pending list immediately
       await fetchPendingQRs();
       setSelectedQR(null);
     } catch (err) {
       const msg = err.response?.data?.message || 'Scan failed';
       setResult({ success: false, message: msg });
+      playTone('error');            // ❌ professional failure buzz
       setScanTone('error');
       setScannerStatus(msg);
       toast.error(msg);
@@ -204,6 +367,7 @@ export default function SecurityDashboard() {
 
   const handleManualSubmit = async (e) => {
     e.preventDefault();
+    unlockAudio();
     if (!manualToken.trim()) return toast.error('Paste a QR token');
     await processToken(manualToken.trim());
     setManualToken('');
@@ -213,6 +377,7 @@ export default function SecurityDashboard() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    unlockAudio();
     setLoading(true);
     setResult(null);
     setCameraError('');
@@ -323,7 +488,7 @@ export default function SecurityDashboard() {
                 <button
                   id="start-scan-btn"
                   className="btn btn-primary"
-                  onClick={startScanner}
+                  onClick={() => startScanner()}
                   style={{ flex: 1, justifyContent: 'center' }}
                 >
                   <MdQrCodeScanner /> Start Camera Scan
@@ -336,6 +501,50 @@ export default function SecurityDashboard() {
                 >
                   ⏹ Stop Scanner
                 </button>
+              )}
+
+              {/* Camera Switch Button */}
+              <button
+                id="switch-camera-btn"
+                type="button"
+                title={`Switch to ${cameraFacing === 'front' ? 'back' : 'front'} camera`}
+                className="btn btn-ghost"
+                onClick={switchCamera}
+                style={{
+                  minWidth: 44,
+                  justifyContent: 'center',
+                  fontSize: 20,
+                  padding: '0 10px',
+                  flexShrink: 0,
+                }}
+              >
+                {cameraFacing === 'front' ? '🤳' : '📷'}
+              </button>
+            </div>
+
+            {/* Camera label badge */}
+            <div style={{
+              marginTop: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}>
+              <span style={{
+                fontSize: 11,
+                padding: '2px 10px',
+                borderRadius: 99,
+                background: cameraFacing === 'front' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)',
+                color: cameraFacing === 'front' ? 'var(--primary-light)' : '#10b981',
+                border: cameraFacing === 'front' ? '1px solid rgba(99,102,241,0.3)' : '1px solid rgba(16,185,129,0.3)',
+                fontWeight: 600,
+              }}>
+                {cameraFacing === 'front' ? '🤳 Front (Selfie)' : '📷 Back (Main)'}
+              </span>
+              {cameras.length > 1 && (
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {cameras.length} cameras detected • tap 🤳/📷 to switch
+                </span>
               )}
             </div>
 
@@ -389,76 +598,274 @@ export default function SecurityDashboard() {
 
           {/* Result Panel */}
           <div>
+
+            {/* ── Loading ── */}
             {loading && (
-              <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-                <div className="loading-spinner" style={{ width: 40, height: 40, margin: '0 auto 16px' }} />
-                <div style={{ color: 'var(--text-muted)' }}>Processing request...</div>
+              <div className="card" style={{
+                textAlign: 'center',
+                padding: '48px 24px',
+                background: 'rgba(99,102,241,0.06)',
+                border: '1px solid rgba(99,102,241,0.2)',
+              }}>
+                <div style={{
+                  width: 64, height: 64,
+                  borderRadius: '50%',
+                  border: '3px solid rgba(99,102,241,0.15)',
+                  borderTop: '3px solid var(--primary)',
+                  animation: 'spin 0.8s linear infinite',
+                  margin: '0 auto 20px',
+                }} />
+                <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)', marginBottom: 6 }}>
+                  Verifying QR Code
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                  Authenticating student and logging gate event...
+                </div>
               </div>
             )}
 
+            {/* ── Scan Result ── */}
             {result && !loading && (
               <div
-                className="card fade-in"
+                className="card"
                 style={{
+                  animation: 'resultSlideUp 0.35s cubic-bezier(0.22,1,0.36,1) both',
                   border: result.success
-                    ? '1px solid rgba(16,185,129,0.4)'
-                    : '1px solid rgba(239,68,68,0.4)',
+                    ? '1px solid rgba(16,185,129,0.35)'
+                    : '1px solid rgba(239,68,68,0.35)',
                   background: result.success
-                    ? 'rgba(16,185,129,0.08)'
-                    : 'rgba(239,68,68,0.08)',
+                    ? 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.03) 100%)'
+                    : 'linear-gradient(135deg, rgba(239,68,68,0.09) 0%, rgba(239,68,68,0.03) 100%)',
+                  boxShadow: result.success
+                    ? '0 0 32px rgba(16,185,129,0.12), 0 4px 24px rgba(0,0,0,0.3)'
+                    : '0 0 32px rgba(239,68,68,0.12), 0 4px 24px rgba(0,0,0,0.3)',
+                  padding: '28px 24px',
+                  overflow: 'hidden',
+                  position: 'relative',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  {result.success
-                    ? <MdCheckCircle size={36} color="#10b981" />
-                    : <MdError size={36} color="#ef4444" />}
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: result.success ? '#10b981' : '#ef4444' }}>
-                      {result.success ? '✅ Request Processed' : '❌ Request Failed'}
+                {/* Ambient glow orb */}
+                <div style={{
+                  position: 'absolute', top: -40, right: -40,
+                  width: 120, height: 120, borderRadius: '50%',
+                  background: result.success
+                    ? 'radial-gradient(circle, rgba(16,185,129,0.18), transparent 70%)'
+                    : 'radial-gradient(circle, rgba(239,68,68,0.18), transparent 70%)',
+                  pointerEvents: 'none',
+                }} />
+
+                {/* Header row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, position: 'relative' }}>
+                  {/* Animated icon ring */}
+                  <div style={{
+                    position: 'relative',
+                    flexShrink: 0,
+                    width: 64, height: 64,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      borderRadius: '50%',
+                      background: result.success
+                        ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                      animation: 'iconRingPulse 2s ease-in-out infinite',
+                    }} />
+                    <div style={{
+                      width: 54, height: 54,
+                      borderRadius: '50%',
+                      background: result.success
+                        ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 28,
+                    }}>
+                      {result.success ? '✓' : '✕'}
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{result.message}</div>
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontWeight: 800,
+                      fontSize: 20,
+                      letterSpacing: '-0.3px',
+                      color: result.success ? '#10b981' : '#ef4444',
+                      lineHeight: 1.2,
+                    }}>
+                      {result.success ? 'Gate Access Granted' : 'Access Denied'}
+                    </div>
+                    <div style={{
+                      fontSize: 13,
+                      color: 'var(--text-muted)',
+                      marginTop: 4,
+                      lineHeight: 1.4,
+                    }}>
+                      {result.message}
+                    </div>
                   </div>
                 </div>
 
-                {result.success && result.student && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{
-                      display: 'flex', justifyContent: 'center',
-                      background: result.status === 'IN'
-                        ? 'rgba(16,185,129,0.2)' : 'rgba(99,102,241,0.2)',
-                      padding: 16, borderRadius: 'var(--radius-lg)',
-                      fontSize: 26, fontWeight: 800,
-                      color: result.status === 'IN' ? '#10b981' : 'var(--primary-light)',
-                    }}>
-                      {result.status === 'IN' ? '🚪 Entry — IN' : '🔓 Exit — OUT'}
-                    </div>
-                    {[
-                      { label: 'Student Name', value: result.student.name },
-                      { label: 'Roll Number', value: result.student.rollNumber || 'N/A' },
-                      { label: 'Hostel', value: result.student.hostel || 'N/A' },
-                      { label: 'Timestamp', value: new Date(result.timestamp).toLocaleString('en-IN') },
-                    ].map(({ label, value }) => (
-                      <div key={label} style={{
-                        display: 'flex', justifyContent: 'space-between',
-                        padding: '8px 0', borderBottom: 'var(--border)', fontSize: 14,
+                {/* ── SUCCESS ── */}
+                {result.success && result.student && (() => {
+                  const isIN = result.status === 'IN';
+                  const initials = (result.student.name || '?')
+                    .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+                  return (
+                    <>
+                      {/* Status Banner */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        padding: '14px 20px',
+                        borderRadius: 'var(--radius-lg)',
+                        marginBottom: 20,
+                        background: isIN
+                          ? 'linear-gradient(90deg, rgba(16,185,129,0.22), rgba(16,185,129,0.08))'
+                          : 'linear-gradient(90deg, rgba(99,102,241,0.22), rgba(99,102,241,0.08))',
+                        border: isIN
+                          ? '1px solid rgba(16,185,129,0.3)'
+                          : '1px solid rgba(99,102,241,0.3)',
+                        boxShadow: isIN
+                          ? '0 0 20px rgba(16,185,129,0.10)'
+                          : '0 0 20px rgba(99,102,241,0.10)',
                       }}>
-                        <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                        <span style={{ fontWeight: 600 }}>{value}</span>
+                        <span style={{ fontSize: 26 }}>{isIN ? '🚪' : '🔓'}</span>
+                        <div>
+                          <div style={{
+                            fontWeight: 800, fontSize: 17,
+                            color: isIN ? '#10b981' : 'var(--primary-light)',
+                            letterSpacing: '-0.2px',
+                          }}>
+                            {isIN ? 'ENTRY — CHECKED IN' : 'EXIT — CHECKED OUT'}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {new Date(result.timestamp).toLocaleString('en-IN', {
+                              dateStyle: 'medium', timeStyle: 'short',
+                            })}
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Student Card */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 14,
+                        padding: '16px',
+                        borderRadius: 'var(--radius-lg)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        marginBottom: 16,
+                      }}>
+                        {/* Avatar */}
+                        <div style={{
+                          width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+                          background: isIN
+                            ? 'linear-gradient(135deg, #10b981, #059669)'
+                            : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 800, fontSize: 17, color: '#fff',
+                          boxShadow: isIN
+                            ? '0 4px 12px rgba(16,185,129,0.35)'
+                            : '0 4px 12px rgba(99,102,241,0.35)',
+                        }}>
+                          {initials}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+                            {result.student.name}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {result.student.rollNumber || '—'} &nbsp;•&nbsp; {result.student.hostel || '—'}
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: 11, fontWeight: 700,
+                          padding: '3px 10px', borderRadius: 99,
+                          background: isIN ? 'rgba(16,185,129,0.18)' : 'rgba(99,102,241,0.18)',
+                          color: isIN ? '#10b981' : 'var(--primary-light)',
+                          border: isIN ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(99,102,241,0.35)',
+                          letterSpacing: '0.5px',
+                        }}>
+                          {isIN ? 'IN' : 'OUT'}
+                        </div>
+                      </div>
+
+                      {/* Scan Again */}
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => { setResult(null); startScanner(); }}
+                        style={{ width: '100%', justifyContent: 'center', marginTop: 4, fontSize: 13 }}
+                      >
+                        <MdQrCodeScanner size={15} /> Scan Next Student
+                      </button>
+                    </>
+                  );
+                })()}
+
+                {/* ── FAILURE ── */}
+                {!result.success && (
+                  <>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      padding: '14px 16px',
+                      borderRadius: 'var(--radius-lg)',
+                      background: 'rgba(239,68,68,0.08)',
+                      border: '1px solid rgba(239,68,68,0.2)',
+                      marginBottom: 16,
+                    }}>
+                      <MdError size={20} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.5 }}>
+                        <strong style={{ color: '#ef4444' }}>Reason: </strong>
+                        {result.message || 'The QR code could not be validated. It may be expired, already used, or invalid.'}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: 12,
+                      color: 'var(--text-muted)',
+                      textAlign: 'center',
+                      padding: '4px 0 8px',
+                    }}>
+                      Ask the student to regenerate their QR from the student portal.
+                    </div>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => { setResult(null); startScanner(); }}
+                      style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}
+                    >
+                      <MdQrCodeScanner size={15} /> Try Again
+                    </button>
+                  </>
                 )}
               </div>
             )}
 
+            {/* ── Idle / Ready ── */}
             {!result && !loading && (
-              <div className="card" style={{ textAlign: 'center', padding: 60 }}>
-                <div style={{ fontSize: 60 }}>📱</div>
-                <div style={{ color: 'var(--text-secondary)', marginTop: 12, fontWeight: 600 }}>
-                  Ready to Scan
+              <div className="card" style={{
+                textAlign: 'center',
+                padding: '48px 24px',
+                background: 'rgba(255,255,255,0.015)',
+                border: '1px dashed rgba(255,255,255,0.1)',
+              }}>
+                <div style={{
+                  width: 72, height: 72,
+                  borderRadius: '50%',
+                  background: 'rgba(99,102,241,0.1)',
+                  border: '2px dashed rgba(99,102,241,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 32, margin: '0 auto 16px',
+                  animation: 'idlePulse 3s ease-in-out infinite',
+                }}>
+                  📱
                 </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-                  Scan the student's QR, paste a token, or click a pending card to fill the token
+                <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                  Awaiting Scan
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12.5, lineHeight: 1.5 }}>
+                  Start the camera, paste a JWT token,<br />or tap a pending request card below.
                 </div>
               </div>
             )}
@@ -701,6 +1108,21 @@ export default function SecurityDashboard() {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes resultSlideUp {
+          from { opacity: 0; transform: translateY(18px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes iconRingPulse {
+          0%, 100% { transform: scale(1);   opacity: 0.7; }
+          50%       { transform: scale(1.18); opacity: 0.25; }
+        }
+        @keyframes idlePulse {
+          0%, 100% { transform: scale(1);    opacity: 0.8; }
+          50%       { transform: scale(1.06); opacity: 1; }
         }
       `}</style>
     </div>

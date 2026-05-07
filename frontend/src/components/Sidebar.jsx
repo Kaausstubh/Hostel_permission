@@ -8,12 +8,14 @@ import { useAuth } from '../context/AuthContext';
 import {
   MdDashboard, MdQrCodeScanner, MdHome, MdReport,
   MdPeople, MdLogout, MdWarning, MdHistory, MdClose,
+  MdExitToApp
 } from 'react-icons/md';
 import toast from 'react-hot-toast';
 
 const wardenNav = [
   { to: '/dashboard',    icon: <MdDashboard />,    label: 'Overview' },
-  { to: '/students-out', icon: <MdPeople />,        label: 'Students Out' },
+  { to: '/students',     icon: <MdPeople />,       label: 'Students Directory' },
+  { to: '/students-out', icon: <MdExitToApp />,    label: 'Students Out' },
   { to: '/not-returned', icon: <MdWarning />,       label: 'Not Returned', alert: true },
   { to: '/home-visits',  icon: <MdHome />,          label: 'Home Visits' },
   { to: '/complaints',   icon: <MdReport />,        label: 'Complaints' },

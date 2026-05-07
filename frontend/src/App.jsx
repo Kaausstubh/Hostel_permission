@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { MdMenu } from 'react-icons/md';
 
 // Pages
@@ -19,6 +20,7 @@ import HomeVisits from './pages/HomeVisits';
 import ComplaintDashboard from './pages/ComplaintDashboard';
 import ScanLogs from './pages/ScanLogs';
 import StudentsOut from './pages/StudentsOut';
+import WardenStudents from './pages/WardenStudents';
 import StudentSimulator from './pages/StudentSimulator';
 import ParentHomeVisitRespond from './pages/ParentHomeVisitRespond';
 
@@ -127,6 +129,11 @@ function AppRoutes() {
           <AppLayout><WardenDashboard /></AppLayout>
         </ProtectedRoute>
       } />
+      <Route path="/students" element={
+        <ProtectedRoute allowedRoles={['warden']}>
+          <AppLayout><WardenStudents /></AppLayout>
+        </ProtectedRoute>
+      } />
       <Route path="/students-out" element={
         <ProtectedRoute allowedRoles={['warden', 'security']}>
           <AppLayout><StudentsOut /></AppLayout>
@@ -169,24 +176,26 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              border: 'var(--border)',
-              fontFamily: 'Inter, sans-serif',
-              fontSize: '14px',
-            },
-            success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-            error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
-          }}
-        />
-      </BrowserRouter>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: 'var(--bg-card)',
+                color: 'var(--text-primary)',
+                border: 'var(--border)',
+                fontFamily: 'Inter, sans-serif',
+                fontSize: '14px',
+              },
+              success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
+              error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

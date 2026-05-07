@@ -12,8 +12,9 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdSend, MdLogout, MdQrCode2, MdHome, MdReport,
-  MdDashboard, MdPerson, MdDownload,
+  MdDashboard, MdPerson, MdDownload, MdLightMode, MdDarkMode, MdDeleteOutline
 } from 'react-icons/md';
+import { useTheme } from '../context/ThemeContext';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
@@ -49,6 +50,7 @@ const STEPS = {
 
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [step, setStep]         = useState(STEPS.IDLE);
@@ -76,7 +78,16 @@ export default function StudentDashboard() {
   // ── Boot greeting ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
-    bootTimerRef.current = setTimeout(() => showMainMenu(), 500);
+    
+    const lastMsg = messages[messages.length - 1];
+    const isLastMsgMenu = lastMsg && lastMsg.type === 'buttons' && lastMsg.content && lastMsg.content.includes('What would you like to do today?');
+    
+    if (!isLastMsgMenu) {
+      bootTimerRef.current = setTimeout(() => showMainMenu(), 500);
+    } else {
+      setStep(STEPS.MENU);
+    }
+
     return () => {
       if (bootTimerRef.current) clearTimeout(bootTimerRef.current);
       if (menuTimerRef.current) clearTimeout(menuTimerRef.current);
@@ -109,13 +120,12 @@ export default function StudentDashboard() {
       menuTimerRef.current = null;
     }
     setStep(STEPS.MENU);
-    botSay(`Hi ${user?.name?.split(' ')[0]} 👋  What would you like to do today?`, 'buttons', {
+    botSay(`Hi ${user?.name?.split(' ')[0]} 👋  What would you like to do today?\n\n💡 Tip: If you already requested a QR gate-pass or Home Visit pass, click "View My Status" to access it.`, 'buttons', {
       buttons: [
         { id: '1', label: '🔄 In/Out Request',    icon: '🔄' },
         { id: '2', label: '🏠 Home Visit Request', icon: '🏠' },
         { id: '3', label: '🧾 File a Complaint',   icon: '🧾' },
         { id: '4', label: '📊 View My Status',     icon: '📊' },
-        { id: '5', label: '🚪 Exit Chat',          icon: '🚪' },
       ],
     });
   };
@@ -135,10 +145,19 @@ export default function StudentDashboard() {
     setStep(STEPS.IDLE);
     botSay('🚪 Chat exited. Type *menu* or *start* whenever you want to continue.');
   };
-
   // ── Button click handler ──────────────────────────────────────────────────
   const handleButton = async (id, label) => {
     userSay(label);
+
+    if (id.startsWith('qr_')) {
+      const qrDataUrl = hvData?.[id];
+      if (qrDataUrl) {
+        push(msg(BOT, '', 'qr', { qrDataUrl }));
+      } else {
+        botSay('❌ QR code not found or expired.');
+      }
+      return;
+    }
 
     if (step === STEPS.MENU) {
       if (id === '1') {
@@ -150,7 +169,14 @@ export default function StudentDashboard() {
         );
       } else if (id === '2') {
         setStep(STEPS.HV_REASON);
-        botSay('🏠 *Home Visit Request*\n\nStep 1/3 — Please type the *reason* for your home visit:');
+        botSay('🏠 *Home Visit Request*\n\nStep 1/3 — Please select a reason below, or type your own:', 'buttons', {
+          buttons: [
+            { id: 'going_home', label: '🏠 Going Home' },
+            { id: 'medical_reason', label: '🏥 Medical Reason' },
+            { id: 'family_function', label: '🎉 Family Function' },
+            { id: 'hv_other', label: '🛠️ Other Reason' }
+          ]
+        });
       } else if (id === '3') {
         setStep(STEPS.CPL_TYPE);
         botSay('🧾 *File a Complaint*\n\nSelect complaint type:', 'buttons', {
@@ -163,8 +189,6 @@ export default function StudentDashboard() {
         });
       } else if (id === '4') {
         await fetchStatus();
-      } else if (id === '5') {
-        exitChat();
       }
     } else if (step === STEPS.INOUT_CONFIRM) {
       if (id === 'yes') {
@@ -183,13 +207,22 @@ export default function StudentDashboard() {
         others: 'Others',
       };
       botSay(`📝 Got it — *${typeLabelMap[id] || 'Others'}*.\n\nPlease describe your complaint in detail:`);
+    } else if (step === STEPS.HV_REASON) {
+      if (id === 'hv_other') {
+        botSay('Please type your detailed reason below:');
+        return;
+      }
+      // Use the button label as the reason
+      setHvData({ reason: label });
+      setStep(STEPS.HV_LEAVE);
+      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker');
     }
   };
 
   // ── Text input handler ────────────────────────────────────────────────────
-  const handleSend = async (e) => {
-    e.preventDefault();
-    const text = input.trim();
+  const handleSend = async (e, forcedText) => {
+    if (e) e.preventDefault();
+    const text = (forcedText !== undefined ? forcedText : input).trim();
     if (!text || loading) return;
     setInput('');
     userSay(text);
@@ -202,9 +235,13 @@ export default function StudentDashboard() {
     }
 
     if (step === STEPS.HV_REASON) {
+      if (text.length < 10 || text.split(/\s+/).length < 2) {
+        botSay('❌ That reason is too short or unclear. Please write a genuine, detailed reason for your home visit:');
+        return;
+      }
       setHvData({ reason: text });
       setStep(STEPS.HV_LEAVE);
-      botSay('📅 Step 2/3 — What is your *date of leaving*?\nFormat: YYYY-MM-DD (e.g., 2025-05-20)');
+      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker');
     } else if (step === STEPS.HV_LEAVE) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         botSay('❌ Invalid format. Please use YYYY-MM-DD (e.g., 2025-05-20)');
@@ -217,7 +254,7 @@ export default function StudentDashboard() {
       }
       setHvData((d) => ({ ...d, leave_date: text }));
       setStep(STEPS.HV_RETURN);
-      botSay('📅 Step 3/3 — What is your *expected return date*?\nFormat: YYYY-MM-DD');
+      botSay('📅 Step 3/3 — Please select your *expected return date* using the calendar below:', 'date_picker');
     } else if (step === STEPS.HV_RETURN) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         botSay('❌ Invalid format. Please use YYYY-MM-DD');
@@ -234,6 +271,10 @@ export default function StudentDashboard() {
       }
       await submitHomeVisit({ ...hvData, return_date: text });
     } else if (step === STEPS.CPL_TEXT) {
+      if (text.length < 10 || text.split(/\s+/).length < 2) {
+        botSay('❌ That description is too short. Please provide a genuine, detailed description of your complaint:');
+        return;
+      }
       await submitComplaint(text);
     } else {
       // Handle free-text menu triggers
@@ -344,10 +385,17 @@ export default function StudentDashboard() {
         });
       }
 
+      const statusButtons = [];
+      const qrMap = {};
+
       if (s.approvedVisits?.length > 0) {
         statusMsg += `\n\n✅ *Approved Home Visits:*`;
         s.approvedVisits.forEach((v, i) => {
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — QR gate pass generated`;
+          if (v.qrDataUrl) {
+            statusButtons.push({ id: `qr_${v._id}`, label: `View Home Visit QR ${i + 1}`, icon: '📲' });
+            qrMap[`qr_${v._id}`] = v.qrDataUrl;
+          }
         });
       }
 
@@ -359,7 +407,38 @@ export default function StudentDashboard() {
         });
       }
 
-      botSay(statusMsg);
+      if (Object.keys(qrMap).length > 0) {
+        setHvData(prev => ({ ...prev, ...qrMap }));
+      }
+
+      if (statusButtons.length > 0) {
+        botSay(statusMsg, 'buttons', { buttons: statusButtons });
+      } else {
+        botSay(statusMsg);
+      }
+
+      // Display QR for pending In/Out request if it exists
+      if (s.pendingInOutRequest && s.pendingInOutRequest.qrDataUrl) {
+        push(msg(BOT, '', 'qr', {
+          qrDataUrl: s.pendingInOutRequest.qrDataUrl,
+          scanType: s.pendingInOutRequest.scanType,
+          student: user
+        }));
+      }
+
+      // Display QRs for approved home visits
+      if (s.approvedVisits?.length > 0) {
+        s.approvedVisits.forEach((v) => {
+          if (v.qrDataUrl) {
+            push(msg(BOT, '', 'qr', {
+              qrDataUrl: v.qrDataUrl,
+              scanType: 'HOME VISIT',
+              student: user
+            }));
+          }
+        });
+      }
+
       setStep(STEPS.DONE);
       resetToMenu();
     } catch (err) {
@@ -518,6 +597,47 @@ export default function StudentDashboard() {
       );
     }
 
+    if (m.type === 'date_picker') {
+      const isLatestDatePrompt = m.id === messages.filter(msg => msg.type === 'date_picker').pop()?.id;
+      return (
+        <div style={{ alignSelf: 'flex-start', maxWidth: '80%' }}>
+          {/* Text bubble */}
+          <div style={{
+            ...bubbleBase,
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            color: 'var(--text-primary)',
+            marginBottom: 8,
+          }}>
+            {m.content}
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
+              {m.time}
+            </div>
+          </div>
+          {/* Date Picker Input */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="date"
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleSend(null, e.target.value);
+                }
+              }}
+              disabled={loading || !isLatestDatePrompt}
+              style={{
+                padding: '10px 14px', borderRadius: 12,
+                border: '1px solid var(--primary)',
+                background: 'rgba(255,255,255,0.05)',
+                color: 'var(--text-primary)',
+                fontSize: 14, cursor: 'pointer', outline: 'none',
+                opacity: (loading || !isLatestDatePrompt) ? 0.5 : 1,
+              }}
+            />
+          </div>
+        </div>
+      );
+    }
+
     // Plain text bubble
     return (
       <div style={{
@@ -639,7 +759,23 @@ export default function StudentDashboard() {
               Online
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              onClick={toggleTheme}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+              }}
+              aria-label="Toggle theme"
+            >
+              {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
+            </button>
             <div style={{
               padding: '4px 12px', borderRadius: 99, fontSize: 11, fontWeight: 700,
               background: 'rgba(99,102,241,0.15)', color: 'var(--primary-light)',
@@ -667,23 +803,6 @@ export default function StudentDashboard() {
                 <MdLogout size={12} /> Logout
               </button>
             )}
-            <button
-              onClick={exitChat}
-              disabled={loading}
-              style={{
-                padding: '4px 12px',
-                borderRadius: 99,
-                fontSize: 11,
-                fontWeight: 700,
-                border: '1px solid rgba(239,68,68,0.35)',
-                background: 'rgba(239,68,68,0.12)',
-                color: '#fca5a5',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.6 : 1,
-              }}
-            >
-              🚪 Exit Chat
-            </button>
           </div>
         </div>
 
@@ -698,8 +817,7 @@ export default function StudentDashboard() {
               display: 'flex',
               justifyContent: m.sender === USER ? 'flex-end' : 'flex-start',
             }}>
-              {m.type !== 'buttons' && m.type !== 'qr' && renderBubble(m)}
-              {(m.type === 'buttons' || m.type === 'qr') && renderBubble(m)}
+              {renderBubble(m)}
             </div>
           ))}
 
@@ -722,6 +840,11 @@ export default function StudentDashboard() {
             </div>
           )}
 
+          {/* Spacer to prevent date picker cutoff */}
+          {messages[messages.length - 1]?.type === 'date_picker' && (
+            <div style={{ height: 280 }} />
+          )}
+
           <div ref={bottomRef} />
         </div>
 
@@ -739,8 +862,6 @@ export default function StudentDashboard() {
               onChange={(e) => setInput(e.target.value)}
               placeholder={
                 step === STEPS.HV_REASON  ? 'Type reason for home visit...' :
-                step === STEPS.HV_LEAVE   ? 'Leave date (YYYY-MM-DD)...' :
-                step === STEPS.HV_RETURN  ? 'Return date (YYYY-MM-DD)...' :
                 step === STEPS.CPL_TEXT   ? 'Describe your complaint...' :
                 'Type a message or use buttons above...'
               }

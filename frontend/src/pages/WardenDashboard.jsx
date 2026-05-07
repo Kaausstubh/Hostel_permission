@@ -3,6 +3,7 @@
  * Summary stats: total students, currently out, not returned, pending approvals
  */
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -11,8 +12,8 @@ import {
   MdReport, MdRefresh
 } from 'react-icons/md';
 
-const StatCard = ({ icon, value, label, variant = '' }) => (
-  <div className={`stat-card ${variant} fade-in`}>
+const StatCard = ({ icon, value, label, variant = '', onClick }) => (
+  <div className={`stat-card ${variant} fade-in`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
     <div className="stat-icon" style={{
       background: variant === 'danger' ? 'rgba(239,68,68,0.15)'
         : variant === 'warning' ? 'rgba(245,158,11,0.15)'
@@ -27,6 +28,7 @@ const StatCard = ({ icon, value, label, variant = '' }) => (
 );
 
 export default function WardenDashboard() {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,30 +79,35 @@ export default function WardenDashboard() {
               icon={<MdPeople size={22} color="#6366f1" />}
               value={summary?.totalStudents}
               label="Total Students"
+              onClick={() => navigate('/students')}
             />
             <StatCard
               icon={<MdExitToApp size={22} color="#06b6d4" />}
               value={summary?.studentsOut}
               label="Currently Outside"
               variant="warning"
+              onClick={() => navigate('/students-out')}
             />
             <StatCard
               icon={<MdWarning size={22} color="#ef4444" />}
               value={summary?.notReturned}
               label="Not Returned (Alerted)"
               variant="danger"
+              onClick={() => navigate('/not-returned')}
             />
             <StatCard
               icon={<MdHome size={22} color="#10b981" />}
               value={summary?.pendingHomeVisits}
               label="Pending Home Visits"
               variant="success"
+              onClick={() => navigate('/home-visits')}
             />
             <StatCard
               icon={<MdReport size={22} color="#f59e0b" />}
               value={summary?.pendingComplaints}
               label="Pending Complaints"
               variant="warning"
+              onClick={() => navigate('/complaints')}
             />
           </div>
         )}
