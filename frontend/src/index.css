@@ -1107,7 +1107,7 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
 
 .login-card {
   width: 100%;
-  max-width: 460px;
+  max-width: 560px;
   background: rgba(10,10,46,0.88);
   border: 1px solid rgba(139,92,246,0.35);
   border-radius: 24px;
