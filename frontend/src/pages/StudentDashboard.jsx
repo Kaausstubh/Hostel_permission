@@ -12,7 +12,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdSend, MdLogout, MdQrCode2, MdHome, MdReport,
-  MdDashboard, MdPerson, MdDownload, MdLightMode, MdDarkMode, MdDeleteOutline
+  MdDashboard, MdPerson, MdDownload, MdLightMode, MdDarkMode, MdDeleteOutline, MdInstallMobile
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 
@@ -63,12 +63,30 @@ export default function StudentDashboard() {
   const bootTimerRef = useRef(null);
   const lastBotRef = useRef({ content: '', type: '', at: 0 });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // ── PWA Install Prompt ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') { setDeferredPrompt(null); toast.success('App installed! 🎉'); }
+    } else {
+      toast('Already installed or not supported', { icon: 'ℹ️' });
+    }
+  };
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -478,15 +496,15 @@ export default function StudentDashboard() {
       return (
         <div style={{ maxWidth: 280, alignSelf: 'flex-start' }}>
           <div style={{
-            background: 'linear-gradient(135deg, #1a1a2e, #16213e)',
+            background: 'var(--bg-card)',
             borderRadius: 16, overflow: 'hidden',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: 'var(--shadow-md)',
+            border: '1px solid var(--glass-border)',
           }}>
             {/* Header */}
             <div style={{
               padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10,
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              borderBottom: '1px solid var(--glass-border)',
             }}>
               <div style={{
                 width: 36, height: 36, borderRadius: 8,
@@ -496,10 +514,10 @@ export default function StudentDashboard() {
                 <MdQrCode2 size={20} color="#fff" />
               </div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#e9edef' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
                   🏫 Smart Campus
                 </div>
-                <div style={{ fontSize: 11, color: '#8696a0' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   Gate {m.meta.scanType} Pass
                 </div>
               </div>
@@ -514,13 +532,13 @@ export default function StudentDashboard() {
               {m.meta.qrDataUrl ? (
                 <img src={m.meta.qrDataUrl} alt="QR"
                   style={{ width: 200, height: 200, borderRadius: 10,
-                    border: '2px solid rgba(255,255,255,0.1)' }} />
+                    border: '2px solid var(--glass-border)' }} />
               ) : (
-                <div style={{ width: 200, height: 200, background: 'rgba(255,255,255,0.05)',
+                <div style={{ width: 200, height: 200, background: 'var(--bg-input)',
                   borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: '#8696a0', fontSize: 12 }}>Loading QR...</div>
               )}
-              <div style={{ fontSize: 11, color: '#8696a0', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
                 Tap to zoom · Show to security guard
               </div>
             </div>
@@ -529,15 +547,15 @@ export default function StudentDashboard() {
             <button onClick={() => downloadQR(m.meta.qrDataUrl)}
               style={{
                 width: '100%', padding: '11px 16px', border: 'none',
-                borderTop: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.04)',
+                borderTop: '1px solid var(--glass-border)',
+                background: 'var(--glass)',
                 color: '#818cf8', fontSize: 13.5, fontWeight: 600,
                 cursor: 'pointer', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', gap: 6,
                 transition: 'background 0.15s',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'var(--glass)'}
             >
               <MdDownload size={16} /> Download Gate Pass
             </button>
@@ -556,7 +574,7 @@ export default function StudentDashboard() {
           <div style={{
             ...bubbleBase,
             background: 'var(--bg-card)',
-            border: '1px solid rgba(255,255,255,0.06)',
+            border: '1px solid var(--glass-border)',
             color: 'var(--text-primary)',
             marginBottom: 8,
           }}>
@@ -605,7 +623,7 @@ export default function StudentDashboard() {
           <div style={{
             ...bubbleBase,
             background: 'var(--bg-card)',
-            border: '1px solid rgba(255,255,255,0.06)',
+            border: '1px solid var(--glass-border)',
             color: 'var(--text-primary)',
             marginBottom: 8,
           }}>
@@ -627,7 +645,7 @@ export default function StudentDashboard() {
               style={{
                 padding: '10px 14px', borderRadius: 12,
                 border: '1px solid var(--primary)',
-                background: 'rgba(255,255,255,0.05)',
+                background: 'var(--bg-input)',
                 color: 'var(--text-primary)',
                 fontSize: 14, cursor: 'pointer', outline: 'none',
                 opacity: (loading || !isLatestDatePrompt) ? 0.5 : 1,
@@ -644,7 +662,7 @@ export default function StudentDashboard() {
         ...bubbleBase,
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         background: isUser ? 'var(--primary)' : 'var(--bg-card)',
-        border: isUser ? 'none' : '1px solid rgba(255,255,255,0.06)',
+        border: isUser ? 'none' : '1px solid var(--glass-border)',
         color: isUser ? '#fff' : 'var(--text-primary)',
       }}>
         {m.content}
@@ -661,18 +679,18 @@ export default function StudentDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-primary)', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
 
       {/* ── Left Sidebar ── */}
       <aside style={{
-        width: 240, background: 'var(--bg-sidebar, #0f1117)',
-        borderRight: '1px solid rgba(255,255,255,0.06)',
+        width: 240, background: 'var(--bg-surface)',
+        borderRight: '1px solid var(--glass-border)',
         display: 'flex', flexDirection: 'column',
         padding: 0, flexShrink: 0,
         ...(isMobile ? { display: 'none' } : {}),
       }}>
         {/* Brand */}
-        <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid var(--glass-border)' }}>
           <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🏛️ Smart Campus</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Student Portal</div>
         </div>
@@ -697,7 +715,7 @@ export default function StudentDashboard() {
 
         {/* User card */}
         <div style={{
-          padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.06)',
+          padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <div style={{
@@ -738,9 +756,9 @@ export default function StudentDashboard() {
         <div style={{
           padding: isMobile ? '10px 12px' : '14px 24px',
           background: 'var(--bg-card)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid var(--glass-border)',
           display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14,
-          boxShadow: '0 1px 6px rgba(0,0,0,0.2)',
+          boxShadow: 'var(--shadow-sm)',
           flexWrap: isMobile ? 'wrap' : 'nowrap',
         }}>
           <div style={{
@@ -760,6 +778,25 @@ export default function StudentDashboard() {
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* PWA Install */}
+            <button
+              onClick={handleInstallApp}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+              }}
+              aria-label="Install App"
+              title="Install App"
+            >
+              <MdInstallMobile size={18} />
+            </button>
+            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               style={{
@@ -810,7 +847,7 @@ export default function StudentDashboard() {
         <div style={{
           flex: 1, overflowY: 'auto', padding: isMobile ? '12px 10px' : '20px 32px',
           display: 'flex', flexDirection: 'column', gap: 8,
-          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.04) 0%, transparent 70%)',
+          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)',
         }}>
           {messages.map((m) => (
             <div key={m.id} style={{
@@ -826,7 +863,7 @@ export default function StudentDashboard() {
             <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
               <div style={{
                 padding: '10px 16px', borderRadius: '18px 18px 18px 4px',
-                background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.06)',
+                background: 'var(--bg-card)', border: '1px solid var(--glass-border)',
                 display: 'flex', gap: 4, alignItems: 'center',
               }}>
                 {[0,1,2].map(i => (
@@ -852,7 +889,7 @@ export default function StudentDashboard() {
         <div style={{
           padding: isMobile ? '10px 10px' : '12px 24px',
           background: 'var(--bg-card)',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid var(--glass-border)',
         }}>
           <form onSubmit={handleSend} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input
@@ -867,8 +904,8 @@ export default function StudentDashboard() {
               }
               style={{
                 flex: 1, padding: '11px 18px', borderRadius: 24,
-                border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--glass-border)',
+                background: 'var(--bg-input)',
                 color: 'var(--text-primary)', fontSize: 14, outline: 'none',
               }}
               disabled={loading}
@@ -901,7 +938,7 @@ export default function StudentDashboard() {
           <div onClick={e => e.stopPropagation()} style={{
             background: 'var(--bg-card)', borderRadius: 20, padding: 32,
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: '1px solid var(--glass-border)',
           }}>
             <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>
               🏫 Your Gate Pass QR
@@ -919,7 +956,7 @@ export default function StudentDashboard() {
               </button>
               <button onClick={() => setZoomedQR(null)} style={{
                 flex: 1, padding: '11px 0', borderRadius: 10,
-                background: 'rgba(255,255,255,0.07)', border: 'none',
+                background: theme === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.07)', border: 'none',
                 color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer',
               }}>
                 Close
