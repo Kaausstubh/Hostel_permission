@@ -38,6 +38,39 @@ const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '1mb';
 const API_RATE_LIMIT_WINDOW_MS = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || `${15 * 60 * 1000}`, 10);
 const API_RATE_LIMIT_MAX = parseInt(process.env.API_RATE_LIMIT_MAX || '600', 10);
 
+const parseOriginList = (...values) => values
+  .flatMap((value) => (value || '').split(','))
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const configuredOrigins = new Set(
+  [
+    ...parseOriginList(process.env.FRONTEND_URL, process.env.FRONTEND_URLS),
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+  ]
+);
+
+const shouldAllowOrigin = (origin) => {
+  if (!origin) return true;
+  if (configuredOrigins.has(origin)) return true;
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+    const allowVercelPreviews = (process.env.ALLOW_VERCEL_PREVIEWS || 'true') === 'true';
+
+    if (allowVercelPreviews && protocol === 'https:' && hostname.endsWith('.vercel.app')) {
+      return true;
+    }
+  } catch (error) {
+    console.warn('Invalid Origin header received:', origin, error.message);
+  }
+
+  return false;
+};
+
 // ─── Connect to MongoDB ────────────────────────────────────────────────────────
 connectDB();
 
@@ -73,28 +106,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS: allow local dev ports + configured FRONTEND_URL
-const allowedOrigins = new Set(
-  [
-    process.env.FRONTEND_URL,
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:5174',
-  ].filter(Boolean)
-);
-
 app.use(
   cors({
     origin: (origin, cb) => {
       // Allow non-browser requests (curl/postman) with no Origin header
       if (!origin) return cb(null, true);
-      if (allowedOrigins.has(origin)) return cb(null, true);
+      if (shouldAllowOrigin(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked origin: ${origin}`));
     },
     credentials: true,
   })
 );
+app.options('*', cors());
 
 // Serve generated QR code PNGs as public static files
 // e.g. GET /qr/qr_1234567890_abc123.png
@@ -176,6 +199,10 @@ app.listen(PORT, () => {
   console.log(`   Environment: ${process.env.NODE_ENV}`);
   console.log(`   WhatsApp Mode: ${process.env.SIMULATE_WHATSAPP === 'true' ? 'SIMULATION' : 'LIVE (Twilio)'}`);
   console.log(`   WhatsApp Queue: ${hasQueueInfra() ? 'ENABLED' : 'DISABLED (fallback inline)'}`);
+  console.log(`   Frontend Origins: ${configuredOrigins.size ? Array.from(configuredOrigins).join(', ') : 'NOT CONFIGURED'}`);
+  console.log(`   MongoDB URI: ${process.env.MONGODB_URI ? 'SET' : 'MISSING'}`);
+  console.log(`   QR Secret: ${process.env.QR_SECRET ? 'SET' : 'MISSING (using fallback)'}`);
+  console.log(`   Public Backend URL: ${process.env.PUBLIC_BACKEND_URL || 'NOT CONFIGURED'}`);
   console.log('─'.repeat(50));
 
   // Start cron job

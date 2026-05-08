@@ -4,7 +4,34 @@
  */
 import axios from 'axios';
 
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const LOCAL_API_FALLBACK = 'http://localhost:5000/api';
+
+const normalizeApiUrl = (value) => {
+  if (!value) return '';
+  const trimmed = value.trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+};
+
+const resolveApiUrl = () => {
+  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+  if (envUrl) return envUrl;
+
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (isLocalHost) return LOCAL_API_FALLBACK;
+
+  console.error(
+    '[API] Missing VITE_API_URL in production build. Set it in Vercel to your Render backend URL, for example https://your-backend.onrender.com/api'
+  );
+
+  return LOCAL_API_FALLBACK;
+};
+
+const API_URL = resolveApiUrl();
+
+if (import.meta.env.DEV) {
+  console.info('[API] Using base URL:', API_URL);
+}
 
 const api = axios.create({
   baseURL: API_URL,

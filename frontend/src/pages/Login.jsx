@@ -6,8 +6,9 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { MdVisibility, MdVisibilityOff } from 'react-icons/md';
+import { MdVisibility, MdVisibilityOff, MdLightMode, MdDarkMode, MdArrowOutward } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Login() {
   const [email, setEmail]       = useState('');
@@ -15,6 +16,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]   = useState(false);
   const { login } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -37,13 +39,26 @@ export default function Login() {
 
   return (
     <div className="login-page">
+      <button
+        type="button"
+        className="login-theme-toggle"
+        onClick={toggleTheme}
+        aria-label={`Switch to ${theme === 'light' ? 'dark' : 'bright'} mode`}
+      >
+        <span className="login-theme-toggle-icon">
+          {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
+        </span>
+        <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
+      </button>
+
       <div className="login-card fade-in">
         <div className="login-logo">
+          <div className="login-eyebrow">Smart Access Portal</div>
           <div className="login-mark" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <img src={iiitLogo} alt="IIIT Pune logo" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }} />
           </div>
           <h1>IIIT Pune Campus</h1>
-          <p>Hostel Permissions & Gate Access</p>
+          <p>Hostel Permissions, QR Gate Passes, and secure entry workflows in one futuristic console.</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -115,7 +130,7 @@ export default function Login() {
             to="/register"
             className="login-register-link"
           >
-            Register with college email →
+            Register with college email <MdArrowOutward size={16} />
           </Link>
         </div>
 

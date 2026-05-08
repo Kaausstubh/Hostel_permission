@@ -138,6 +138,11 @@ export default function StudentDashboard() {
     push(makeMsg(id, USER, text));
   }, [push]);
 
+  const pushQrMessage = useCallback((meta = {}) => {
+    const id = ++msgIdRef.current;
+    push(makeMsg(id, BOT, '', 'qr', meta));
+  }, [push]);
+
   const showMainMenu = () => {
     if (menuTimerRef.current) {
       clearTimeout(menuTimerRef.current);
@@ -176,7 +181,7 @@ export default function StudentDashboard() {
     if (id.startsWith('qr_')) {
       const qrDataUrl = hvData?.[id];
       if (qrDataUrl) {
-        push(msg(BOT, '', 'qr', { qrDataUrl }));
+        pushQrMessage({ qrDataUrl });
       } else {
         botSay('❌ QR code not found or expired.');
       }
@@ -322,7 +327,7 @@ export default function StudentDashboard() {
       botSay(
         `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nYour request is now visible on the security dashboard. Show the QR below at the gate so security can scan it.`,
       );
-      push(msg(BOT, '', 'qr', { qrDataUrl, scanType: scan_type, student }));
+      pushQrMessage({ qrDataUrl, scanType: scan_type, student });
       setStep(STEPS.DONE);
       setTimeout(() => {
         botSay('Need anything else?');
@@ -443,22 +448,22 @@ export default function StudentDashboard() {
 
       // Display QR for pending In/Out request if it exists
       if (s.pendingInOutRequest && s.pendingInOutRequest.qrDataUrl) {
-        push(msg(BOT, '', 'qr', {
+        pushQrMessage({
           qrDataUrl: s.pendingInOutRequest.qrDataUrl,
           scanType: s.pendingInOutRequest.scanType,
           student: user
-        }));
+        });
       }
 
       // Display QRs for approved home visits
       if (s.approvedVisits?.length > 0) {
         s.approvedVisits.forEach((v) => {
           if (v.qrDataUrl) {
-            push(msg(BOT, '', 'qr', {
+            pushQrMessage({
               qrDataUrl: v.qrDataUrl,
               scanType: 'HOME VISIT',
               student: user
-            }));
+            });
           }
         });
       }
