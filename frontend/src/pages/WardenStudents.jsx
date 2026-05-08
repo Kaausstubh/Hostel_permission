@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPeople, MdSearch, MdEmail, MdPhone } from 'react-icons/md';
+import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock } from 'react-icons/md';
+import { useAuth } from '../context/AuthContext';
 
 export default function WardenStudents() {
+  const { user } = useAuth();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -92,22 +94,33 @@ export default function WardenStudents() {
                           )}
                         </td>
                         <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                              <MdEmail size={14} color="var(--text-muted)" />
-                              {student.email}
+                          {user?.role === 'security' ? (
+                            <div style={{ color: 'var(--text-muted)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <MdLock size={14} />
+                              Hidden for security
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                              <MdPhone size={14} color="var(--text-muted)" />
-                              Student: {student.phone}
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {student.email && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                  <MdEmail size={14} color="var(--text-muted)" />
+                                  {student.email}
+                                </div>
+                              )}
+                              {student.phone && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                  <MdPhone size={14} color="var(--text-muted)" />
+                                  Student: {student.phone}
+                                </div>
+                              )}
+                              {student.parentPhone && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                  <MdPhone size={14} color="var(--text-muted)" />
+                                  Parent: {student.parentPhone}
+                                </div>
+                              )}
                             </div>
-                            {student.parentPhone && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                                <MdPhone size={14} color="var(--text-muted)" />
-                                Parent: {student.parentPhone}
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </td>
                         <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                           {new Date(student.createdAt).toLocaleDateString()}

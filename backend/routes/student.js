@@ -40,8 +40,14 @@ const parseLocalDate = (dateStr) => {
 };
 const getMaxReturnDateFromLeave = (leaveDateStr) => {
   const leaveDate = parseLocalDate(leaveDateStr);
-  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  leaveDate.setDate(leaveDate.getDate() + 105);
   return formatLocalDate(leaveDate);
+};
+
+const getMaxLeaveDateFromToday = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return formatLocalDate(d);
 };
 
 const buildOverlappingVisitFilter = (studentId, leaveDate, returnDate) => ({
@@ -250,10 +256,12 @@ router.post('/home-visit', async (req, res) => {
         message: 'Leave date cannot be before today',
       });
     }
-    if (return_date < today) {
+
+    const maxLeaveDate = getMaxLeaveDateFromToday();
+    if (leave_date > maxLeaveDate) {
       return res.status(400).json({
         success: false,
-        message: 'Return date cannot be before today',
+        message: 'Leave date cannot be more than 1 month in the future',
       });
     }
 
@@ -261,9 +269,17 @@ router.post('/home-visit', async (req, res) => {
     if (return_date > maxReturnDate) {
       return res.status(400).json({
         success: false,
-        message: `Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`,
+        message: 'Return date cannot exceed 3.5 months from leave date',
       });
     }
+    if (return_date < today) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return date cannot be before today',
+      });
+    }
+
+    // Removed duplicated maxReturnDate check
 
     // Prevent multiple active passes from existing for overlapping periods.
     const overlappingVisit = await HomeVisitLog.findOne(
@@ -382,11 +398,18 @@ router.get('/home-visits', async (req, res) => {
     // surface stale duplicate-looking passes above current ones.
     const active = [];
     const recentHistory = [];
+    const seenDates = new Set();
     for (const visit of visits) {
+      const dateKey = `${visit.leave_date}_${visit.return_date}`;
       if (ACTIVE_HOME_VISIT_STATUSES.includes(visit.overall_status)) {
         active.push(visit);
-      } else if (recentHistory.length < 6) {
-        recentHistory.push(visit);
+        seenDates.add(dateKey);
+      } else {
+        // Deduplicate rejected/completed items for the same date span
+        if (!seenDates.has(dateKey) && recentHistory.length < 5) {
+          recentHistory.push(visit);
+          seenDates.add(dateKey);
+        }
       }
     }
 

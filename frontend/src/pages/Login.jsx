@@ -124,9 +124,30 @@ export default function Login() {
             disabled={loading}
           >
             {loading
-              ? <><span className="loading-spinner" style={{ width: 16, height: 16 }} /> Signing in...</>
+              ? <><span className="loading-spinner" style={{ width: 16, height: 16 }} /> Authenticating...</>
               : 'Sign In'}
           </button>
+
+          {loading && (
+            <div style={{
+              position: 'absolute',
+              top: 0, left: 0, right: 0, bottom: 0,
+              background: 'rgba(10,10,46,0.85)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '24px'
+            }}>
+              <div className="loading-spinner" style={{ width: 48, height: 48, borderWidth: 4, marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: '#fff', fontSize: 16 }}>Waking up server...</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8, maxWidth: 280, textAlign: 'center' }}>
+                Since this is a free-tier deployment, the first login may take up to 20 seconds. Please be patient.
+              </div>
+            </div>
+          )}
         </form>
 
         {/* Student registration link */}

@@ -29,8 +29,13 @@ const parseLocalDate = (dateStr) => {
 };
 const getMaxReturnDateFromLeave = (leaveDateStr) => {
   const leaveDate = parseLocalDate(leaveDateStr);
-  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  leaveDate.setDate(leaveDate.getDate() + 105);
   return formatLocalDate(leaveDate);
+};
+const getMaxLeaveDateFromToday = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return formatLocalDate(d);
 };
 const buildOverlappingVisitFilter = (studentId, leaveDate, returnDate) => ({
   student_id: studentId,
@@ -68,11 +73,19 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Leave and return dates cannot be before today' });
     }
 
+    const maxLeaveDate = getMaxLeaveDateFromToday();
+    if (leave_date > maxLeaveDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Leave date cannot be more than 1 month in the future',
+      });
+    }
+
     const maxReturnDate = getMaxReturnDateFromLeave(leave_date);
     if (return_date > maxReturnDate) {
       return res.status(400).json({
         success: false,
-        message: `Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`,
+        message: `Return date cannot exceed 3.5 months from leave date. Maximum allowed return date is ${maxReturnDate}.`,
       });
     }
 
