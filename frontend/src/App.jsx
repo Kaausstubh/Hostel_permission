@@ -34,7 +34,7 @@ import Sidebar from './components/Sidebar';
 // ─── Global page loading fallback ─────────────────────────────────────────────
 function PageLoader() {
   return (
-    <div className="loading-page" style={{ height: '100vh' }}>
+    <div className="loading-page" style={{ height: 'var(--app-viewport-height)' }}>
       <div className="loading-spinner" style={{ width: 44, height: 44 }} />
       <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading…</span>
     </div>
@@ -50,7 +50,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return (
-      <div className="loading-page" style={{ height: '100vh' }}>
+      <div className="loading-page" style={{ height: 'var(--app-viewport-height)' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 60 }}>🚫</div>
           <div style={{ fontWeight: 700, marginTop: 16, fontSize: 20 }}>Access Denied</div>

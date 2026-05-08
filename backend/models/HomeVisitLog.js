@@ -49,11 +49,22 @@ const homeVisitLogSchema = new mongoose.Schema(
     },
 
     // ── Actual gate times (set via QR scan) ───────────────────────────────────
+    // `actual_out_time`/`actual_in_time` are the fields used by the current
+    // scan flow. Keep the legacy `actual_out`/`actual_in` fields as well so we
+    // do not break older documents or any historical reads.
     actual_out: {
       type: Date,
       default: null,
     },
     actual_in: {
+      type: Date,
+      default: null,
+    },
+    actual_out_time: {
+      type: Date,
+      default: null,
+    },
+    actual_in_time: {
       type: Date,
       default: null,
     },
@@ -98,5 +109,6 @@ homeVisitLogSchema.index({ student_id: 1, createdAt: -1 });
 homeVisitLogSchema.index({ overall_status: 1, createdAt: -1 });
 homeVisitLogSchema.index({ warden_status: 1, parent_call_confirmed: 1, createdAt: -1 });
 homeVisitLogSchema.index({ leave_date: 1, return_date: 1 });
+homeVisitLogSchema.index({ student_id: 1, overall_status: 1, leave_date: 1, return_date: 1 });
 
 module.exports = mongoose.model('HomeVisitLog', homeVisitLogSchema);

@@ -45,7 +45,7 @@ export default function ScanLogs() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="filters-row">
           <input
             type="date"
             id="date-filter"

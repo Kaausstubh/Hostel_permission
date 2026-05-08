@@ -454,12 +454,13 @@ export default function SecurityDashboard() {
         </div>
 
         {/* ── Top row: Scanner + Result ── */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-          gap: isMobile ? 14 : 20,
-          alignItems: 'start',
-        }}>
+        <div
+          className="security-panel-grid"
+          style={{
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+            gap: isMobile ? 14 : 20,
+          }}
+        >
 
           {/* Scanner Panel */}
           <div className="card">
@@ -873,7 +874,7 @@ export default function SecurityDashboard() {
         </div>
 
         {/* ── Pending QRs Live Panel ── */}
-        <div className="card" style={{ marginTop: 24 }}>
+        <div className="card security-live-panel" style={{ marginTop: 24 }}>
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             marginBottom: 16,
@@ -944,13 +945,7 @@ export default function SecurityDashboard() {
               );
 
               const Column = ({ title, subtitle, items, tone, searchKey }) => (
-                <div style={{
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: 12,
-                  minHeight: 140,
-                }}>
+                <div className="security-column">
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--text-primary)' }}>
                       {title}
@@ -987,11 +982,11 @@ export default function SecurityDashboard() {
                   />
 
                   {items.length === 0 ? (
-                    <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <div className="security-column-body" style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>
                       — none —
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    <div className="security-column-body security-scroll-list" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
                       {items.map((qr, idx) => {
                         const cardKey = qr.token || qr.requestId;
                         const isSelected = Boolean(qr.token) && selectedQR?.token === qr.token;
@@ -1060,12 +1055,11 @@ export default function SecurityDashboard() {
 
               return (
                 <div
+                  className="security-column-grid"
                   style={{
-                    display: 'grid',
                     gridTemplateColumns: isMobile
                       ? '1fr'
                       : 'repeat(4, minmax(0, 1fr))',
-                    gap: 12,
                   }}
                 >
                   <Column

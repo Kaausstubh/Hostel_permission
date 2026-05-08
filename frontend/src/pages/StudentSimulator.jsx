@@ -226,7 +226,7 @@ export default function StudentSimulator() {
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', height: '100vh',
+      display: 'flex', flexDirection: 'column', height: 'var(--app-viewport-height)', overflow: 'hidden',
       backgroundColor: WA_BG, fontFamily: "'Segoe UI', sans-serif",
     }}>
 
@@ -279,10 +279,11 @@ export default function StudentSimulator() {
 
       {/* ── Chat Area ── */}
       <div style={{
-        flex: 1, overflowY: 'auto', padding: '16px 60px',
+        flex: 1, overflowY: 'auto', padding: '16px clamp(12px, 4vw, 60px)',
         display: 'flex', flexDirection: 'column', gap: 4,
         backgroundImage: WA_TILE,
         backgroundSize: '60px 60px',
+        overscrollBehavior: 'contain',
       }}>
         {messages.length === 0 ? (
           <div style={{

@@ -27,6 +27,30 @@ const { renderQRFromToken } = require('../services/qrService');
 const { normalizeToE164 } = require('../utils/phone');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
+const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const parseLocalDate = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+const getMaxReturnDateFromLeave = (leaveDateStr) => {
+  const leaveDate = parseLocalDate(leaveDateStr);
+  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  return formatLocalDate(leaveDate);
+};
+
+const buildOverlappingVisitFilter = (studentId, leaveDate, returnDate) => ({
+  student_id: studentId,
+  overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+  leave_date: { $lte: returnDate },
+  return_date: { $gte: leaveDate },
+});
+
 const getPagination = (query, defaultLimit = 20, maxLimit = 100) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -43,52 +67,61 @@ router.get('/status', async (req, res) => {
   try {
     const studentId = req.user._id;
 
-    // Current IN/OUT status today
-    const todayOut = await InOutLog.findOne({
-      student_id: studentId,
-      status: 'OUT',
-      returned: false,
-      date: todayStr(),
-    });
+    const today = todayStr();
 
-    const pendingInOutRequest = await getPendingInOutRequest(studentId.toString());
+    const [
+      todayOut,
+      pendingInOutRequest,
+      activeVisitsRaw,
+      recentVisitHistory,
+      recentComplaints,
+      todayLogs,
+    ] = await Promise.all([
+      InOutLog.findOne({
+        student_id: studentId,
+        status: 'OUT',
+        returned: false,
+        date: today,
+      }).lean(),
+      getPendingInOutRequest(studentId.toString()),
+      HomeVisitLog.find({
+        student_id: studentId,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+      })
+        .sort({ leave_date: -1, createdAt: -1 })
+        .limit(5)
+        .lean(),
+      HomeVisitLog.find({
+        student_id: studentId,
+        overall_status: { $in: ['completed', 'rejected'] },
+      })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      Complaint.find({ student_id: studentId })
+        .sort({ timestamp: -1 })
+        .limit(3)
+        .lean(),
+      InOutLog.find({
+        student_id: studentId,
+        date: today,
+      })
+        .sort({ timestamp: -1 })
+        .lean(),
+    ]);
 
-    // Pending home visit requests
-    const pendingVisits = await HomeVisitLog.find({
-      student_id: studentId,
-      overall_status: { $in: ['pending'] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(3);
-
-    const approvedVisitsRaw = await HomeVisitLog.find({
-      student_id: studentId,
-      overall_status: 'approved',
-    })
-      .sort({ createdAt: -1 })
-      .limit(3);
-
-    const approvedVisits = await Promise.all(
-      approvedVisitsRaw.map(async (visit) => {
-        const v = visit.toObject();
-        if (v.qr_token) {
-          const { qrDataUrl } = await renderQRFromToken(v.qr_token);
-          v.qrDataUrl = qrDataUrl;
-        }
-        return v;
+    const activeVisits = await Promise.all(
+      activeVisitsRaw.map(async (visit) => {
+        if (!visit.qr_token) return visit;
+        const { qrDataUrl } = await renderQRFromToken(visit.qr_token);
+        return { ...visit, qrDataUrl };
       })
     );
 
-    // Recent complaints
-    const recentComplaints = await Complaint.find({ student_id: studentId })
-      .sort({ timestamp: -1 })
-      .limit(3);
-
-    // Today's log entries
-    const todayLogs = await InOutLog.find({
-      student_id: studentId,
-      date: todayStr(),
-    }).sort({ timestamp: -1 });
+    const pendingVisits = activeVisits.filter((visit) =>
+      ['pending', 'parent_approved'].includes(visit.overall_status)
+    );
+    const approvedVisits = activeVisits.filter((visit) => visit.overall_status === 'approved');
 
     res.json({
       success: true,
@@ -99,6 +132,7 @@ router.get('/status', async (req, res) => {
         pendingInOutRequest,
         pendingVisits,
         approvedVisits,
+        recentVisitHistory,
         recentComplaints,
         todayLogs,
       },
@@ -223,6 +257,28 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
+    const maxReturnDate = getMaxReturnDateFromLeave(leave_date);
+    if (return_date > maxReturnDate) {
+      return res.status(400).json({
+        success: false,
+        message: `Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`,
+      });
+    }
+
+    // Prevent multiple active passes from existing for overlapping periods.
+    const overlappingVisit = await HomeVisitLog.findOne(
+      buildOverlappingVisitFilter(user._id, leave_date, return_date)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (overlappingVisit) {
+      return res.status(409).json({
+        success: false,
+        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
+      });
+    }
+
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       name: user.name,
@@ -315,12 +371,32 @@ router.get('/home-visits', async (req, res) => {
     const filter = { student_id: req.user._id };
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
+        .sort({ leave_date: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       HomeVisitLog.countDocuments(filter),
     ]);
-    res.json({ success: true, count, page, limit, visits });
+
+    // Keep only the latest active/meaningful items first so the UI does not
+    // surface stale duplicate-looking passes above current ones.
+    const active = [];
+    const recentHistory = [];
+    for (const visit of visits) {
+      if (ACTIVE_HOME_VISIT_STATUSES.includes(visit.overall_status)) {
+        active.push(visit);
+      } else if (recentHistory.length < 6) {
+        recentHistory.push(visit);
+      }
+    }
+
+    res.json({
+      success: true,
+      count,
+      page,
+      limit,
+      visits: [...active, ...recentHistory],
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

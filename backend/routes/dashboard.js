@@ -63,12 +63,17 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
   try {
     const { page, limit, skip } = getPagination(req.query, 50, 200);
     const filter = { role: 'student' };
+    const studentSelect =
+      req.user.role === 'security'
+        ? 'name rollNo hostel createdAt'
+        : 'name rollNo hostel phone email parentPhone createdAt';
     const [students, count] = await Promise.all([
       User.find(filter)
-        .select('name rollNo hostel phone email parentPhone createdAt')
+        .select(studentSelect)
         .sort({ hostel: 1, name: 1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       User.countDocuments(filter),
     ]);
 

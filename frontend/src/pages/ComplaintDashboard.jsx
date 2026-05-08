@@ -66,7 +66,7 @@ export default function ComplaintDashboard() {
         </div>
 
         {/* Filters */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="filters-row">
           <select
             id="hostel-filter"
             className="form-select"
@@ -120,7 +120,7 @@ export default function ComplaintDashboard() {
                   <tr key={c._id}>
                     <td>
                       <div style={{ fontWeight: 600 }}>{c.student_id?.name || 'Unknown'}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.student_id?.rollNumber}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.student_id?.rollNo}</div>
                     </td>
                     <td><span className="badge badge-out">{c.hostel}</span></td>
                     <td style={{ maxWidth: 250, color: 'var(--text-secondary)', fontSize: 13 }}>

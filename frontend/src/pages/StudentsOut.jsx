@@ -77,7 +77,7 @@ export default function StudentsOut() {
                     <tr key={log._id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNumber}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo}</div>
                       </td>
                       <td><span className="badge badge-out">{log.student_id?.hostel || '—'}</span></td>
                       <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>

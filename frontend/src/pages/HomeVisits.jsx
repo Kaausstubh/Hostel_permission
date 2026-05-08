@@ -136,7 +136,7 @@ export default function HomeVisits() {
                   <tr key={v._id}>
                     <td>
                       <div style={{ fontWeight: 600 }}>{v.student_id?.name || 'Unknown'}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNumber}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNo}</div>
                     </td>
                     <td><span className="badge badge-out">{v.student_id?.hostel || '—'}</span></td>
                     <td style={{ maxWidth: 180, color: 'var(--text-secondary)', fontSize: 13 }}>

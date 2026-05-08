@@ -82,7 +82,7 @@ export default function NotReturned() {
               {loading ? 'Loading...' : `${students.length} student(s) still outside`}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="section-actions">
             <button className="btn btn-ghost btn-sm" onClick={fetchNotReturned} disabled={loading}>
               <MdRefresh size={16} /> Refresh
             </button>
@@ -116,7 +116,6 @@ export default function NotReturned() {
                   <th>Roll Number</th>
                   <th>Hostel</th>
                   <th>Exit Time</th>
-                  <th>Phone</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -130,16 +129,13 @@ export default function NotReturned() {
                       <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {log.student_id?.rollNumber || '—'}
+                      {log.student_id?.rollNo || '—'}
                     </td>
                     <td>
                       <span className="badge badge-out">{log.student_id?.hostel || '—'}</span>
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#ef4444' }}>
                       {new Date(log.timestamp).toLocaleTimeString('en-IN')}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                      {log.student_id?.phone || '—'}
                     </td>
                     <td>
                       <span className="badge badge-rejected">

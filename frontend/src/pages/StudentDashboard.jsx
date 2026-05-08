@@ -49,6 +49,24 @@ const STEPS = {
   DONE:          'DONE',
 };
 
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getTodayDateString = () => formatLocalDate(new Date());
+const parseLocalDate = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+const getMaxReturnDateFromLeave = (leaveDateStr) => {
+  const leaveDate = parseLocalDate(leaveDateStr);
+  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  return formatLocalDate(leaveDate);
+};
+
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -270,26 +288,26 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: text });
       setStep(STEPS.HV_LEAVE);
-      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker');
+      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below. Only dates from the current month are allowed:', 'date_picker');
     } else if (step === STEPS.HV_LEAVE) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         botSay('❌ Invalid format. Please use YYYY-MM-DD (e.g., 2025-05-20)');
         return;
       }
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayDateString();
       if (text < today) {
         botSay('❌ Leave date cannot be before today. Please enter today\'s date or a future date.');
         return;
       }
       setHvData((d) => ({ ...d, leave_date: text }));
       setStep(STEPS.HV_RETURN);
-      botSay('📅 Step 3/3 — Please select your *expected return date* using the calendar below:', 'date_picker');
+      botSay(`📅 Step 3/3 — Please select your *expected return date* using the calendar below. It can be up to 4 months after ${text}:`, 'date_picker');
     } else if (step === STEPS.HV_RETURN) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         botSay('❌ Invalid format. Please use YYYY-MM-DD');
         return;
       }
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayDateString();
       if (text < today) {
         botSay('❌ Return date cannot be before today. Please enter today\'s date or a future date.');
         return;
@@ -297,6 +315,13 @@ export default function StudentDashboard() {
       if (hvData.leave_date && text <= hvData.leave_date) {
         botSay('❌ Return date must be after leave date. Please enter a later date.');
         return;
+      }
+      if (hvData.leave_date) {
+        const maxReturnDate = getMaxReturnDateFromLeave(hvData.leave_date);
+        if (text > maxReturnDate) {
+          botSay(`❌ Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`);
+          return;
+        }
       }
       await submitHomeVisit({ ...hvData, return_date: text });
     } else if (step === STEPS.CPL_TEXT) {
@@ -343,7 +368,22 @@ export default function StudentDashboard() {
   const submitHomeVisit = async (data) => {
     setLoading(true);
     try {
-      const res = await api.post('/student/home-visit', data);
+      const statusRes = await api.get('/student/status');
+      const activeVisits = [
+        ...(statusRes.data?.status?.pendingVisits || []),
+        ...(statusRes.data?.status?.approvedVisits || []),
+      ];
+
+      const hasOverlap = activeVisits.some((visit) =>
+        visit.leave_date <= data.return_date && visit.return_date >= data.leave_date
+      );
+
+      if (hasOverlap) {
+        botSay('❌ You already have an active home visit pass/request for overlapping dates. Please use the existing pass or wait until it is completed.');
+        return;
+      }
+
+      await api.post('/student/home-visit', data);
       botSay(
         `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The warden will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
       );
@@ -418,7 +458,7 @@ export default function StudentDashboard() {
       const qrMap = {};
 
       if (s.approvedVisits?.length > 0) {
-        statusMsg += `\n\n✅ *Approved Home Visits:*`;
+        statusMsg += `\n\n✅ *Active Home Visit Passes:*`;
         s.approvedVisits.forEach((v, i) => {
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — QR gate pass generated`;
           if (v.qrDataUrl) {
@@ -433,6 +473,13 @@ export default function StudentDashboard() {
         s.recentComplaints.forEach((c, i) => {
           const emoji = c.status === 'resolved' ? '✅' : c.status === 'in_progress' ? '🔄' : '⏳';
           statusMsg += `\n${i + 1}. ${emoji} ${c.hostel} — ${c.status}`;
+        });
+      }
+
+      if (s.recentVisitHistory?.length > 0) {
+        statusMsg += `\n\n🕘 *Recent Home Visit History:*`;
+        s.recentVisitHistory.forEach((v, i) => {
+          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} (${v.overall_status})`;
         });
       }
 
@@ -628,6 +675,12 @@ export default function StudentDashboard() {
 
     if (m.type === 'date_picker') {
       const isLatestDatePrompt = m.id === messages.filter(msg => msg.type === 'date_picker').pop()?.id;
+      const dateMin = step === STEPS.HV_RETURN
+        ? (hvData.leave_date || getTodayDateString())
+        : getTodayDateString();
+      const dateMax = step === STEPS.HV_RETURN && hvData.leave_date
+        ? getMaxReturnDateFromLeave(hvData.leave_date)
+        : undefined;
       return (
         <div style={{ alignSelf: 'flex-start', maxWidth: '80%' }}>
           {/* Text bubble */}
@@ -647,6 +700,8 @@ export default function StudentDashboard() {
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               type="date"
+              min={dateMin}
+              max={dateMax}
               onChange={(e) => {
                 if (e.target.value) {
                   handleSend(null, e.target.value);
@@ -690,7 +745,7 @@ export default function StudentDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ display: 'flex', height: 'var(--app-viewport-height)', minHeight: 'var(--app-viewport-height)', overflow: 'hidden', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
 
       {/* ── Left Sidebar ── */}
       <aside style={{
@@ -859,6 +914,7 @@ export default function StudentDashboard() {
           flex: 1, overflowY: 'auto', padding: isMobile ? '12px 10px' : '20px 32px',
           display: 'flex', flexDirection: 'column', gap: 8,
           backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)',
+          overscrollBehavior: 'contain',
         }}>
           {messages.map((m) => (
             <div key={m.id} style={{

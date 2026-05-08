@@ -185,10 +185,11 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     const filter = {};
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
+    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel' : 'name rollNo hostel phone';
 
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
-        .populate('student_id', 'name rollNo hostel phone')
+        .populate('student_id', studentSelect)
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })
         .skip(skip)
@@ -211,9 +212,10 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
       returned: false,
       date: todayStr(),
     };
+    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel' : 'name rollNo hostel phone parentPhone';
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
-        .populate('student_id', 'name rollNumber hostel phone parentPhone')
+        .populate('student_id', studentSelect)
         .sort({ timestamp: -1 })
         .skip(skip)
         .limit(limit),

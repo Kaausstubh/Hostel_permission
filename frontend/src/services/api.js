@@ -5,6 +5,8 @@
 import axios from 'axios';
 
 const LOCAL_API_FALLBACK = 'http://localhost:5000/api';
+const WARMUP_CACHE_KEY = 'api-prewarm-at';
+const WARMUP_TTL_MS = 4 * 60 * 1000;
 
 const normalizeApiUrl = (value) => {
   if (!value) return '';
@@ -38,6 +40,41 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000),
 });
+
+let prewarmPromise = null;
+
+const shouldWarmConnection = () => {
+  try {
+    const lastWarmAt = Number(sessionStorage.getItem(WARMUP_CACHE_KEY) || '0');
+    return !lastWarmAt || Date.now() - lastWarmAt > WARMUP_TTL_MS;
+  } catch {
+    return true;
+  }
+};
+
+export const prewarmApiConnection = async () => {
+  if (!shouldWarmConnection()) return;
+  if (prewarmPromise) return prewarmPromise;
+
+  // Best-effort warmup so the first real auth request is less likely to pay
+  // the full cold-start penalty on serverless/container deployments.
+  prewarmPromise = api
+    .get('/health', {
+      timeout: 5000,
+      headers: { 'x-prewarm-request': 'true' },
+    })
+    .then(() => {
+      sessionStorage.setItem(WARMUP_CACHE_KEY, String(Date.now()));
+    })
+    .catch(() => {
+      // Silent optimization only.
+    })
+    .finally(() => {
+      prewarmPromise = null;
+    });
+
+  return prewarmPromise;
+};
 
 // ─── Request interceptor: attach Bearer token ─────────────────────────────────
 api.interceptors.request.use(

@@ -78,7 +78,7 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
 
     const [complaints, count] = await Promise.all([
       Complaint.find(filter)
-        .populate('student_id', 'name rollNumber hostel phone')
+        .populate('student_id', 'name rollNo hostel phone')
         .populate('resolvedBy', 'name')
         .sort({ timestamp: -1 })
         .skip(skip)

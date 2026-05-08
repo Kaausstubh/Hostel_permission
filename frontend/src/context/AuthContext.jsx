@@ -16,20 +16,52 @@ export const AuthProvider = ({ children }) => {
   // Rehydrate from localStorage on mount — wrapped in try-catch to handle
   // corrupted or truncated JSON values that would otherwise crash the app.
   useEffect(() => {
+    let cancelled = false;
+
     try {
       const storedToken = localStorage.getItem('token');
       const storedUser  = localStorage.getItem('user');
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
+
+        // Keep refreshes fast with cached session state, then silently verify
+        // that the stored token still maps to a live account.
+        api.get('/auth/me')
+          .then((res) => {
+            if (cancelled) return;
+            const freshUser = res.data?.user;
+            if (freshUser) {
+              localStorage.setItem('user', JSON.stringify(freshUser));
+              setUser(freshUser);
+            }
+          })
+          .catch(() => {
+            if (cancelled) return;
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setToken(null);
+            setUser(null);
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+
+        return () => {
+          cancelled = true;
+        };
       }
     } catch {
       // Corrupted storage — clear it and start fresh
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Listen for forced-logout events emitted by the API interceptor

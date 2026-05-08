@@ -33,6 +33,21 @@ const {
 const sendWhatsAppMessage = (to, body) => enqueueWhatsAppMessage({ to, body });
 const sendWhatsAppMediaMessage = (to, mediaUrl, qrDataUrl, caption = '') =>
   enqueueWhatsAppMediaMessage({ to, mediaUrl, qrDataUrl, caption });
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const parseLocalDate = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+const getMaxReturnDateFromLeave = (leaveDateStr) => {
+  const leaveDate = parseLocalDate(leaveDateStr);
+  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  return formatLocalDate(leaveDate);
+};
 
 // ─── Message Processor ────────────────────────────────────────────────────────
 const processMessage = async (from, body) => {
@@ -98,12 +113,33 @@ const processMessage = async (from, body) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         return await sendWhatsAppMessage(phone, '❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2024-12-25)');
       }
+      {
+        const today = formatLocalDate(new Date());
+        if (text < today) {
+          return await sendWhatsAppMessage(phone, '❌ Leave date cannot be before today.');
+        }
+      }
       await updateSession(phone, 'HV_RETURN_DATE', { leave_date: text });
-      return await sendWhatsAppMessage(phone, `📅 What is your *expected return date*?\nFormat: YYYY-MM-DD`);
+      return await sendWhatsAppMessage(phone, `📅 What is your *expected return date*?\nFormat: YYYY-MM-DD\nIt can be up to 4 months after your leave date.`);
 
     case 'HV_RETURN_DATE':
       if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         return await sendWhatsAppMessage(phone, '❌ Invalid date format. Please use YYYY-MM-DD');
+      }
+      {
+        const today = formatLocalDate(new Date());
+        if (text < today) {
+          return await sendWhatsAppMessage(phone, '❌ Return date cannot be before today.');
+        }
+        if (session.data.leave_date && text <= session.data.leave_date) {
+          return await sendWhatsAppMessage(phone, '❌ Return date must be after leave date.');
+        }
+        if (session.data.leave_date) {
+          const maxReturnDate = getMaxReturnDateFromLeave(session.data.leave_date);
+          if (text > maxReturnDate) {
+            return await sendWhatsAppMessage(phone, `❌ Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`);
+          }
+        }
       }
       return await finalizeHomeVisitRequest(phone, text, user, session);
 
@@ -227,6 +263,15 @@ const handleInOutConfirm = async (phone, choice, user) => {
 
 const finalizeHomeVisitRequest = async (phone, returnDate, user, session) => {
   try {
+    const maxReturnDate = getMaxReturnDateFromLeave(session.data.leave_date);
+    if (returnDate > maxReturnDate) {
+      await clearSession(phone);
+      return await sendWhatsAppMessage(
+        phone,
+        `❌ Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`
+      );
+    }
+
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       reason: session.data.reason,

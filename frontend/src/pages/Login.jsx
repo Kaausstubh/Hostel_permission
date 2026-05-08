@@ -2,13 +2,14 @@
  * Login Page
  * Role-based redirects: student → /student, security → /scanner, warden → /dashboard
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { MdVisibility, MdVisibilityOff, MdLightMode, MdDarkMode, MdArrowOutward } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 import { useTheme } from '../context/ThemeContext';
+import { prewarmApiConnection } from '../services/api';
 
 export default function Login() {
   const [email, setEmail]       = useState('');
@@ -19,11 +20,16 @@ export default function Login() {
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
 
+  useEffect(() => {
+    prewarmApiConnection();
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) return toast.error('Email and password required');
     setLoading(true);
     try {
+      await prewarmApiConnection();
       const user = await login(email, password);
       toast.success(`Welcome back, ${user.name}! 👋`);
       // Role-based redirect

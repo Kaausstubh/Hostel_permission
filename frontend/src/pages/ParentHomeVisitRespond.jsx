@@ -29,7 +29,7 @@ export default function ParentHomeVisitRespond() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: 'var(--app-viewport-height)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -124,4 +124,3 @@ export default function ParentHomeVisitRespond() {
     </div>
   );
 }
-

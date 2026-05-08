@@ -16,6 +16,28 @@ const { protect, authorize } = require('../middleware/auth');
 const { generateQR, validateQR, registerActiveQR } = require('../services/qrService');
 const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
 const { normalizeToE164 } = require('../utils/phone');
+const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
+const formatLocalDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const parseLocalDate = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+const getMaxReturnDateFromLeave = (leaveDateStr) => {
+  const leaveDate = parseLocalDate(leaveDateStr);
+  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  return formatLocalDate(leaveDate);
+};
+const buildOverlappingVisitFilter = (studentId, leaveDate, returnDate) => ({
+  student_id: studentId,
+  overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+  leave_date: { $lte: returnDate },
+  return_date: { $gte: leaveDate },
+});
 const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -27,9 +49,44 @@ const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
 router.post('/request', protect, authorize('student'), async (req, res) => {
   try {
     const { reason, leave_date, return_date } = req.body;
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
     if (!reason || !leave_date || !return_date) {
       return res.status(400).json({ success: false, message: 'Reason, leave date, and return date are required' });
+    }
+
+    if (!dateRegex.test(leave_date) || !dateRegex.test(return_date)) {
+      return res.status(400).json({ success: false, message: 'Dates must be in YYYY-MM-DD format' });
+    }
+
+    if (return_date <= leave_date) {
+      return res.status(400).json({ success: false, message: 'Return date must be after leave date' });
+    }
+
+    const today = formatLocalDate(new Date());
+    if (leave_date < today || return_date < today) {
+      return res.status(400).json({ success: false, message: 'Leave and return dates cannot be before today' });
+    }
+
+    const maxReturnDate = getMaxReturnDateFromLeave(leave_date);
+    if (return_date > maxReturnDate) {
+      return res.status(400).json({
+        success: false,
+        message: `Return date cannot be more than 4 months after leave date. Maximum allowed return date is ${maxReturnDate}.`,
+      });
+    }
+
+    const overlappingVisit = await HomeVisitLog.findOne(
+      buildOverlappingVisitFilter(req.user._id, leave_date, return_date)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (overlappingVisit) {
+      return res.status(409).json({
+        success: false,
+        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}.`,
+      });
     }
 
     // Create the request record
@@ -107,7 +164,7 @@ router.post('/parent-approve', async (req, res) => {
       if (wardenUser && wardenUser.phone) {
         await enqueueWhatsAppMessage({
           to: wardenUser.phone,
-          body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNumber || 'N/A'})\nHostel: ${student.hostel || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
+          body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNo || 'N/A'})\nHostel: ${student.hostel || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
         });
       }
     } else {
@@ -231,7 +288,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     res.json({
       success: true,
       message: `Marked as ${scanResult}`,
-      student: { name: visit.student_id.name, rollNumber: visit.student_id.rollNumber },
+      student: { name: visit.student_id.name, rollNumber: visit.student_id.rollNo },
       scanResult,
       timestamp: new Date(),
     });
@@ -250,7 +307,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .populate('student_id', 'name rollNumber hostel phone parentPhone')
+        .populate('student_id', 'name rollNo hostel parentPhone')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
