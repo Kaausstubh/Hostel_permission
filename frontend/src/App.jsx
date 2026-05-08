@@ -1,46 +1,51 @@
 /**
  * Root App Component
- * React Router setup with protected routes and role-based access
+ * React Router setup with protected routes and role-based access.
+ * All pages are lazy-loaded to minimise the initial bundle.
  */
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { MdMenu } from 'react-icons/md';
+import ErrorBoundary from './components/ErrorBoundary';
+import './index.css';
 
-// Pages
-import Login from './pages/Login';
-import Register from './pages/Register';
-import StudentDashboard from './pages/StudentDashboard';
-import WardenDashboard from './pages/WardenDashboard';
-import SecurityDashboard from './pages/SecurityDashboard';
-import NotReturned from './pages/NotReturned';
-import HomeVisits from './pages/HomeVisits';
-import ComplaintDashboard from './pages/ComplaintDashboard';
-import ScanLogs from './pages/ScanLogs';
-import StudentsOut from './pages/StudentsOut';
-import WardenStudents from './pages/WardenStudents';
-import StudentSimulator from './pages/StudentSimulator';
-import ParentHomeVisitRespond from './pages/ParentHomeVisitRespond';
+// ─── Lazy page imports (code splitting) ───────────────────────────────────────
+const Login               = lazy(() => import('./pages/Login'));
+const Register            = lazy(() => import('./pages/Register'));
+const StudentDashboard    = lazy(() => import('./pages/StudentDashboard'));
+const WardenDashboard     = lazy(() => import('./pages/WardenDashboard'));
+const SecurityDashboard   = lazy(() => import('./pages/SecurityDashboard'));
+const NotReturned         = lazy(() => import('./pages/NotReturned'));
+const HomeVisits          = lazy(() => import('./pages/HomeVisits'));
+const ComplaintDashboard  = lazy(() => import('./pages/ComplaintDashboard'));
+const ScanLogs            = lazy(() => import('./pages/ScanLogs'));
+const StudentsOut         = lazy(() => import('./pages/StudentsOut'));
+const WardenStudents      = lazy(() => import('./pages/WardenStudents'));
+const StudentSimulator    = lazy(() => import('./pages/StudentSimulator'));
+const ParentHomeVisitRespond = lazy(() => import('./pages/ParentHomeVisitRespond'));
 
 // Layout
 import Sidebar from './components/Sidebar';
-import './index.css';
+
+// ─── Global page loading fallback ─────────────────────────────────────────────
+function PageLoader() {
+  return (
+    <div className="loading-page" style={{ height: '100vh' }}>
+      <div className="loading-spinner" style={{ width: 44, height: 44 }} />
+      <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading…</span>
+    </div>
+  );
+}
 
 // ─── Protected Route Wrapper ──────────────────────────────────────────────────
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="loading-page" style={{ height: '100vh' }}>
-        <div className="loading-spinner" style={{ width: 48, height: 48 }} />
-        <span style={{ color: 'var(--text-muted)' }}>Authenticating...</span>
-      </div>
-    );
-  }
-
+  if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace />;
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -91,111 +96,114 @@ const AppLayout = ({ children }) => {
 function AppRoutes() {
   const { user } = useAuth();
 
-  // Role-based default redirect after login
   const defaultRedirect = () => {
     if (!user) return '/login';
     if (user.role === 'student')  return '/student';
     if (user.role === 'security') return '/scanner';
-    return '/dashboard'; // warden
+    return '/dashboard';
   };
 
   return (
-    <Routes>
-      {/* ── Public routes ── */}
-      <Route
-        path="/login"
-        element={user ? <Navigate to={defaultRedirect()} replace /> : <Login />}
-      />
-      <Route
-        path="/register"
-        element={user ? <Navigate to={defaultRedirect()} replace /> : <Register />}
-      />
-      <Route path="/simulator" element={<StudentSimulator />} />
-      <Route path="/home-visit/respond/:visitId" element={<ParentHomeVisitRespond />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* ── Public routes ── */}
+        <Route
+          path="/login"
+          element={user ? <Navigate to={defaultRedirect()} replace /> : <Login />}
+        />
+        <Route
+          path="/register"
+          element={user ? <Navigate to={defaultRedirect()} replace /> : <Register />}
+        />
+        <Route path="/simulator" element={<StudentSimulator />} />
+        <Route path="/home-visit/respond/:visitId" element={<ParentHomeVisitRespond />} />
 
-      {/* ── Student Portal ── */}
-      <Route
-        path="/student"
-        element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <StudentDashboard />
+        {/* ── Student Portal ── */}
+        <Route
+          path="/student"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ── Warden Routes ── */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><WardenDashboard /></AppLayout>
           </ProtectedRoute>
-        }
-      />
+        } />
+        <Route path="/students" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><WardenStudents /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/students-out" element={
+          <ProtectedRoute allowedRoles={['warden', 'security']}>
+            <AppLayout><StudentsOut /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/not-returned" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><NotReturned /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/home-visits" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><HomeVisits /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/complaints" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><ComplaintDashboard /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/logs" element={
+          <ProtectedRoute allowedRoles={['warden', 'security']}>
+            <AppLayout><ScanLogs /></AppLayout>
+          </ProtectedRoute>
+        } />
 
-      {/* ── Warden Routes ── */}
-      <Route path="/dashboard" element={
-        <ProtectedRoute allowedRoles={['warden']}>
-          <AppLayout><WardenDashboard /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/students" element={
-        <ProtectedRoute allowedRoles={['warden']}>
-          <AppLayout><WardenStudents /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/students-out" element={
-        <ProtectedRoute allowedRoles={['warden', 'security']}>
-          <AppLayout><StudentsOut /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/not-returned" element={
-        <ProtectedRoute allowedRoles={['warden']}>
-          <AppLayout><NotReturned /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/home-visits" element={
-        <ProtectedRoute allowedRoles={['warden']}>
-          <AppLayout><HomeVisits /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/complaints" element={
-        <ProtectedRoute allowedRoles={['warden']}>
-          <AppLayout><ComplaintDashboard /></AppLayout>
-        </ProtectedRoute>
-      } />
-      <Route path="/logs" element={
-        <ProtectedRoute allowedRoles={['warden', 'security']}>
-          <AppLayout><ScanLogs /></AppLayout>
-        </ProtectedRoute>
-      } />
+        {/* ── Security Routes ── */}
+        <Route path="/scanner" element={
+          <ProtectedRoute allowedRoles={['security', 'warden']}>
+            <AppLayout><SecurityDashboard /></AppLayout>
+          </ProtectedRoute>
+        } />
 
-      {/* ── Security Routes ── */}
-      <Route path="/scanner" element={
-        <ProtectedRoute allowedRoles={['security', 'warden']}>
-          <AppLayout><SecurityDashboard /></AppLayout>
-        </ProtectedRoute>
-      } />
-
-      {/* ── Default redirects ── */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+        {/* ── Default redirects ── */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <AppRoutes />
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              style: {
-                background: 'var(--bg-card)',
-                color: 'var(--text-primary)',
-                border: 'var(--border)',
-                fontFamily: 'Inter, sans-serif',
-                fontSize: '14px',
-              },
-              success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-              error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
-            }}
-          />
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <AppRoutes />
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                style: {
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  border: 'var(--border)',
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: '14px',
+                },
+                success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
+                error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+              }}
+            />
+          </BrowserRouter>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

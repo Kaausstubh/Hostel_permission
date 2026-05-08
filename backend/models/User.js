@@ -73,12 +73,17 @@ const userSchema = new mongoose.Schema(
 
 // Sparse unique index on rollNo — enforces uniqueness only when rollNo is set
 userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
+// Fast login lookup index on email
+userSchema.index({ email: 1 });
+// Fast phone lookup index
+userSchema.index({ phone: 1 });
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
 // Hash password before saving
+// Salt rounds: 10 is OWASP-compliant and ~4x faster than 12 on low-CPU hosts
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  const salt = await bcrypt.genSalt(12);
+  const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });

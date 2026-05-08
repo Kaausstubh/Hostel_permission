@@ -15,9 +15,12 @@ const { normalizeToE164 } = require('../utils/phone');
 // College email domain restriction for student self-registration
 const COLLEGE_EMAIL_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
 
-// Helper: generate 1-day JWT
+// Basic email format regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Helper: generate 7-day JWT (extended from 1d for better student UX)
 const signToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 // ── Register (Students Only) ──────────────────────────────────────────────────
 /**
@@ -42,6 +45,11 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // Email format check
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email format' });
+    }
+
     // College email domain check
     const emailDomain = email.split('@')[1]?.toLowerCase();
     if (emailDomain !== COLLEGE_EMAIL_DOMAIN) {
@@ -51,17 +59,22 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check for duplicates
-    const existingEmail = await User.findOne({ email: email.toLowerCase() });
-    if (existingEmail) {
-      return res.status(400).json({ success: false, message: 'Email already registered' });
-    }
-    const existingRollNo = await User.findOne({ rollNo });
-    if (existingRollNo) {
-      return res.status(400).json({ success: false, message: 'Roll number (MIS) already registered' });
-    }
-    const existingPhone = await User.findOne({ phone });
-    if (existingPhone) {
+    // Single query to check all duplicates at once (replaces 3 sequential DB hits)
+    const existing = await User.findOne({
+      $or: [
+        { email: email.toLowerCase() },
+        { rollNo },
+        { phone },
+      ],
+    }).lean();
+
+    if (existing) {
+      if (existing.email === email.toLowerCase()) {
+        return res.status(400).json({ success: false, message: 'Email already registered' });
+      }
+      if (existing.rollNo === rollNo) {
+        return res.status(400).json({ success: false, message: 'Roll number (MIS) already registered' });
+      }
       return res.status(400).json({ success: false, message: 'Phone number already registered' });
     }
 
@@ -103,7 +116,7 @@ router.post('/register', async (req, res) => {
         message: `${field} is already taken`,
       });
     }
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
   }
 });
 

@@ -1,10 +1,11 @@
 /**
  * JWT Authentication Middleware
- * Validates Bearer tokens and attaches user to request object
+ * Validates Bearer tokens and attaches user to request object.
+ * Uses lean() for read performance — avoid full Mongoose document overhead.
  */
 
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const jwt    = require('jsonwebtoken');
+const User   = require('../models/User');
 
 // Verify JWT and attach user to req
 const protect = async (req, res, next) => {
@@ -23,10 +24,15 @@ const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id).select('-password');
-    if (!req.user) {
+
+    // lean() returns a plain JS object — faster and uses less memory than
+    // a full Mongoose Document for read-only middleware use cases.
+    const user = await User.findById(decoded.id).select('-password').lean();
+    if (!user) {
       return res.status(401).json({ success: false, message: 'User not found' });
     }
+
+    req.user = user;
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Token invalid or expired' });

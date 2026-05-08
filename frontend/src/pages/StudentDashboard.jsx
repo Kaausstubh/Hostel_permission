@@ -5,7 +5,7 @@
  * student API to perform: in/out requests, home visit requests,
  * complaints, and status checks — all rendered as chat bubbles.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -21,9 +21,10 @@ const BOT = 'bot';
 const USER = 'user';
 
 // ── Bot message factory ───────────────────────────────────────────────────────
-let _msgId = 0;
-const msg = (sender, content, type = 'text', meta = {}) => ({
-  id: ++_msgId,
+// NOTE: msgId is created inside the component via useRef to avoid stale IDs
+// during React HMR (hot module replacement) in development.
+const makeMsg = (id, sender, content, type = 'text', meta = {}) => ({
+  id,
   sender,
   type,   // 'text' | 'buttons' | 'qr' | 'status'
   content,
@@ -62,8 +63,10 @@ export default function StudentDashboard() {
   const menuTimerRef = useRef(null);
   const bootTimerRef = useRef(null);
   const lastBotRef = useRef({ content: '', type: '', at: 0 });
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  // Safe initial mobile check — avoids SSR/layout-shift issues
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const msgIdRef = useRef(0);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -113,9 +116,9 @@ export default function StudentDashboard() {
   }, []); // eslint-disable-line
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const push = (m) => setMessages((prev) => [...prev, m]);
+  const push = useCallback((m) => setMessages((prev) => [...prev, m]), []);
 
-  const botSay = (text, type = 'text', meta = {}) => {
+  const botSay = useCallback((text, type = 'text', meta = {}) => {
     const now = Date.now();
     // Avoid accidental duplicate bot bubbles caused by rapid clicks/timeouts.
     if (
@@ -126,11 +129,14 @@ export default function StudentDashboard() {
       return;
     }
     lastBotRef.current = { content: text, type, at: now };
-    push(msg(BOT, text, type, meta));
-  };
+    const id = ++msgIdRef.current;
+    push(makeMsg(id, BOT, text, type, meta));
+  }, [push]);
 
-  const userSay = (text) =>
-    push(msg(USER, text));
+  const userSay = useCallback((text) => {
+    const id = ++msgIdRef.current;
+    push(makeMsg(id, USER, text));
+  }, [push]);
 
   const showMainMenu = () => {
     if (menuTimerRef.current) {
