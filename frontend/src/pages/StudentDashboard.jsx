@@ -476,12 +476,7 @@ export default function StudentDashboard() {
         });
       }
 
-      if (s.recentVisitHistory?.length > 0) {
-        statusMsg += `\n\n🕘 *Recent Home Visit History:*`;
-        s.recentVisitHistory.forEach((v, i) => {
-          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} (${v.overall_status})`;
-        });
-      }
+      // Removed recentVisitHistory to keep the status output clean and prevent showing discarded/completed passes
 
       if (Object.keys(qrMap).length > 0) {
         setHvData(prev => ({ ...prev, ...qrMap }));

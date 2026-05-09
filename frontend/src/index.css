@@ -1225,6 +1225,7 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   animation: glowShift 4s ease-in-out infinite;
   overflow: hidden;
   overscroll-behavior: none;
+}
 
 .login-card::-webkit-scrollbar {
   display: none;
