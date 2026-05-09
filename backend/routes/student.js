@@ -124,10 +124,17 @@ router.get('/status', async (req, res) => {
       })
     );
 
-    const pendingVisits = activeVisits.filter((visit) =>
-      ['pending', 'parent_approved'].includes(visit.overall_status)
-    );
-    const approvedVisits = activeVisits.filter((visit) => visit.overall_status === 'approved');
+    const pendingVisits = activeVisits.filter((visit) => {
+      if (!['pending', 'parent_approved'].includes(visit.overall_status)) return false;
+      if (!visit.qr_used_out && visit.return_date < today) return false; // Abandoned/Expired
+      return true;
+    });
+    
+    const approvedVisits = activeVisits.filter((visit) => {
+      if (visit.overall_status !== 'approved') return false;
+      if (!visit.qr_used_out && visit.return_date < today) return false; // Abandoned/Expired
+      return true;
+    });
 
     res.json({
       success: true,
