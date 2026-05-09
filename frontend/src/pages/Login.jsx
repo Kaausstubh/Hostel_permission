@@ -142,10 +142,7 @@ export default function Login() {
               borderRadius: '24px'
             }}>
               <div className="loading-spinner" style={{ width: 48, height: 48, borderWidth: 4, marginBottom: 16 }}></div>
-              <div style={{ fontWeight: 600, color: '#fff', fontSize: 16 }}>Waking up server...</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8, maxWidth: 280, textAlign: 'center' }}>
-                Since this is a free-tier deployment, the first login may take up to 20 seconds. Please be patient.
-              </div>
+              <div style={{ fontWeight: 600, color: '#fff', fontSize: 16 }}>Authenticating...</div>
             </div>
           )}
         </form>

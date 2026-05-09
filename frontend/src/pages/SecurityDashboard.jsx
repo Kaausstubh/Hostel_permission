@@ -1057,9 +1057,9 @@ export default function SecurityDashboard() {
                 <div
                   className="security-column-grid"
                   style={{
-                    gridTemplateColumns: isMobile
-                      ? '1fr'
-                      : 'repeat(4, minmax(0, 1fr))',
+                    gridTemplateColumns: 'repeat(4, minmax(260px, 1fr))',
+                    overflowX: 'auto',
+                    paddingBottom: '12px'
                   }}
                 >
                   <Column
