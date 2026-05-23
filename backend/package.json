@@ -1,7 +1,7 @@
 {
-  "name": "hostel-management-backend",
+  "name": "heimdall-backend",
   "version": "1.0.0",
-  "description": "Smart Campus Access & Hostel Management Platform - Backend",
+  "description": "HEIMDALL - Campus Access & Hostel Management Platform - Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

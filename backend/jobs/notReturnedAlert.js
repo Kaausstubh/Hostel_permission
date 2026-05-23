@@ -48,7 +48,7 @@ const runNotReturnedAlert = async () => {
       if (student.phone) {
         await enqueueWhatsAppMessage({
           to: student.phone,
-          body: `🚨 *HOSTEL ALERT*\n\nYou have *not returned* to the hostel today.\nYou checked OUT at ${exitTime}.\n\nPlease report to the hostel immediately or contact the warden.\n\n_This is an automated alert from Smart Campus System._`,
+          body: `🚨 *HOSTEL ALERT*\n\nYou have *not returned* to the hostel today.\nYou checked OUT at ${exitTime}.\n\nPlease report to the hostel immediately or contact the warden.\n\n_This is an automated alert from HEIMDALL System._`,
         });
       }
 

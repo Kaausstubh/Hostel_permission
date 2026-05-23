@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: smart-campus-backend
+    name: heimdall-backend
     env: node
     rootDir: backend
     buildCommand: npm install

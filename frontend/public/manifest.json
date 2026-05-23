@@ -1,7 +1,7 @@
 {
-  "name": "Smart Campus Hostel Permission",
-  "short_name": "Hostel Pass",
-  "description": "Smart Campus Hostel Management Platform",
+  "name": "HEIMDALL Hostel Permission",
+  "short_name": "HEIMDALL",
+  "description": "HEIMDALL Hostel Management Platform",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#121212",

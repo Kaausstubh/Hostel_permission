@@ -127,7 +127,7 @@ export default function StudentSimulator() {
                   <MdQrCode2 size={18} color="#fff" />
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.8 }}>Smart Campus</div>
+                  <div style={{ fontSize: 11, opacity: 0.8 }}>HEIMDALL</div>
                   <div style={{ fontSize: 12 }}>Gate Pass</div>
                 </div>
               </div>
@@ -250,7 +250,7 @@ export default function StudentSimulator() {
 
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 15, color: '#e9edef' }}>
-            Smart Campus Bot
+            HEIMDALL Bot
           </div>
           <div style={{ fontSize: 12, color: '#8696a0' }}>
             Hostel Management System

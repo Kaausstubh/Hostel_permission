@@ -49,7 +49,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         </button>
       </div>
       <div className="sidebar-logo">
-        <h2>🏛️ Smart Campus</h2>
+        <h2>🏛️ HEIMDALL</h2>
         <span>Hostel Management System</span>
       </div>
 

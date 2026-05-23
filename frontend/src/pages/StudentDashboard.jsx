@@ -568,7 +568,7 @@ export default function StudentDashboard() {
               </div>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
-                  🏫 Smart Campus
+                  🛡️ HEIMDALL
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   Gate {m.meta.scanType} Pass
@@ -752,7 +752,7 @@ export default function StudentDashboard() {
       }}>
         {/* Brand */}
         <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid var(--glass-border)' }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🏛️ Smart Campus</div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🛡️ HEIMDALL</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Student Portal</div>
         </div>
 
@@ -831,7 +831,7 @@ export default function StudentDashboard() {
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-              Smart Campus Bot
+              HEIMDALL Bot
             </div>
             <div style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />

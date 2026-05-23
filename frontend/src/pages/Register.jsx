@@ -70,7 +70,7 @@ export default function Register() {
     <div className="login-page">
       <div className="login-card fade-in" style={{ maxWidth: 480 }}>
         <div className="login-logo">
-          <h1>🏛️ Smart Campus</h1>
+          <h1>🏛️ HEIMDALL</h1>
           <p>Student Registration</p>
         </div>
 

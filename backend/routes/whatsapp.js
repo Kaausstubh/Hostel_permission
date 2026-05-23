@@ -167,7 +167,7 @@ const sendMainMenu = async (phone, name) => {
   await updateSession(phone, 'MENU', {});
   return await sendWhatsAppMessage(
     phone,
-    `👋 Hello, *${name}*!\n\nWelcome to *Smart Campus Hostel System* 🏢\n\nPlease choose an option:\n\n1️⃣ In/Out Request\n2️⃣ Home Visit Request\n3️⃣ File Complaint\n4️⃣ View Complaint Status\n\nReply with the number (1-4)`
+    `👋 Hello, *${name}*!\n\nWelcome to *HEIMDALL Hostel System* 🛡️\n\nPlease choose an option:\n\n1️⃣ In/Out Request\n2️⃣ Home Visit Request\n3️⃣ File Complaint\n4️⃣ View Complaint Status\n\nReply with the number (1-4)`
   );
 };
 
@@ -248,7 +248,7 @@ const handleInOutConfirm = async (phone, choice, user) => {
         phone,
         request.qrPublicUrl,
         request.qrDataUrl,
-        `🏫 Smart Campus — Gate ${scanType} Request\nStudent: ${user.name} | ${user.hostel || ''}`
+        `🛡️ HEIMDALL — Gate ${scanType} Request\nStudent: ${user.name} | ${user.hostel || ''}`
       );
     } catch (err) {
       return await sendWhatsAppMessage(phone, `❌ Error sending request: ${err.message}`);
