@@ -12,6 +12,12 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { MdCheckCircle, MdError, MdQrCodeScanner, MdRefresh, MdAccessTime } from 'react-icons/md';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
+const READY_STATUS = 'Camera ready — hold QR inside the box';
+const ACTIVE_STATUS = 'Scanning… hold QR steady inside the box';
+const MOVE_QR_STATUS = 'Move the scanned QR away, then show the next pass';
+const SCAN_SUCCESS_COOLDOWN_MS = 4000;
+const SCAN_ERROR_COOLDOWN_MS = 1200;
+const SAME_QR_CLEAR_FRAME_COUNT = 4;
 
 export default function SecurityDashboard() {
   const [scanning, setScanning] = useState(false);
@@ -26,19 +32,25 @@ export default function SecurityDashboard() {
   const [searchByColumn, setSearchByColumn] = useState({
     dailyOut: '',
     dailyIn: '',
+    homeAwaiting: '',
     homeGone: '',
     homeReturn: '',
   });
   const scannerRef = useRef(null);
   const fileInputRef = useRef(null);
   const isProcessingScanRef = useRef(false);
-  const lastDecodedRef = useRef({ token: '', at: 0 });
+  const recentScansRef = useRef(new Map());
+  const frameErrorDebounceRef = useRef(null); // debounce frame-error status updates
+  const feedbackResetTimeoutRef = useRef(null);
+  const feedbackHoldUntilRef = useRef(0);
+  const blockedTokenUntilClearRef = useRef('');
+  const clearFrameStreakRef = useRef(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   // Camera management
   const [cameras, setCameras] = useState([]);          // [{id, label}]
   const [activeCameraId, setActiveCameraId] = useState(null); // currently selected camera id
-  const [cameraFacing, setCameraFacing] = useState('front'); // 'front' | 'back'
+  const [cameraFacing, setCameraFacing] = useState('back'); // 'front' | 'back'
 
   // ── Audio Feedback (Web Audio API — no external files needed) ──────────────
   const audioCtxRef = useRef(null);
@@ -122,13 +134,51 @@ export default function SecurityDashboard() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  useEffect(() => {
+    const scannerRoot = document.getElementById(SCANNER_ELEMENT_ID);
+    if (!scannerRoot) return;
+
+    const shadedRegion = scannerRoot.querySelector('#qr-shaded-region');
+    if (!shadedRegion) return;
+
+    const toneColor =
+      scanTone === 'success'
+        ? '#10b981'
+        : scanTone === 'error'
+          ? '#ef4444'
+          : scanning
+            ? '#6366f1'
+            : '#f8fafc';
+    const toneGlow =
+      scanTone === 'success'
+        ? '0 0 18px rgba(16,185,129,0.42)'
+        : scanTone === 'error'
+          ? '0 0 18px rgba(239,68,68,0.42)'
+          : scanning
+            ? '0 0 14px rgba(99,102,241,0.24)'
+            : 'none';
+
+    shadedRegion.style.transition = 'box-shadow 120ms ease';
+    shadedRegion.style.boxShadow = toneGlow;
+    shadedRegion.querySelectorAll('div').forEach((piece) => {
+      piece.style.backgroundColor = toneColor;
+      piece.style.boxShadow = toneGlow;
+      piece.style.transition = 'background-color 120ms ease, box-shadow 120ms ease';
+    });
+  }, [scanTone, scanning]);
+
   // ── Poll pending QRs every 5 seconds ─────────────────────────────────────
   const fetchPendingQRs = async () => {
     try {
-      const res = await api.get('/gatescan/pending-qrs');
+      const res = await api.get('/gatescan/pending-qrs', {
+        params: { limit: 500 },
+        timeout: 15000,
+      });
       setPendingQRs(res.data.qrs || []);
     } catch (err) {
-      // silent — may not be logged in yet
+      if (err.response?.status !== 401) {
+        console.warn('pending-qrs:', err.response?.data?.message || err.message);
+      }
     }
   };
 
@@ -142,7 +192,7 @@ export default function SecurityDashboard() {
 
   /**
    * Load all available cameras and pick the best default.
-   * Primary = front-facing (user/selfie); secondary = back/environment.
+   * Primary = back/environment (for scanning QR codes); secondary = front/selfie.
    * Returns the id of the chosen camera.
    */
   const loadCameras = async () => {
@@ -150,36 +200,77 @@ export default function SecurityDashboard() {
     if (!list || list.length === 0) throw new Error('No camera found on this device');
     setCameras(list);
 
-    // Prefer front-facing by label hint; fall back to first camera
-    const front = list.find((c) =>
-      /front|selfie|user|face/i.test(c.label || '')
-    );
     const back = list.find((c) =>
       /back|rear|environment|main|primary/i.test(c.label || '')
     );
+    const front = list.find((c) =>
+      /front|selfie|user|face/i.test(c.label || '')
+    );
 
-    // Default: front camera (selfie). If not identified by label but only 2 cams exist,
-    // index-1 is typically the front camera on mobile.
+    // Default: back camera for QR scanning. If not identified by label but 2+ cams exist,
+    // index 0 is typically the back camera on mobile.
     let chosen;
-    if (front) {
-      chosen = front;
-      setCameraFacing('front');
-    } else if (list.length >= 2) {
-      // On most phones camera[1] = front
-      chosen = list[1];
-      setCameraFacing('front');
-    } else {
-      chosen = back || list[0];
+    if (back) {
+      chosen = back;
       setCameraFacing('back');
+    } else if (list.length >= 2) {
+      chosen = list[0];
+      setCameraFacing('back');
+    } else {
+      chosen = front || list[0];
+      setCameraFacing(front ? 'front' : 'back');
     }
 
     setActiveCameraId(chosen.id);
     return chosen.id;
   };
 
+  const resetFrameClearGate = () => {
+    blockedTokenUntilClearRef.current = '';
+    clearFrameStreakRef.current = 0;
+  };
+
+  const blockTokenUntilItLeavesFrame = (normalized) => {
+    blockedTokenUntilClearRef.current = normalized;
+    clearFrameStreakRef.current = 0;
+  };
+
+  const releaseBlockedTokenIfFrameCleared = () => {
+    if (!blockedTokenUntilClearRef.current) return false;
+
+    clearFrameStreakRef.current += 1;
+    if (clearFrameStreakRef.current < SAME_QR_CLEAR_FRAME_COUNT) return false;
+
+    blockedTokenUntilClearRef.current = '';
+    clearFrameStreakRef.current = 0;
+    return true;
+  };
+
+  const scheduleFeedbackReset = (tone) => {
+    const feedbackMs =
+      tone === 'success' ? 1600 : tone === 'error' ? 1200 : 400;
+
+    feedbackHoldUntilRef.current = Date.now() + feedbackMs;
+
+    if (feedbackResetTimeoutRef.current) {
+      clearTimeout(feedbackResetTimeoutRef.current);
+    }
+
+    feedbackResetTimeoutRef.current = setTimeout(() => {
+      feedbackResetTimeoutRef.current = null;
+      if (!isProcessingScanRef.current) {
+        setScanTone('idle');
+        setScannerStatus(
+          blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : READY_STATUS
+        );
+      }
+    }, feedbackMs);
+  };
+
   /**
-   * Start the QR scanner with the given cameraId (defaults to activeCameraId).
-   * Always cleans up any stale instance before creating a fresh one.
+   * Start the QR scanner.
+   * Default: back camera via facingMode "environment" (reliable on mobile).
+   * Pass overrideCameraId when switching to a specific enumerated device.
    */
   const startScanner = async (overrideCameraId) => {
     unlockAudio(); // Force unlock audio context on user click
@@ -191,17 +282,28 @@ export default function SecurityDashboard() {
       scannerRef.current = null;
     }
 
+    resetFrameClearGate();
     setResult(null);
     setCameraError('');
     setScanTone('idle');
     setScannerStatus('Starting camera...');
+    feedbackHoldUntilRef.current = 0;
+    if (feedbackResetTimeoutRef.current) {
+      clearTimeout(feedbackResetTimeoutRef.current);
+      feedbackResetTimeoutRef.current = null;
+    }
 
     try {
-      // Resolve which camera to use
-      let cameraId = overrideCameraId || activeCameraId;
-      if (!cameraId) {
-        cameraId = await loadCameras();  // first run: enumerate + pick default
+      let desiredCameraId = overrideCameraId || activeCameraId;
+      if (!desiredCameraId) {
+        desiredCameraId = cameras.length > 0 ? cameras[0].id : await loadCameras();
       }
+
+      const useDeviceId = Boolean(desiredCameraId);
+      const facingMode = cameraFacing === 'back' ? 'environment' : 'user';
+      const cameraConfig = useDeviceId
+        ? desiredCameraId
+        : { facingMode };
 
       const scanner = new Html5Qrcode(
         SCANNER_ELEMENT_ID,
@@ -212,48 +314,96 @@ export default function SecurityDashboard() {
         }
       );
 
-      await scanner.start(
-        cameraId,
-        {
-          fps: 20,
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const size = Math.max(240, Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.82));
-            return { width: size, height: size };
-          },
-          aspectRatio: 1.0,
-          disableFlip: false,
-          // ⚠️  Do NOT add facingMode here — mixing deviceId + facingMode causes
-          // OverconstrainedError on most browsers. Resolution constraints are safe.
-          videoConstraints: {
-            deviceId: { exact: cameraId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
+      const scanConfig = {
+        fps: 30,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+          const size = Math.min(
+            320,
+            Math.max(220, Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72))
+          );
+          return { width: size, height: size };
         },
-        async (decodedText) => {
-          const now = Date.now();
-          if (isProcessingScanRef.current) return;
-          if (lastDecodedRef.current.token === decodedText && now - lastDecodedRef.current.at < 3000) return;
-          isProcessingScanRef.current = true;
-          lastDecodedRef.current = { token: decodedText, at: now };
-          setScannerStatus('QR detected — processing...');
-          await processToken(decodedText);
+        aspectRatio: 1.0,
+        disableFlip: cameraFacing !== 'front',
+        videoConstraints: useDeviceId
+          ? {
+              deviceId: { exact: desiredCameraId },
+              width: { ideal: 960 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30, max: 30 },
+            }
+          : {
+              facingMode,
+              width: { ideal: 960 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30, max: 30 },
+            },
+      };
 
-          // Revert status so security knows they can scan the next one
-          setTimeout(() => {
-            setScannerStatus('Camera ready — hold QR inside the box');
-            setScanTone('idle');
-          }, 3000);
+      await scanner.start(
+        cameraConfig,
+        scanConfig,
+        async (decodedText) => {
+          const normalized = normalizeToken(decodedText);
+          if (!normalized) {
+            unlockAudio();
+            setScanTone('error');
+            playTone('error');
+            try { navigator.vibrate?.([120, 60, 120]); } catch {}
+            setResult({
+              success: false,
+              message: 'Unrecognized QR — use a HEIMDALL daily or home visit gate pass',
+            });
+            setScannerStatus('QR detected but unreadable');
+            scheduleFeedbackReset('error');
+            return;
+          }
+          clearFrameStreakRef.current = 0;
+          if (blockedTokenUntilClearRef.current === normalized) {
+            setScannerStatus(MOVE_QR_STATUS);
+            return;
+          }
+          if (isProcessingScanRef.current) return;
+          if (shouldIgnoreRecentScan(normalized)) return;
+          setScannerStatus('QR detected — processing...');
+          await processToken(normalized);
         },
         () => {
-          // Frame-level errors (no QR in frame) are normal — keep status steady
-          setScannerStatus('Scanning... hold QR steady inside the box');
+          releaseBlockedTokenIfFrameCleared();
+          if (Date.now() < feedbackHoldUntilRef.current) return;
+
+          // Frame-level errors (no QR in frame) — debounce status updates to prevent re-render storm
+          if (frameErrorDebounceRef.current) return;
+          frameErrorDebounceRef.current = setTimeout(() => {
+            frameErrorDebounceRef.current = null;
+            if (!isProcessingScanRef.current) {
+              setScannerStatus(
+                blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : ACTIVE_STATUS
+              );
+            }
+          }, 700);
         }
       );
 
+      // Try to apply continuous autofocus safely after scanner starts
+      try {
+        const track = scanner.getRunningTrack();
+        if (track && typeof track.getCapabilities === 'function') {
+          const capabilities = track.getCapabilities();
+          if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+            await track.applyConstraints({
+              advanced: [{ focusMode: 'continuous' }]
+            });
+          }
+        }
+      } catch (err) {
+        // Ignore constraint application errors silently
+      }
+
       scannerRef.current = scanner;
+      setActiveCameraId(desiredCameraId);
       setScanning(true);
-      setScannerStatus('Camera ready — hold QR inside the box');
+      setScannerStatus(READY_STATUS);
     } catch (error) {
       const msg = error?.message || 'Unable to start scanner';
       setCameraError(msg);
@@ -312,6 +462,12 @@ export default function SecurityDashboard() {
       scannerRef.current = null;
     }
     setScanning(false);
+    resetFrameClearGate();
+    feedbackHoldUntilRef.current = 0;
+    if (feedbackResetTimeoutRef.current) {
+      clearTimeout(feedbackResetTimeoutRef.current);
+      feedbackResetTimeoutRef.current = null;
+    }
     if (!preserveFeedback) {
       setScannerStatus('Scanner stopped');
       setScanTone('idle');
@@ -321,22 +477,96 @@ export default function SecurityDashboard() {
   useEffect(() => {
     return () => {
       if (scannerRef.current) {
-        try {
-          scannerRef.current.stop();
-        } catch {}
-        try {
-          scannerRef.current.clear();
-        } catch {}
+        try { scannerRef.current.stop(); } catch {}
+        try { scannerRef.current.clear(); } catch {}
+      }
+      // Clear any pending debounce timers
+      if (frameErrorDebounceRef.current) {
+        clearTimeout(frameErrorDebounceRef.current);
+        frameErrorDebounceRef.current = null;
+      }
+      if (feedbackResetTimeoutRef.current) {
+        clearTimeout(feedbackResetTimeoutRef.current);
+        feedbackResetTimeoutRef.current = null;
       }
     };
   }, []);
 
   // ── Process Token ─────────────────────────────────────────────────────────
+  const normalizeToken = (raw) => {
+    const trimmed = String(raw || '')
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .replace(/\s+/g, '');
+    if (!trimmed) return '';
+    const jwtMatch = trimmed.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+    if (jwtMatch) return jwtMatch[0];
+    const ioMatch = trimmed.match(/IO-[A-Za-z0-9_-]+/i);
+    if (ioMatch) return `IO-${ioMatch[0].slice(3)}`;
+    const hvMatch = trimmed.match(/HV-[A-Za-z0-9_-]+/i);
+    if (hvMatch) return `HV-${hvMatch[0].slice(3)}`;
+    return trimmed;
+  };
+
+  const shouldIgnoreRecentScan = (normalized) => {
+    const entry = recentScansRef.current.get(normalized);
+    if (!entry) return false;
+    const cooldown = entry.ok ? SCAN_SUCCESS_COOLDOWN_MS : SCAN_ERROR_COOLDOWN_MS;
+    return Date.now() - entry.at < cooldown;
+  };
+
+  const markRecentScan = (normalized, ok) => {
+    recentScansRef.current.set(normalized, { at: Date.now(), ok });
+    if (recentScansRef.current.size > 80) {
+      const now = Date.now();
+      for (const [key, value] of recentScansRef.current) {
+        if (now - value.at > 60000) recentScansRef.current.delete(key);
+      }
+    }
+  };
+
+  const dismissResult = () => {
+    setResult(null);
+    setScanTone('idle');
+
+    if (scanning) {
+      setScannerStatus(
+        blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : READY_STATUS
+      );
+      return;
+    }
+
+    startScanner();
+  };
+
+  const pauseLiveScanner = async () => {
+    try {
+      if (scannerRef.current?.isScanning) await scannerRef.current.pause(true);
+    } catch {
+      // pause not supported on some browsers — lock ref still prevents duplicates
+    }
+  };
+
+  const resumeLiveScanner = async () => {
+    try {
+      if (scannerRef.current?.isScanning) await scannerRef.current.resume();
+    } catch {}
+  };
+
   const processToken = async (token) => {
+    const normalized = normalizeToken(token);
+    if (!normalized) return;
+    if (isProcessingScanRef.current) return;
+    if (shouldIgnoreRecentScan(normalized)) return;
+
+    isProcessingScanRef.current = true;
+    await pauseLiveScanner();
     setLoading(true);
     setResult(null);
+    let feedbackTone = 'idle';
+
     try {
-      const res = await api.post('/gatescan/scan', { token });
+      const res = await api.post('/gatescan/scan', { token: normalized }, { timeout: 10000 });
       const data = res.data;
       setResult({
         success: true,
@@ -344,24 +574,39 @@ export default function SecurityDashboard() {
         status: data.log.status,
         timestamp: data.log.timestamp,
         message: data.message,
+        scanDuration: data.scanDuration,
       });
-      playTone('success');          // ✅ professional success beep
-      toast.success(data.message);
+      markRecentScan(normalized, true);
+      blockTokenUntilItLeavesFrame(normalized);
+      playTone('success');
+      try { navigator.vibrate?.([80]); } catch {}
+      toast.success(data.message, { duration: 2500 });
+      feedbackTone = 'success';
       setScanTone('success');
-      setScannerStatus('Scan successful');
+      setScannerStatus('✓ Success — remove QR and show next pass');
       setManualToken('');
-      await fetchPendingQRs();
       setSelectedQR(null);
+      fetchPendingQRs();
+      // Resume scanner immediately — don't block queue on feedback timer
+      await resumeLiveScanner();
     } catch (err) {
       const msg = err.response?.data?.message || 'Scan failed';
+      if (err.response?.status !== 409) {
+        markRecentScan(normalized, false);
+      }
+      blockTokenUntilItLeavesFrame(normalized);
       setResult({ success: false, message: msg });
-      playTone('error');            // ❌ professional failure buzz
+      playTone('error');
+      try { navigator.vibrate?.([120, 60, 120]); } catch {}
+      feedbackTone = 'error';
       setScanTone('error');
       setScannerStatus(msg);
-      toast.error(msg);
+      if (err.response?.status !== 409) toast.error(msg, { duration: 3000 });
+      await resumeLiveScanner();
     } finally {
       isProcessingScanRef.current = false;
       setLoading(false);
+      scheduleFeedbackReset(feedbackTone);
     }
   };
 
@@ -453,6 +698,7 @@ export default function SecurityDashboard() {
           </div>
         </div>
 
+        <div className="security-dashboard-layout">
         {/* ── Top row: Scanner + Result ── */}
         <div
           className="security-panel-grid"
@@ -464,23 +710,33 @@ export default function SecurityDashboard() {
 
           {/* Scanner Panel */}
           <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>📷 Home-Visit QR Scanner</div>
+            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>📷 Gate QR Scanner (Daily + Home Visit)</div>
 
             <div
               id={SCANNER_ELEMENT_ID}
               style={{
                 borderRadius: 'var(--radius-md)',
                 overflow: 'hidden',
+                background: 'rgba(2,6,23,0.32)',
                 border:
                   scanTone === 'success'
-                    ? '2px solid #10b981'
+                    ? '4px solid #10b981'
                     : scanTone === 'error'
-                      ? '2px solid #ef4444'
+                      ? '4px solid #ef4444'
                       : scanning
-                        ? '2px solid var(--primary)'
+                        ? '3px solid rgba(99,102,241,0.92)'
                         : '1px solid rgba(255,255,255,0.08)',
-                boxShadow: scanTone === 'success' ? '0 0 0 2px rgba(16,185,129,0.16)' : 'none',
+                boxShadow:
+                  scanTone === 'success'
+                    ? '0 0 0 5px rgba(16,185,129,0.28), 0 0 26px rgba(16,185,129,0.28)'
+                    : scanTone === 'error'
+                      ? '0 0 0 5px rgba(239,68,68,0.28), 0 0 26px rgba(239,68,68,0.28)'
+                      : scanning
+                        ? '0 0 0 4px rgba(99,102,241,0.16)'
+                        : 'none',
                 minHeight: 320,
+                transition: 'border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease',
+                transform: scanTone === 'success' ? 'scale(1.004)' : 'translateZ(0)',
               }}
             />
 
@@ -581,7 +837,7 @@ export default function SecurityDashboard() {
                   id="manual-token-input"
                   type="text"
                   className="form-input"
-                  placeholder="Paste JWT token here..."
+                  placeholder="Paste QR token here..."
                   value={manualToken}
                   onChange={(e) => setManualToken(e.target.value)}
                   style={{ flex: 1, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}
@@ -706,7 +962,14 @@ export default function SecurityDashboard() {
 
                 {/* ── SUCCESS ── */}
                 {result.success && result.student && (() => {
-                  const isIN = result.status === 'IN';
+                  const status = result.status || '';
+                  const isHome = status.startsWith('HOME');
+                  const isIN = status === 'IN' || status === 'HOME IN';
+                  const isHomeOut = status === 'HOME OUT';
+                  const bannerLabel = isHome
+                    ? (isHomeOut ? 'HOME VISIT — DEPARTURE' : 'HOME VISIT — RETURN')
+                    : (isIN ? 'ENTRY — CHECKED IN' : 'EXIT — CHECKED OUT');
+                  const bannerEmoji = isHome ? (isHomeOut ? '🏠' : '🏡') : (isIN ? '🚪' : '🔓');
                   const initials = (result.student.name || '?')
                     .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
                   return (
@@ -730,14 +993,14 @@ export default function SecurityDashboard() {
                           ? '0 0 20px rgba(16,185,129,0.10)'
                           : '0 0 20px rgba(99,102,241,0.10)',
                       }}>
-                        <span style={{ fontSize: 26 }}>{isIN ? '🚪' : '🔓'}</span>
+                        <span style={{ fontSize: 26 }}>{bannerEmoji}</span>
                         <div>
                           <div style={{
                             fontWeight: 800, fontSize: 17,
                             color: isIN ? '#10b981' : 'var(--primary-light)',
                             letterSpacing: '-0.2px',
                           }}>
-                            {isIN ? 'ENTRY — CHECKED IN' : 'EXIT — CHECKED OUT'}
+                            {bannerLabel}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                             {new Date(result.timestamp).toLocaleString('en-IN', {
@@ -779,6 +1042,25 @@ export default function SecurityDashboard() {
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                             {result.student.rollNumber || '—'} &nbsp;•&nbsp; {result.student.hostel || '—'}
                           </div>
+                          {/* Phone numbers — visible for quick gate verification */}
+                          {(result.student.studentPhone || result.student.parentPhone) && (
+                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {result.student.studentPhone && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  <span>📞</span>
+                                  <span style={{ fontWeight: 600 }}>{result.student.studentPhone}</span>
+                                  <span style={{ color: 'var(--text-muted)' }}>student</span>
+                                </div>
+                              )}
+                              {result.student.parentPhone && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  <span>👨‍👩‍👦</span>
+                                  <span style={{ fontWeight: 600 }}>{result.student.parentPhone}</span>
+                                  <span style={{ color: 'var(--text-muted)' }}>parent</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div style={{
                           fontSize: 11, fontWeight: 700,
@@ -788,18 +1070,38 @@ export default function SecurityDashboard() {
                           border: isIN ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(99,102,241,0.35)',
                           letterSpacing: '0.5px',
                         }}>
-                          {isIN ? 'IN' : 'OUT'}
+                          {isHome ? (isHomeOut ? 'HOME OUT' : 'HOME IN') : (isIN ? 'IN' : 'OUT')}
                         </div>
                       </div>
 
-                      {/* Scan Again */}
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => { setResult(null); startScanner(); }}
-                        style={{ width: '100%', justifyContent: 'center', marginTop: 4, fontSize: 13 }}
-                      >
-                        <MdQrCodeScanner size={15} /> Scan Next Student
-                      </button>
+                      {/* Scan Again + duration badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={dismissResult}
+                          style={{ flex: 1, justifyContent: 'center', fontSize: 13 }}
+                        >
+                          <MdQrCodeScanner size={15} /> Scan Next Student
+                        </button>
+                        {result.scanDuration != null && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 99,
+                            background: result.scanDuration < 300
+                              ? 'rgba(16,185,129,0.15)' : result.scanDuration < 600
+                              ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                            color: result.scanDuration < 300
+                              ? '#10b981' : result.scanDuration < 600
+                              ? '#f59e0b' : '#ef4444',
+                            border: result.scanDuration < 300
+                              ? '1px solid rgba(16,185,129,0.3)' : result.scanDuration < 600
+                              ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(239,68,68,0.3)',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                          }}>
+                            {result.scanDuration}ms
+                          </span>
+                        )}
+                      </div>
                     </>
                   );
                 })()}
@@ -833,7 +1135,7 @@ export default function SecurityDashboard() {
                     </div>
                     <button
                       className="btn btn-ghost"
-                      onClick={() => { setResult(null); startScanner(); }}
+                      onClick={dismissResult}
                       style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}
                     >
                       <MdQrCodeScanner size={15} /> Try Again
@@ -866,19 +1168,16 @@ export default function SecurityDashboard() {
                   Awaiting Scan
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12.5, lineHeight: 1.5 }}>
-                  Start the camera, paste a JWT token,<br />or tap a pending request card below.
+                  Start the camera, paste a JWT token, or tap a student in the pending list.
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* ── Pending QRs Live Panel ── */}
-        <div className="card security-live-panel" style={{ marginTop: 24 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginBottom: 16,
-          }}>
+        {/* ── Pending QRs Live Panel (shown first on mobile via CSS order) ── */}
+        <div className="card security-live-panel">
+          <div className="security-live-panel-header">
             <div>
               <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{
@@ -899,7 +1198,7 @@ export default function SecurityDashboard() {
                 )}
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 3 }}>
-                Daily in/out requests expire automatically after 10 minutes; home-visit QR passes stay scannable
+                Home requests appear when submitted; scannable QR after warden approves on Home Visits page
               </div>
             </div>
             <button
@@ -921,7 +1220,8 @@ export default function SecurityDashboard() {
             </div>
           ) : (
             (() => {
-              const isHome = (q) => q.qrType === 'home_visit';
+              const isHome = (q) =>
+                q.qrType === 'home_visit' || q.requestType === 'home_visit';
               const isDaily = (q) => q.requestType === 'inout_request';
 
               // Group by next required scan action:
@@ -935,12 +1235,18 @@ export default function SecurityDashboard() {
                 pendingQRs.filter((q) => isDaily(q) && q.scanType === 'IN'),
                 searchByColumn.dailyIn
               );
+              const homeAwaiting = matchesSearch(
+                pendingQRs.filter(
+                  (q) => isHome(q) && (q.scanType === 'AWAITING WARDEN' || q.scanType === 'QR ERROR' || !q.token)
+                ),
+                searchByColumn.homeAwaiting
+              );
               const homeGone = matchesSearch(
-                pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME OUT'),
+                pendingQRs.filter((q) => isHome(q) && q.token && q.scanType === 'HOME OUT'),
                 searchByColumn.homeGone
               );
               const homeReturn = matchesSearch(
-                pendingQRs.filter((q) => isHome(q) && q.scanType === 'HOME IN'),
+                pendingQRs.filter((q) => isHome(q) && q.token && q.scanType === 'HOME IN'),
                 searchByColumn.homeReturn
               );
 
@@ -993,58 +1299,72 @@ export default function SecurityDashboard() {
                         return (
                           <div
                             key={cardKey}
+                            className="security-pending-card"
                             id={`pending-qr-${title.replace(/\s+/g, '-').toLowerCase()}-${idx}`}
-                            onClick={() => handleSelectPendingQR(qr)}
+                            onClick={() => qr.token && handleSelectPendingQR(qr)}
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 10,
                               padding: '10px 12px',
                               borderRadius: 'var(--radius-md)',
                               border: isSelected
                                 ? '1px solid rgba(99,102,241,0.6)'
-                                : '1px solid rgba(255,255,255,0.06)',
+                                : qr.scannable === false
+                                  ? '1px solid rgba(245,158,11,0.35)'
+                                  : '1px solid rgba(255,255,255,0.06)',
                               background: isSelected
                                 ? 'rgba(99,102,241,0.10)'
-                                : 'rgba(255,255,255,0.02)',
+                                : qr.scannable === false
+                                  ? 'rgba(245,158,11,0.08)'
+                                  : 'rgba(255,255,255,0.02)',
                               cursor: qr.token ? 'pointer' : 'default',
+                              opacity: qr.scannable === false ? 0.92 : 1,
                               transition: 'all 0.15s',
                             }}
                           >
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)' }}>
-                                {qr.studentName || 'Unknown'}
+                            <div className="security-pending-card-row">
+                              <div className="security-pending-card-main">
+                                <div className="security-pending-card-name">
+                                  {qr.studentName || 'Unknown'}
+                                  {qr.scanType === 'AWAITING WARDEN' && (
+                                    <span className="security-pending-awaiting">
+                                      awaiting warden
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="security-pending-card-meta">
+                                  {qr.hostel || '—'} • {qr.rollNumber || '—'}
+                                  {isHome(qr) && qr.leaveDate && (
+                                    <span> • {qr.leaveDate} → {qr.returnDate}</span>
+                                  )}
+                                </div>
+                                {qr.studentPhone && (
+                                  isMobile ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6, fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <span>📞</span> <span>{qr.studentPhone} (Student)</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ color: 'var(--text-secondary)', marginTop: 4, fontSize: '11px' }}>
+                                      Student: {qr.studentPhone}
+                                    </div>
+                                  )
+                                )}
+                                {qr.statusNote && (
+                                  <div className="security-pending-card-note">
+                                    {qr.statusNote}
+                                  </div>
+                                )}
                               </div>
-                              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                                {qr.hostel || '—'} • {qr.rollNumber || '—'}
+                              <div className={`security-pending-card-time${isSelected ? ' is-selected' : ''}`}>
+                                <MdAccessTime size={12} />
+                                {qr.expiresAt ? timeLeft(qr.expiresAt) : relativeTime(qr.createdAt)}
                               </div>
                             </div>
-
-                            {qr.qrDataUrl && (
-                              <img
-                                src={qr.qrDataUrl}
-                                alt="QR"
-                                style={{
-                                  width: 42,
-                                  height: 42,
-                                  borderRadius: 6,
-                                  border: '1px solid rgba(255,255,255,0.1)',
-                                  flexShrink: 0,
-                                }}
-                              />
+                            {qr.scannable !== false && qr.token && (
+                              <div className="security-pending-card-hint">
+                                Tap to select for scanner
+                              </div>
                             )}
-
-                            <div style={{
-                              fontSize: 11,
-                              color: isSelected ? 'var(--primary-light)' : 'var(--text-muted)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              flexShrink: 0,
-                            }}>
-                              <MdAccessTime size={12} />
-                              {qr.expiresAt ? timeLeft(qr.expiresAt) : relativeTime(qr.createdAt)}
-                            </div>
                           </div>
                         );
                       })}
@@ -1054,14 +1374,7 @@ export default function SecurityDashboard() {
               );
 
               return (
-                <div
-                  className="security-column-grid"
-                  style={{
-                    gridTemplateColumns: 'repeat(4, minmax(260px, 1fr))',
-                    overflowX: 'auto',
-                    paddingBottom: '12px'
-                  }}
-                >
+                <div className="security-column-grid">
                   <Column
                     title="Daily OUT Pass"
                     subtitle="Approve requests for students going out"
@@ -1077,15 +1390,22 @@ export default function SecurityDashboard() {
                     searchKey="dailyIn"
                   />
                   <Column
+                    title="Home Visit (awaiting)"
+                    subtitle="Submitted — not scannable until warden approves"
+                    items={homeAwaiting}
+                    tone="danger"
+                    searchKey="homeAwaiting"
+                  />
+                  <Column
                     title="Home Visit GOING"
-                    subtitle="Leaving for home"
+                    subtitle="Approved — scan QR when leaving"
                     items={homeGone}
                     tone="danger"
                     searchKey="homeGone"
                   />
                   <Column
                     title="Home Visit RETURNING"
-                    subtitle="Coming back from home"
+                    subtitle="Approved — scan same QR on return"
                     items={homeReturn}
                     tone="ok"
                     searchKey="homeReturn"
@@ -1094,6 +1414,7 @@ export default function SecurityDashboard() {
               );
             })()
           )}
+        </div>
         </div>
 
       </div>

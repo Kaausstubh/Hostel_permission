@@ -9,7 +9,8 @@ const { getRedis } = require('./redisClient');
 const crypto = require('crypto');
 const { renderQRValue } = require('./qrService');
 
-const INOUT_REQUEST_EXPIRY = parseInt(process.env.INOUT_REQUEST_EXPIRY_SECONDS || '600', 10);
+const { INOUT_REQUEST_EXPIRY_SECONDS } = require('../config/campus');
+const INOUT_REQUEST_EXPIRY = INOUT_REQUEST_EXPIRY_SECONDS;
 const INOUT_REQUEST_INDEX = 'pending_inout_request_students';
 const pendingRequestKey = (studentId) => `pending_inout_request:${studentId}`;
 const pendingRequestTokenKey = (token) => `pending_inout_request_token:${token}`;
@@ -20,6 +21,8 @@ const buildEntry = ({
   studentName,
   hostel,
   rollNumber,
+  studentPhone,
+  parentPhone,
   place,
   scanType,
   createdAt,
@@ -35,6 +38,8 @@ const buildEntry = ({
   studentName,
   hostel,
   rollNumber,
+  studentPhone: studentPhone || '',
+  parentPhone: parentPhone || '',
   place,
   scanType,
   createdAt,
@@ -71,6 +76,8 @@ const createPendingInOutRequest = async ({
   studentName,
   hostel,
   rollNumber,
+  studentPhone,
+  parentPhone,
   place = '',
   scanType,
 }) => {
@@ -88,6 +95,8 @@ const createPendingInOutRequest = async ({
     studentName,
     hostel,
     rollNumber,
+    studentPhone,
+    parentPhone,
     place,
     scanType,
     createdAt,
@@ -175,7 +184,7 @@ const getPendingInOutRequestByToken = async (token) => {
   return null;
 };
 
-const listPendingInOutRequests = async () => {
+const listPendingInOutRequests = async (limit = null) => {
   const redis = await getRedis();
 
   if (redis) {
@@ -210,7 +219,8 @@ const listPendingInOutRequests = async () => {
       }
     }
 
-    return results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const sorted = results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return limit && limit > 0 ? sorted.slice(0, limit) : sorted;
   }
 
   const results = [];
@@ -222,7 +232,8 @@ const listPendingInOutRequests = async () => {
     results.push(entry);
   }
 
-  return results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const sorted = results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return limit && limit > 0 ? sorted.slice(0, limit) : sorted;
 };
 
 module.exports = {

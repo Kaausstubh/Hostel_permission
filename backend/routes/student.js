@@ -24,6 +24,10 @@ const {
   removePendingInOutRequest,
 } = require('../services/inOutRequestService');
 const { renderQRFromToken } = require('../services/qrService');
+const {
+  issueHomeVisitGatePass,
+  isLegacyHomeJwtToken,
+} = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -89,7 +93,14 @@ router.get('/status', async (req, res) => {
         returned: false,
         date: today,
       }).lean(),
-      getPendingInOutRequest(studentId.toString()),
+      (async () => {
+        const pending = await getPendingInOutRequest(studentId.toString());
+        if (pending?.expiresAt && new Date(pending.expiresAt).getTime() <= Date.now()) {
+          await removePendingInOutRequest(studentId.toString());
+          return null;
+        }
+        return pending;
+      })(),
       HomeVisitLog.find({
         student_id: studentId,
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
@@ -116,23 +127,36 @@ router.get('/status', async (req, res) => {
         .lean(),
     ]);
 
-    const activeVisits = await Promise.all(
-      activeVisitsRaw.map(async (visit) => {
-        if (!visit.qr_token) return visit;
-        const { qrDataUrl } = await renderQRFromToken(visit.qr_token);
-        return { ...visit, qrDataUrl };
-      })
-    );
+    const attachHomeVisitQR = async (visit) => {
+      if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
+      if (visit.overall_status !== 'approved') return visit;
+      if (!visit.qr_used_out && visit.return_date < today) return null;
+
+      if (!visit.qr_token || isLegacyHomeJwtToken(visit.qr_token)) {
+        const issued = await issueHomeVisitGatePass(visit);
+        return { ...visit, qr_token: issued.token, qrDataUrl: issued.qrDataUrl };
+      }
+
+      const { qrDataUrl } = await renderQRFromToken(visit.qr_token, `hv_${visit._id}`);
+      return { ...visit, qrDataUrl };
+    };
+
+    const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
     const pendingVisits = activeVisits.filter((visit) => {
       if (!['pending', 'parent_approved'].includes(visit.overall_status)) return false;
-      if (!visit.qr_used_out && visit.return_date < today) return false; // Abandoned/Expired
+      if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
     });
-    
+
+    const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
       if (visit.overall_status !== 'approved') return false;
-      if (!visit.qr_used_out && visit.return_date < today) return false; // Abandoned/Expired
+      if (visit.qr_used_in) return false;
+      if (!visit.qr_used_out && visit.return_date < today) return false;
+      const id = String(visit._id);
+      if (approvedSeen.has(id)) return false;
+      approvedSeen.add(id);
       return true;
     });
 
@@ -161,6 +185,7 @@ router.post('/request-inout', async (req, res) => {
   try {
     const user = req.user;
     const studentId = user._id.toString();
+    const place = String(req.body.place || '').trim().slice(0, 120);
 
     // Determine scan direction
     const existingOut = await InOutLog.findOne({
@@ -170,6 +195,10 @@ router.post('/request-inout', async (req, res) => {
       date: todayStr(),
     });
     const scanType = existingOut ? 'IN' : 'OUT';
+
+    if (scanType === 'OUT' && !place) {
+      return res.status(400).json({ success: false, message: 'Destination (place) is required for going out' });
+    }
 
     let request = await getPendingInOutRequest(studentId);
     if (request && request.scanType !== scanType) {
@@ -201,7 +230,10 @@ router.post('/request-inout', async (req, res) => {
         studentName: user.name,
         hostel: user.hostel || 'N/A',
         rollNumber: user.rollNo || 'N/A',
+        studentPhone: user.phone || '',
+        parentPhone: user.parentPhone || '',
         scanType,
+        place: scanType === 'OUT' ? place : (existingOut?.place || place),
       });
     }
 
@@ -209,6 +241,7 @@ router.post('/request-inout', async (req, res) => {
       success: true,
       message: `In/Out request sent for ${scanType}`,
       scan_type: scanType,
+      place: request.place || place,
       request,
       qrDataUrl: request.qrDataUrl,
       qrPublicUrl: request.qrPublicUrl,
@@ -420,12 +453,28 @@ router.get('/home-visits', async (req, res) => {
       }
     }
 
+    const attachQr = async (visit) => {
+      if (visit.overall_status !== 'approved' || visit.qr_used_in) return visit;
+      try {
+        if (!visit.qr_token || isLegacyHomeJwtToken(visit.qr_token)) {
+          const issued = await issueHomeVisitGatePass(visit);
+          return { ...visit, qr_token: issued.token, qrDataUrl: issued.qrDataUrl };
+        }
+        const { qrDataUrl } = await renderQRFromToken(visit.qr_token, `hv_${visit._id}`);
+        return { ...visit, qrDataUrl };
+      } catch {
+        return visit;
+      }
+    };
+
+    const activeWithQr = await Promise.all(active.map(attachQr));
+
     res.json({
       success: true,
       count,
       page,
       limit,
-      visits: [...active, ...recentHistory],
+      visits: [...activeWithQr, ...recentHistory],
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

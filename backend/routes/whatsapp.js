@@ -23,7 +23,7 @@ const {
 } = require('../services/whatsappService');
 const { enqueueWhatsAppMessage, enqueueWhatsAppMediaMessage } = require('../queues/whatsappQueue');
 const { getSession, updateSession, clearSession } = require('../services/sessionService');
-const { generateQR, registerActiveQR } = require('../services/qrService');
+const { issueHomeVisitGatePass } = require('../services/homeVisitQrService');
 const {
   INOUT_REQUEST_EXPIRY,
   createPendingInOutRequest,
@@ -414,15 +414,9 @@ const handleWardenReply = async (phone, visitId, action) => {
 
   if (action === 'approve') {
     visit.overall_status = 'approved';
-    const payload = {
-      type: 'home_visit',
-      student_id: student._id.toString(),
-      visit_id: visit._id.toString(),
-    };
-    const { token, qrDataUrl, qrPublicUrl } = await generateQR(
-      payload,
-      `hv_${student._id}_${visit._id}`
-    );
+    const visitLean = visit.toObject();
+    visitLean.student_id = student;
+    const { token, qrDataUrl, qrPublicUrl } = await issueHomeVisitGatePass(visitLean);
     visit.qr_token = token;
     await visit.save();
 

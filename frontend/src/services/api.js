@@ -4,7 +4,7 @@
  */
 import axios from 'axios';
 
-const LOCAL_API_FALLBACK = 'http://localhost:5000/api';
+const LOCAL_API_FALLBACK = 'http://localhost:5001/api';
 const WARMUP_CACHE_KEY = 'api-prewarm-at';
 const WARMUP_TTL_MS = 4 * 60 * 1000;
 
@@ -22,11 +22,11 @@ const resolveApiUrl = () => {
   const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   if (isLocalHost) return LOCAL_API_FALLBACK;
 
-  console.error(
-    '[API] Missing VITE_API_URL in production build. Set it in Vercel to your Render backend URL, for example https://your-backend.onrender.com/api'
+  console.warn(
+    '[API] Missing VITE_API_URL in production build. Falling back to default Render backend URL.'
   );
 
-  return LOCAL_API_FALLBACK;
+  return 'https://hostel-permission-8add.onrender.com/api';
 };
 
 const API_URL = resolveApiUrl();

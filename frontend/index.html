@@ -6,19 +6,65 @@
     <link rel="apple-touch-icon" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="HEIMDALL - Hostel Management Platform - WhatsApp integrated hostel access control system" />
+    <meta name="theme-color" content="#6366f1" />
+    <meta name="robots" content="noindex, nofollow" />
     <title>HEIMDALL | Hostel Management</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#6366f1" />
+
+    <!--
+      ⚡ PERFORMANCE: Google Fonts loaded via preconnect + preload here in HTML
+      instead of CSS @import. This allows the browser to:
+      1. Establish the TCP+TLS connection to fonts.googleapis.com early (preconnect)
+      2. Discover the font request before CSS is parsed (avoids render-blocking)
+      3. Apply font-display:swap so text is visible immediately with fallback fonts
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!--
+      ⚡ PERFORMANCE: DNS prefetch + preconnect for the backend API.
+      Reduces DNS lookup time (~20-120ms) on the very first API call.
+      Replace with your actual Render backend URL.
+    -->
+    <link rel="dns-prefetch" href="https://hostel-permission-8add.onrender.com" />
+    <link rel="preconnect" href="https://hostel-permission-8add.onrender.com" crossorigin />
+
+    <!--
+      ⚡ PERFORMANCE: Inline critical CSS for the loading spinner.
+      This makes the initial loading indicator visible before ANY JS loads,
+      eliminating the blank white flash on first visit.
+    -->
+    <style>
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+      html,body{height:100%;background:#06061a}
+      .initial-loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#06061a;z-index:9999;gap:16px}
+      .initial-loader__spinner{width:44px;height:44px;border-radius:50%;border:3px solid rgba(139,92,246,0.2);border-top-color:#8b5cf6;animation:il-spin 0.8s linear infinite}
+      .initial-loader__text{color:#7c86b4;font-family:system-ui,sans-serif;font-size:14px}
+      @keyframes il-spin{to{transform:rotate(360deg)}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Visible immediately before React hydrates — removed once React renders -->
+      <div class="initial-loader">
+        <div class="initial-loader__spinner"></div>
+        <span class="initial-loader__text">Loading HEIMDALL…</span>
+      </div>
+    </div>
+
+    <!-- Service Worker registration (PWA support) -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(console.error);
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
         });
       }
     </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

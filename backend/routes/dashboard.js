@@ -32,6 +32,7 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
       pendingHomeVisits,
       pendingComplaints,
       totalComplaints,
+      homeScanRecords,
     ] = await Promise.all([
       User.countDocuments({ role: 'student' }),
       InOutLog.countDocuments({ status: 'OUT', returned: false, date: today }),
@@ -39,6 +40,13 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
       HomeVisitLog.countDocuments({ overall_status: { $in: ['pending', 'parent_approved'] } }),
       Complaint.countDocuments({ status: 'pending' }),
       Complaint.countDocuments({}),
+      HomeVisitLog.countDocuments({
+        $or: [
+          { actual_out_time: { $ne: null } },
+          { actual_in_time: { $ne: null } },
+          { overall_status: 'completed' },
+        ],
+      }),
     ]);
 
     res.json({
@@ -50,6 +58,7 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
         pendingHomeVisits,
         pendingComplaints,
         totalComplaints,
+        homeScanRecords,
         date: today,
       },
     });

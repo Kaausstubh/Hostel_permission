@@ -9,7 +9,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdPeople, MdExitToApp, MdWarning, MdHome,
-  MdReport, MdRefresh
+  MdReport, MdRefresh, MdHistory
 } from 'react-icons/md';
 
 const StatCard = ({ icon, value, label, variant = '', onClick }) => (
@@ -74,6 +74,7 @@ export default function WardenDashboard() {
             <span style={{ color: 'var(--text-muted)' }}>Loading dashboard...</span>
           </div>
         ) : (
+          <>
           <div className="stats-grid">
             <StatCard
               icon={<MdPeople size={22} color="#6366f1" />}
@@ -110,23 +111,27 @@ export default function WardenDashboard() {
               onClick={() => navigate('/complaints')}
             />
           </div>
+          </>
         )}
 
         {/* Quick Action Buttons */}
-        <div className="card" style={{ marginTop: 8 }}>
+        <div className="card warden-quick-actions" style={{ marginTop: 8 }}>
           <div className="section-title" style={{ fontSize: 16, marginBottom: 16 }}>
             ⚡ Quick Actions
           </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <a href="/not-returned" className="btn btn-danger">
+          <div className="quick-actions-row">
+            <button type="button" className="btn btn-danger" onClick={() => navigate('/not-returned')}>
               <MdWarning /> View Not Returned
-            </a>
-            <a href="/home-visits" className="btn btn-primary">
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => navigate('/home-visits')}>
               <MdHome /> Review Home Visits
-            </a>
-            <a href="/complaints" className="btn btn-ghost">
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate('/complaints')}>
               <MdReport /> Manage Complaints
-            </a>
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate('/logs')}>
+              <MdHistory /> Gate Scan Logs
+            </button>
           </div>
         </div>
 

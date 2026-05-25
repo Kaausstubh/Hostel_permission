@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
+const { protect, invalidateUserCache } = require('../middleware/auth');
 const { normalizeToE164 } = require('../utils/phone');
 
 // College email domain restriction for student self-registration
@@ -129,8 +129,9 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    // Include password field explicitly (select: false in schema)
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    // Lean projection — only select fields needed for login response + password compare
+    const user = await User.findOne({ email: email.toLowerCase() })
+      .select('+password name rollNo email phone hostel parentPhone role isActive');
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -161,9 +162,21 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ── Get current user ──────────────────────────────────────────────────────────
+// ── Get current user ────────────────────────────────────────────────────────────────
 router.get('/me', protect, async (req, res) => {
   res.json({ success: true, user: req.user });
+});
+
+// ── Logout (invalidate server-side session cache) ──────────────────────────────
+router.post('/logout', protect, async (req, res) => {
+  try {
+    // Bust the Redis/in-memory session cache so the next login starts fresh
+    await invalidateUserCache(String(req.user._id));
+    res.json({ success: true, message: 'Logged out' });
+  } catch (err) {
+    // Non-critical — client should clear localStorage regardless
+    res.json({ success: true, message: 'Logged out (cache clear failed)' });
+  }
 });
 
 module.exports = router;

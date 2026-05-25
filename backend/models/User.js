@@ -77,6 +77,8 @@ userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
 userSchema.index({ email: 1 });
 // Fast phone lookup index
 userSchema.index({ phone: 1 });
+// Fast role lookup index for dashboard count and lists
+userSchema.index({ role: 1 });
 
 // ── Hooks ──────────────────────────────────────────────────────────────────────
 // Hash password before saving

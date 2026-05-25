@@ -1,50 +1,25 @@
 /**
  * Navbar Component
- * Top bar with page title, timestamp, animated theme toggle, and PWA install
+ * Top bar with page title, timestamp, and animated theme toggle
  */
 import { useState, useEffect } from 'react';
-import { MdNotifications, MdLightMode, MdDarkMode, MdDownload } from 'react-icons/md';
+import { MdNotifications, MdLightMode, MdDarkMode } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
-import toast from 'react-hot-toast';
 
 export default function Navbar({ title }) {
   const [time, setTime] = useState(new Date());
   const { theme, toggleTheme } = useTheme();
   const [isAnimating, setIsAnimating] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Listen for the PWA install prompt
-  useEffect(() => {
-    const handler = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
   const handleToggle = () => {
     setIsAnimating(true);
     toggleTheme();
     setTimeout(() => setIsAnimating(false), 500);
-  };
-
-  const handleInstall = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        toast.success('App installed successfully! 🎉');
-        setDeferredPrompt(null);
-      }
-    } else {
-      toast('App is already installed or not supported on this browser', { icon: 'ℹ️' });
-    }
   };
 
   return (
@@ -54,26 +29,6 @@ export default function Navbar({ title }) {
         <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
           {time.toLocaleTimeString('en-IN')}
         </span>
-
-        {/* PWA Install Button */}
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={handleInstall}
-          aria-label="Install App"
-          title="Install App"
-          style={{
-            padding: '6px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            fontSize: 12,
-            fontWeight: 600,
-            borderRadius: 20,
-          }}
-        >
-          <MdDownload size={15} />
-          <span style={{ display: 'none' }} className="install-label">Install</span>
-        </button>
 
         {/* Animated Theme Toggle */}
         <button
@@ -134,9 +89,6 @@ export default function Navbar({ title }) {
         @keyframes themeRipple {
           0% { transform: scale(0); opacity: 1; }
           100% { transform: scale(2.5); opacity: 0; }
-        }
-        @media (min-width: 640px) {
-          .install-label { display: inline !important; }
         }
       `}</style>
     </header>

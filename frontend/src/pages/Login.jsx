@@ -29,7 +29,6 @@ export default function Login() {
     if (!email || !password) return toast.error('Email and password required');
     setLoading(true);
     try {
-      await prewarmApiConnection();
       const user = await login(email, password);
       toast.success(`Welcome back, ${user.name}! 👋`);
       // Role-based redirect
@@ -37,7 +36,10 @@ export default function Login() {
       else if (user.role === 'security') navigate('/scanner');
       else navigate('/dashboard');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Login failed');
+      const msg = err.response?.data?.message
+        || (err.code === 'ERR_NETWORK' ? 'Cannot reach server. Start the backend (npm start in backend/) and check VITE_API_URL.' : null)
+        || 'Login failed';
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -173,7 +175,7 @@ export default function Login() {
             </div>
             <div className="login-demo-row">
               <span className="login-demo-role">Student</span>
-              <span className="login-demo-cred"><code>arjun@iiitpune.ac.in</code> / <code>student123</code></span>
+              <span className="login-demo-cred"><code>kaustubh@iiitpune.ac.in</code> / <code>student123</code></span>
             </div>
           </div>
         </div>

@@ -161,7 +161,12 @@ function AppRoutes() {
         } />
         <Route path="/logs" element={
           <ProtectedRoute allowedRoles={['warden', 'security']}>
-            <AppLayout><ScanLogs /></AppLayout>
+            <AppLayout><ScanLogs defaultTab="gate" /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/home-logs" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><ScanLogs defaultTab="home" /></AppLayout>
           </ProtectedRoute>
         } />
 

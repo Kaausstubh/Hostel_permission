@@ -23,6 +23,10 @@ const ACTIVE_QR_INDEX = 'active_qr_tokens';
 const activeQrKey = (token) => `active_qr:${token}`;
 const fallbackActiveQRStore = new Map();
 
+/** Compact gate tokens (HV-*, IO-*) are not JWTs — skip jwt.verify in active store */
+const isSignedJwtQrToken = (token) =>
+  typeof token === 'string' && /^eyJ[A-Za-z0-9_-]+\./.test(token);
+
 const renderQRValue = async (value, filename, options = {}) => {
   const stem = filename || `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const qrFilename = `${stem}.png`;
@@ -31,7 +35,7 @@ const renderQRValue = async (value, filename, options = {}) => {
   if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
 
   const qrOptions = {
-    errorCorrectionLevel: options.errorCorrectionLevel || 'H',
+    errorCorrectionLevel: options.errorCorrectionLevel || 'M',
     width: options.width || 400,
     margin: options.margin ?? 2,
     color: options.color || { dark: '#1a1a2e', light: '#ffffff' },
@@ -51,11 +55,19 @@ const renderQRValue = async (value, filename, options = {}) => {
  * @param {string} token - The signed JWT token
  * @param {object} meta  - { studentId, studentName, hostel, scanType, qrFilename }
  */
-const registerActiveQR = async (token, meta) => {
+/** Seconds until end of return date (+1 day buffer), min 24h, max 120 days */
+const getHomeVisitExpiresInSeconds = (returnDateStr) => {
+  const endMs = new Date(`${returnDateStr}T23:59:59`).getTime() + 24 * 60 * 60 * 1000;
+  const seconds = Math.ceil((endMs - Date.now()) / 1000);
+  return Math.min(Math.max(seconds, 24 * 60 * 60), 120 * 24 * 60 * 60);
+};
+
+const registerActiveQR = async (token, meta, ttlSeconds = QR_EXPIRY) => {
   const entry = { ...meta, createdAt: new Date().toISOString() };
+  const ttl = ttlSeconds > 0 ? ttlSeconds : QR_EXPIRY;
   const redis = await getRedis();
   if (redis) {
-    await redis.set(activeQrKey(token), JSON.stringify(entry), { EX: QR_EXPIRY });
+    await redis.set(activeQrKey(token), JSON.stringify(entry), { EX: ttl });
     await redis.sAdd(ACTIVE_QR_INDEX, token);
     return;
   }
@@ -81,7 +93,8 @@ const removeActiveQR = async (token) => {
  * Prunes expired entries as a side-effect.
  * @returns {Array<object>}
  */
-const getActiveQRs = async () => {
+const getActiveQRs = async (limit = null) => {
+  const cap = limit && limit > 0 ? limit : null;
   const redis = await getRedis();
   if (redis) {
     const tokens = await redis.sMembers(ACTIVE_QR_INDEX);
@@ -100,26 +113,37 @@ const getActiveQRs = async () => {
         continue;
       }
       try {
-        jwt.verify(token, QR_SECRET);
-        results.push({ token, ...JSON.parse(raw) });
+        const meta = JSON.parse(raw);
+        if (isSignedJwtQrToken(token)) {
+          jwt.verify(token, QR_SECRET);
+        }
+        results.push({ token, ...meta });
       } catch {
         await redis.del(activeQrKey(token));
         await redis.sRem(ACTIVE_QR_INDEX, token);
       }
     }
-    return results;
+    const sorted = results.sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+    );
+    return cap ? sorted.slice(0, cap) : sorted;
   }
 
   const results = [];
   for (const [token, meta] of fallbackActiveQRStore.entries()) {
     try {
-      jwt.verify(token, QR_SECRET);
+      if (isSignedJwtQrToken(token)) {
+        jwt.verify(token, QR_SECRET);
+      }
       results.push({ token, ...meta });
     } catch {
       fallbackActiveQRStore.delete(token);
     }
   }
-  return results;
+  const sorted = results.sort(
+    (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+  );
+  return cap ? sorted.slice(0, cap) : sorted;
 };
 
 /**
@@ -128,10 +152,10 @@ const getActiveQRs = async () => {
  * @param {string} [filename] - Optional filename stem (without extension). Auto-generated if omitted.
  * @returns {Promise<{ token: string, qrDataUrl: string, qrPublicUrl: string, qrFilename: string }>}
  */
-const generateQR = async (payload, filename) => {
-  // Sign the payload with an expiry
-  const token = jwt.sign(payload, QR_SECRET, { expiresIn: QR_EXPIRY });
-  return renderQRValue(token, filename);
+const generateQR = async (payload, filename, options = {}) => {
+  const expiresIn = options.expiresIn ?? QR_EXPIRY;
+  const token = jwt.sign(payload, QR_SECRET, { expiresIn });
+  return renderQRValue(token, filename, options.renderOptions);
 };
 
 /**
@@ -153,10 +177,55 @@ const validateQR = (token) => {
     return { valid: true, payload };
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return { valid: false, error: 'QR code has expired' };
+      return { valid: false, error: 'QR code has expired', expired: true };
     }
     return { valid: false, error: 'Invalid QR code' };
   }
+};
+
+const canonicalCompactToken = (prefix, body) => {
+  const raw = String(body || '').replace(/\s+/g, '');
+  if (!raw) return '';
+  return `${prefix}${raw}`;
+};
+
+/** Extract JWT or compact IO-/HV- token from raw scanner text (URLs, labels, etc.) */
+const normalizeScannedToken = (raw) => {
+  let trimmed = String(raw || '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/\s+/g, '');
+  if (!trimmed) return '';
+
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const url = new URL(trimmed);
+      const fromQuery =
+        url.searchParams.get('token') ||
+        url.searchParams.get('t') ||
+        url.searchParams.get('qr');
+      if (fromQuery) trimmed = fromQuery.trim();
+      else {
+        const last = url.pathname.split('/').filter(Boolean).pop() || '';
+        if (/^hv_/i.test(last) || /^io_/i.test(last)) {
+          // PNG path only — cannot recover token from filename
+        }
+      }
+    }
+  } catch {
+    // not a URL
+  }
+
+  const jwtMatch = trimmed.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+  if (jwtMatch) return jwtMatch[0];
+
+  const ioMatch = trimmed.match(/IO-[A-Za-z0-9_-]+/i);
+  if (ioMatch) return canonicalCompactToken('IO-', ioMatch[0].slice(3));
+
+  const hvMatch = trimmed.match(/HV-[A-Za-z0-9_-]+/i);
+  if (hvMatch) return canonicalCompactToken('HV-', hvMatch[0].slice(3));
+
+  return trimmed;
 };
 
 module.exports = {
@@ -164,6 +233,8 @@ module.exports = {
   renderQRFromToken,
   renderQRValue,
   validateQR,
+  normalizeScannedToken,
+  getHomeVisitExpiresInSeconds,
   registerActiveQR,
   removeActiveQR,
   getActiveQRs,

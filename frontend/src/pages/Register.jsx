@@ -60,7 +60,10 @@ export default function Register() {
       toast.success(`Welcome, ${user.name}! 🎉`);
       navigate('/student');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Registration failed');
+      const msg = err.response?.data?.message
+        || (err.code === 'ERR_NETWORK' ? 'Cannot reach server. Start the backend and check VITE_API_URL.' : null)
+        || 'Registration failed';
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

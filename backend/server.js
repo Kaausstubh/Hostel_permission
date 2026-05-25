@@ -6,6 +6,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const helmet = require('helmet');
@@ -14,8 +15,10 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const { scheduleNotReturnedAlert } = require('./jobs/notReturnedAlert');
+const { scheduleQrCleanup } = require('./jobs/qrCleanup');
 const { startWhatsAppWorker, hasQueueInfra } = require('./queues/whatsappQueue');
-const { getRedis } = require('./services/redisClient');
+const { getRedis, hasRedis } = require('./services/redisClient');
+const { logCampusStartup, validateCampusConfig } = require('./config/campus');
 
 // Ensure QR image directory exists on startup
 const QR_DIR = path.join(__dirname, 'public', 'qr');
@@ -36,7 +39,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '1mb';
 const API_RATE_LIMIT_WINDOW_MS = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || `${15 * 60 * 1000}`, 10);
-const API_RATE_LIMIT_MAX = parseInt(process.env.API_RATE_LIMIT_MAX || '600', 10);
+const API_RATE_LIMIT_MAX = parseInt(process.env.API_RATE_LIMIT_MAX || '3000', 10);
 
 const parseOriginList = (...values) => values
   .flatMap((value) => (value || '').split(','))
@@ -78,6 +81,10 @@ connectDB();
 app.disable('x-powered-by');
 app.use(helmet());
 
+// ⚡ Compression first — gzip/brotli all responses (60-80% size reduction)
+// threshold: only compress responses > 1KB (small JSON not worth CPU)
+app.use(compression({ threshold: 1024 }));
+
 const apiLimiter = rateLimit({
   windowMs: API_RATE_LIMIT_WINDOW_MS,
   max: API_RATE_LIMIT_MAX,
@@ -92,16 +99,11 @@ app.use((req, res, next) => {
   req.requestId = uuidv4();
   const started = Date.now();
   res.on('finish', () => {
-    const elapsedMs = Date.now() - started;
-    console.log(
-      JSON.stringify({
-        requestId: req.requestId,
-        method: req.method,
-        path: req.originalUrl,
-        statusCode: res.statusCode,
-        elapsedMs,
-      })
-    );
+    // Use string concat, not JSON.stringify, on hot path
+    if (process.env.NODE_ENV !== 'test') {
+      const ms = Date.now() - started;
+      console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms [${req.requestId.slice(0,8)}]`);
+    }
   });
   next();
 });
@@ -155,6 +157,8 @@ app.post('/api/dev/trigger-alert', async (req, res) => {
 
 // ─── Health Check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
+  // Short cache: 5s — reduces load from monitoring pings without serving stale data
+  res.set('Cache-Control', 'public, max-age=5');
   res.json({
     status: 'ok',
     requestId: req.requestId,
@@ -167,16 +171,26 @@ app.get('/api/health', (req, res) => {
 app.get('/api/ready', async (req, res) => {
   const dbReady = mongoose.connection.readyState === 1;
   const redis = await getRedis();
-  const redisReady = hasQueueInfra() ? Boolean(redis?.isOpen) : true;
-  const ready = dbReady && redisReady;
+  const redisRequired = process.env.NODE_ENV === 'production'
+    && (process.env.REQUIRE_REDIS_IN_PRODUCTION || 'true') === 'true';
+  const redisReady = redisRequired ? Boolean(redis?.isOpen) : (hasRedis() ? Boolean(redis?.isOpen) : true);
+  const campus = await validateCampusConfig();
+  const ready = dbReady && redisReady && campus.errors.length === 0;
 
   res.status(ready ? 200 : 503).json({
     status: ready ? 'ready' : 'not_ready',
     requestId: req.requestId,
+    campus: {
+      capacity: campus.capacity,
+      pendingQrListLimit: campus.pendingQrListLimit,
+      redis: campus.redis,
+    },
     checks: {
       mongodb: dbReady ? 'up' : 'down',
-      redis: redisReady ? 'up' : 'down',
+      redis: redisReady ? 'up' : (hasRedis() ? 'down' : 'optional'),
     },
+    warnings: campus.warnings,
+    errors: campus.errors,
     timestamp: new Date().toISOString(),
   });
 });
@@ -205,9 +219,10 @@ app.listen(PORT, () => {
   console.log(`   Public Backend URL: ${process.env.PUBLIC_BACKEND_URL || 'NOT CONFIGURED'}`);
   console.log('─'.repeat(50));
 
-  // Start cron job
   scheduleNotReturnedAlert();
+  scheduleQrCleanup();
   startWhatsAppWorker();
+  logCampusStartup();
 });
 
 module.exports = app;

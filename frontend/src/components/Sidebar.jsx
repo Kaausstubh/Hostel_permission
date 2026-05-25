@@ -19,7 +19,8 @@ const wardenNav = [
   { to: '/not-returned', icon: <MdWarning />,       label: 'Not Returned', alert: true },
   { to: '/home-visits',  icon: <MdHome />,          label: 'Home Visits' },
   { to: '/complaints',   icon: <MdReport />,        label: 'Complaints' },
-  { to: '/logs',         icon: <MdHistory />,       label: 'Scan Logs' },
+  { to: '/logs',         icon: <MdHistory />,       label: 'Gate Scan Logs' },
+  { to: '/home-logs',    icon: <MdHistory />,       label: 'Home Scan Logs' },
 ];
 
 const securityNav = [

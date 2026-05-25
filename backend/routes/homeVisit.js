@@ -13,8 +13,12 @@ const router = express.Router();
 const HomeVisitLog = require('../models/HomeVisitLog');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
-const { generateQR, validateQR, registerActiveQR } = require('../services/qrService');
+const {
+  validateQR,
+  normalizeScannedToken,
+} = require('../services/qrService');
 const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
+const { issueHomeVisitGatePass, findHomeVisitByScanToken } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
@@ -221,26 +225,10 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
       }
       visit.overall_status = 'approved';
 
-      // Generate QR for exit/entry
-      const payload = {
-        type: 'home_visit',
-        student_id: student._id.toString(),
-        visit_id: visit._id.toString(),
-      };
-      const { token, qrDataUrl, qrPublicUrl } = await generateQR(payload);
+      const visitLean = visit.toObject();
+      visitLean.student_id = student;
+      const { token, qrPublicUrl } = await issueHomeVisitGatePass(visitLean);
       visit.qr_token = token;
-
-      // Register in active store for unified gate scanner pending list
-      await registerActiveQR(token, {
-        qrType: 'home_visit',
-        studentId: student._id.toString(),
-        studentName: student.name,
-        hostel: student.hostel || 'N/A',
-        rollNumber: student.rollNo || 'N/A',
-        scanType: 'HOME OUT', // first scan is leaving
-        qrPublicUrl,
-        qrDataUrl,
-      });
 
       // Send QR to student via WhatsApp
       await enqueueWhatsAppMessage({
@@ -267,15 +255,20 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
 // ─── Home Visit QR Scan (Gate) ────────────────────────────────────────────────
 router.post('/scan', protect, authorize('security', 'warden'), async (req, res) => {
   try {
-    const { token } = req.body;
-    const { valid, payload, error } = validateQR(token);
-    if (!valid) return res.status(400).json({ success: false, message: error });
+    const token = normalizeScannedToken(req.body.token);
+    if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
-    if (payload.type !== 'home_visit') {
-      return res.status(400).json({ success: false, message: 'Not a home visit QR code' });
+    let visit = await findHomeVisitByScanToken(token);
+    if (visit) {
+      visit = await HomeVisitLog.findById(visit._id).populate('student_id');
+    } else {
+      const { valid, payload, error } = validateQR(token);
+      if (!valid) return res.status(400).json({ success: false, message: error });
+      if (payload.type !== 'home_visit') {
+        return res.status(400).json({ success: false, message: 'Not a home visit QR code' });
+      }
+      visit = await HomeVisitLog.findById(payload.visit_id).populate('student_id');
     }
-
-    const visit = await HomeVisitLog.findById(payload.visit_id).populate('student_id');
     if (!visit || visit.overall_status !== 'approved') {
       return res.status(400).json({ success: false, message: 'Visit not found or not approved' });
     }
