@@ -1,7 +1,7 @@
 /**
  * In/Out Routes
  * POST /api/inout/generate-qr  - Student generates a QR code
- * POST /api/inout/scan         - Security scans QR to mark IN/OUT
+ * POST /api/inout/scan         - Security scans QR to mark IN/OUT (legacy — prefer /api/gatescan/scan)
  * GET  /api/inout/logs         - Warden views all logs
  * GET  /api/inout/not-returned - Get not-returned students (today)
  * GET  /api/inout/history/:id  - Student history
@@ -13,6 +13,8 @@ const InOutLog = require('../models/InOutLog');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const { generateQR, renderQRFromToken, validateQR, registerActiveQR, removeActiveQR, getActiveQRs } = require('../services/qrService');
+const { withScanLock } = require('../services/scanLockService');
+const logger = require('../utils/logger');
 const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -65,7 +67,9 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
     }
 
     const payload = {
-      type: 'inout',
+      // IMPORTANT: must match 'inout_request' so the unified /api/gatescan/scan
+      // endpoint can correctly route this QR type.
+      type: 'inout_request',
       student_id: studentId,
       date: todayStr(),
     };
@@ -99,80 +103,94 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
   }
 });
 
-// ─── Scan QR (Security Dashboard) ────────────────────────────────────────────
+// ─── Scan QR (Legacy — prefer /api/gatescan/scan for new flows) ──────────────
+// This endpoint is kept for backward compatibility.
+// It now uses the distributed scan lock for race condition protection.
 router.post('/scan', protect, authorize('security', 'warden'), async (req, res) => {
+  const scanStart = Date.now();
   try {
     const { token } = req.body;
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
-    // Validate JWT signature + expiry
-    const { valid, payload, error } = validateQR(token);
-    if (!valid) return res.status(400).json({ success: false, message: error });
+    const result = await withScanLock(token, async () => {
+      // Validate JWT signature + expiry
+      const { valid, payload, error } = validateQR(token);
+      if (!valid) return { status: 400, body: { success: false, message: error } };
 
-    if (payload.type !== 'inout') {
-      return res.status(400).json({ success: false, message: 'Invalid QR type for this scanner' });
-    }
-
-    const student = await User.findById(payload.student_id);
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-
-    // Single-QR flow:
-    // - First scan creates an OUT record (out_time)
-    // - Second scan updates the SAME record to IN (in_time) and marks returned=true
-    const existing = await InOutLog.findOne({ qr_token: token });
-    const now = new Date();
-
-    let log;
-    let status;
-
-    if (!existing) {
-      status = 'OUT';
-      log = await InOutLog.create({
-        student_id: payload.student_id,
-        name: student.name || '',
-        rollNo: student.rollNo || '',
-        email: student.email || '',
-        phone: student.phone || '',
-        parentPhone: student.parentPhone || '',
-        hostel: student.hostel || '',
-        qr_token: token,
-        status,
-        out_time: now,
-        in_time: null,
-        timestamp: now,
-        date: todayStr(),
-        returned: false,
-        scannedBy: req.user._id,
-      });
-      // Keep token active: it must be scanned again for IN.
-    } else {
-      if (existing.returned) {
-        return res.status(400).json({ success: false, message: 'QR code already fully used (OUT+IN complete)' });
+      // Accept both 'inout' (old) and 'inout_request' (new) types
+      if (payload.type !== 'inout' && payload.type !== 'inout_request') {
+        return { status: 400, body: { success: false, message: 'Invalid QR type for this scanner' } };
       }
-      if (existing.status !== 'OUT') {
-        return res.status(400).json({ success: false, message: 'Invalid state for this QR' });
+
+      const student = await User.findById(payload.student_id).lean();
+      if (!student) return { status: 404, body: { success: false, message: 'Student not found' } };
+
+      const existing = await InOutLog.findOne({ qr_token: token }).lean().maxTimeMS(5000);
+      const now = new Date();
+
+      let log;
+      let status;
+
+      if (!existing) {
+        status = 'OUT';
+        try {
+          log = await InOutLog.create({
+            student_id: payload.student_id,
+            name: student.name || '',
+            rollNo: student.rollNo || '',
+            email: student.email || '',
+            phone: student.phone || '',
+            parentPhone: student.parentPhone || '',
+            hostel: student.hostel || '',
+            qr_token: token,
+            status,
+            out_time: now,
+            in_time: null,
+            timestamp: now,
+            date: todayStr(),
+            returned: false,
+            scannedBy: req.user._id,
+          });
+        } catch (err) {
+          if (err?.code === 11000) {
+            return { status: 200, body: { success: true, message: 'Student already marked as OUT',
+              student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
+              log: { status: 'OUT', timestamp: now } } };
+          }
+          throw err;
+        }
+      } else {
+        if (existing.returned) {
+          return { status: 400, body: { success: false, message: 'QR code already fully used (OUT+IN complete)' } };
+        }
+        if (existing.status !== 'OUT') {
+          return { status: 400, body: { success: false, message: 'Invalid state for this QR' } };
+        }
+        status = 'IN';
+        log = await InOutLog.findByIdAndUpdate(existing._id, {
+          $set: { status: 'IN', in_time: now, timestamp: now, returned: true, scannedBy: req.user._id }
+        }, { new: true }).lean();
+        await removeActiveQR(token);
       }
-      status = 'IN';
-      existing.status = 'IN';
-      existing.in_time = now;
-      existing.timestamp = now;
-      existing.returned = true;
-      existing.scannedBy = req.user._id;
-      await existing.save();
-      log = existing;
 
-      // Remove from active store — QR has been fully consumed now
-      await removeActiveQR(token);
-    }
-
-    res.json({
-      success: true,
-      message: `Student marked as ${status}`,
-      student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
-      log: { status, timestamp: log.timestamp, out_time: log.out_time, in_time: log.in_time, returned: log.returned },
+      return {
+        status: 200,
+        body: {
+          success: true,
+          message: `Student marked as ${status}`,
+          student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
+          log: { status, timestamp: log.timestamp, out_time: log.out_time, in_time: log.in_time, returned: log.returned },
+          scanDuration: Date.now() - scanStart,
+        },
+      };
     });
+
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    console.error('Scan error:', error);
+    if (error.statusCode === 409) {
+      return res.status(409).json({ success: false, message: error.message });
+    }
+    logger.error('[InOut] Scan error', { error: error.message, requestId: req.requestId });
     res.status(500).json({ success: false, message: error.message });
   }
 });

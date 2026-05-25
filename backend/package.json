@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "loadtest": "node loadtest/run.js"
+    "loadtest": "node loadtest/run.js",
+    "loadtest:enterprise": "node loadtest/enterprise.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -23,6 +24,7 @@
     "node-cron": "^3.0.3",
     "qrcode": "^1.5.3",
     "redis": "^5.12.1",
+    "socket.io": "^4.8.3",
     "twilio": "^5.2.2",
     "uuid": "^10.0.0"
   },

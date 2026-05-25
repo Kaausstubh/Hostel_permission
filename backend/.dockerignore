@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.*
+!.env.example
+public/qr
+*.log
+.git
+.gitignore
+README.md
+loadtest
+*.test.js
+coverage
+.nyc_output

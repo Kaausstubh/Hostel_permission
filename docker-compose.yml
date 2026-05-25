@@ -1,0 +1,157 @@
+version: '3.9'
+
+# ─── HEIMDALL Smart Campus — Full Stack Docker Compose ───────────────────────
+# Usage:
+#   Development:  docker-compose up
+#   Production:   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: heimdall-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-heimdall}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme_in_production}
+      MONGO_INITDB_DATABASE: hostel
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - heimdall-net
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: heimdall-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD:-changeme_in_production}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_in_production}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - heimdall-net
+
+  # ── Backend API ───────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: heimdall-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-heimdall}:${MONGO_ROOT_PASSWORD:-changeme_in_production}@mongodb:27017/hostel?authSource=admin
+      MONGODB_MAX_POOL_SIZE: 100
+      MONGODB_MIN_POOL_SIZE: 10
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_in_production}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      QR_SECRET: ${QR_SECRET:?QR_SECRET must be set}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:80}
+      PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:-http://localhost:5000}
+      ALLOW_VERCEL_PREVIEWS: "false"
+      REQUIRE_REDIS_IN_PRODUCTION: "true"
+      CAMPUS_STUDENT_CAPACITY: ${CAMPUS_STUDENT_CAPACITY:-15000}
+      PENDING_QR_LIST_LIMIT: ${PENDING_QR_LIST_LIMIT:-500}
+      QR_EXPIRY_SECONDS: ${QR_EXPIRY_SECONDS:-3600}
+      API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-5000}
+      SIMULATE_WHATSAPP: ${SIMULATE_WHATSAPP:-true}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER:-}
+      COLLEGE_EMAIL_DOMAIN: ${COLLEGE_EMAIL_DOMAIN:-iiitpune.ac.in}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "5000:5000"
+    volumes:
+      # QR images persist across container restarts
+      # IMPORTANT: Use cloud storage (S3) in multi-instance production
+      - qr_images:/app/public/qr
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - heimdall-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5000}
+    container_name: heimdall-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/index.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - heimdall-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  heimdall-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  mongo_data:
+    driver: local
+  mongo_config:
+    driver: local
+  redis_data:
+    driver: local
+  qr_images:
+    driver: local

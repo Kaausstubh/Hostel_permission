@@ -1,43 +1,33 @@
 /**
  * Auth Routes
  * POST /api/auth/register - Student self-registration (college email only)
- * POST /api/auth/login    - Login and receive JWT (1 day)
+ * POST /api/auth/login    - Login and receive JWT (7 days)
  * GET  /api/auth/me       - Get logged-in user profile
+ * POST /api/auth/logout   - Invalidate session cache + blacklist JWT
  */
 
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { protect, invalidateUserCache } = require('../middleware/auth');
+const { protect, invalidateUserCache, addToBlacklist } = require('../middleware/auth');
 const { normalizeToE164 } = require('../utils/phone');
+const { loginLimiter, registerLimiter } = require('../middleware/rateLimiters');
+const logger = require('../utils/logger');
 
 // College email domain restriction for student self-registration
 const COLLEGE_EMAIL_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
-
-// Basic email format regex
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Helper: generate 7-day JWT (extended from 1d for better student UX)
+// Helper: generate 7-day JWT
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 // ── Register (Students Only) ──────────────────────────────────────────────────
-/**
- * Only students can self-register.
- * Warden and security accounts are created by admin (seed or manual DB insert).
- *
- * Validates:
- *  - email must end with @<COLLEGE_EMAIL_DOMAIN>
- *  - rollNo must be unique
- *  - email must be unique
- *  - phone must be unique
- */
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { name, rollNo, email, phone, parentPhone, hostel, password } = req.body;
 
-    // ── Validation ──────────────────────────────────────────────────────────
     if (!name || !rollNo || !email || !phone || !password) {
       return res.status(400).json({
         success: false,
@@ -45,18 +35,25 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Email format check
+    // Input length caps — prevent oversized payloads slipping through
+    if (name.trim().length > 100 || rollNo.trim().length > 30) {
+      return res.status(400).json({ success: false, message: 'Input fields exceed allowed length' });
+    }
+
     if (!EMAIL_REGEX.test(email)) {
       return res.status(400).json({ success: false, message: 'Invalid email format' });
     }
 
-    // College email domain check
     const emailDomain = email.split('@')[1]?.toLowerCase();
     if (emailDomain !== COLLEGE_EMAIL_DOMAIN) {
       return res.status(400).json({
         success: false,
         message: `Only college emails (@${COLLEGE_EMAIL_DOMAIN}) are allowed for student registration`,
       });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
     }
 
     // Single query to check all duplicates at once (replaces 3 sequential DB hits)
@@ -78,19 +75,20 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Phone number already registered' });
     }
 
-    // ── Create user ─────────────────────────────────────────────────────────
     const user = await User.create({
-      name,
-      rollNo,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      rollNo: rollNo.trim(),
+      email: email.toLowerCase().trim(),
       phone: normalizeToE164(phone),
       parentPhone: parentPhone ? normalizeToE164(parentPhone) : null,
       hostel: hostel || null,
       password,
-      role: 'student', // Always student for self-registration
+      role: 'student',
     });
 
     const token = signToken(user._id);
+
+    logger.info('[Auth] Student registered', { userId: user._id, email: user.email, requestId: req.requestId });
 
     res.status(201).json({
       success: true,
@@ -107,21 +105,17 @@ router.post('/register', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Register error:', error);
-    // Handle mongoose duplicate key errors gracefully
+    logger.error('[Auth] Register error', { error: error.message, requestId: req.requestId });
     if (error.code === 11000) {
       const field = Object.keys(error.keyValue)[0];
-      return res.status(400).json({
-        success: false,
-        message: `${field} is already taken`,
-      });
+      return res.status(400).json({ success: false, message: `${field} is already taken` });
     }
     res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
   }
 });
 
 // ── Login ─────────────────────────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -129,10 +123,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    // Lean projection — only select fields needed for login response + password compare
     const user = await User.findOne({ email: email.toLowerCase() })
       .select('+password name rollNo email phone hostel parentPhone role isActive');
     if (!user || !(await user.comparePassword(password))) {
+      // Generic message — do not reveal whether email exists
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
@@ -141,6 +135,8 @@ router.post('/login', async (req, res) => {
     }
 
     const token = signToken(user._id);
+
+    logger.info('[Auth] Login success', { userId: user._id, role: user.role, requestId: req.requestId });
 
     res.json({
       success: true,
@@ -157,25 +153,34 @@ router.post('/login', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error('[Auth] Login error', { error: error.message, requestId: req.requestId });
+    res.status(500).json({ success: false, message: 'Login failed. Please try again.' });
   }
 });
 
-// ── Get current user ────────────────────────────────────────────────────────────────
+// ── Get current user ──────────────────────────────────────────────────────────
 router.get('/me', protect, async (req, res) => {
   res.json({ success: true, user: req.user });
 });
 
-// ── Logout (invalidate server-side session cache) ──────────────────────────────
+// ── Logout ────────────────────────────────────────────────────────────────────
 router.post('/logout', protect, async (req, res) => {
   try {
-    // Bust the Redis/in-memory session cache so the next login starts fresh
-    await invalidateUserCache(String(req.user._id));
-    res.json({ success: true, message: 'Logged out' });
+    const userId = String(req.user._id);
+
+    // 1. Invalidate Redis/in-memory session cache
+    await invalidateUserCache(userId);
+
+    // 2. Add current JWT to blacklist (prevents reuse even within 7-day validity)
+    if (req._authToken && req._authDecoded) {
+      await addToBlacklist(req._authToken, req._authDecoded);
+    }
+
+    logger.info('[Auth] User logged out', { userId, requestId: req.requestId });
+    res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
-    // Non-critical — client should clear localStorage regardless
-    res.json({ success: true, message: 'Logged out (cache clear failed)' });
+    logger.warn('[Auth] Logout cleanup error (non-critical)', { error: err.message, requestId: req.requestId });
+    res.json({ success: true, message: 'Logged out (cleanup partial)' });
   }
 });
 
