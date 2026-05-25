@@ -80,7 +80,7 @@ const parseLocalDate = (dateStr) => {
 };
 const getMaxReturnDateFromLeave = (leaveDateStr) => {
   const leaveDate = parseLocalDate(leaveDateStr);
-  leaveDate.setMonth(leaveDate.getMonth() + 4);
+  leaveDate.setDate(leaveDate.getDate() + 105);
   return formatLocalDate(leaveDate);
 };
 
@@ -1050,7 +1050,8 @@ export default function StudentDashboard() {
       const latestButtonsId = [...messages].reverse().find((msg) => msg.type === 'buttons')?.id;
       const isLatestButtons = m.id === latestButtonsId;
       const hasFlowActions = m.meta.buttons?.some((btn) => btn.id?.startsWith('flow_'));
-      const isInteractiveButtons = isLatestButtons || hasFlowActions;
+      const hasQrActions = m.meta.buttons?.some((btn) => btn.id?.startsWith('qr_'));
+      const isInteractiveButtons = isLatestButtons || hasFlowActions || hasQrActions;
       return (
         <div style={{ alignSelf: 'flex-start', maxWidth: '80%', opacity: isInteractiveButtons ? 1 : 0.5, pointerEvents: isInteractiveButtons ? 'auto' : 'none' }}>
           {/* Text bubble */}
@@ -1070,7 +1071,8 @@ export default function StudentDashboard() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {m.meta.buttons.map((btn) => {
               const isFlowBtn = btn.id?.startsWith('flow_');
-              const canClick = isLatestButtons || isFlowBtn;
+              const isQrBtn = btn.id?.startsWith('qr_');
+              const canClick = isLatestButtons || isFlowBtn || isQrBtn;
               return (
               <button key={btn.id} id={`btn-${btn.id}`}
                 onClick={() => canClick && handleButton(btn.id, btn.label)}
