@@ -30,6 +30,8 @@ const {
 } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 
+const { validatePlaceGeo } = require('../utils/placeValidator');
+
 const todayStr = () => new Date().toISOString().split('T')[0];
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
@@ -196,8 +198,8 @@ router.post('/request-inout', async (req, res) => {
     });
     const scanType = existingOut ? 'IN' : 'OUT';
 
-    if (scanType === 'OUT' && !place) {
-      return res.status(400).json({ success: false, message: 'Destination (place) is required for going out' });
+    if (scanType === 'OUT' && (!place || !(await validatePlaceGeo(place)))) {
+      return res.status(400).json({ success: false, message: 'A valid destination (place) is required for going out (real city, town, village, or place name)' });
     }
 
     let request = await getPendingInOutRequest(studentId);
@@ -234,6 +236,7 @@ router.post('/request-inout', async (req, res) => {
         parentPhone: user.parentPhone || '',
         scanType,
         place: scanType === 'OUT' ? place : (existingOut?.place || place),
+        reason: '',
       });
     }
 
@@ -263,13 +266,13 @@ router.post('/request-inout', async (req, res) => {
 // Submit a new home visit request
 router.post('/home-visit', async (req, res) => {
   try {
-    const { reason, leave_date, return_date } = req.body;
+    const { reason, leave_date, return_date, place } = req.body;
     const user = req.user;
 
-    if (!reason || !leave_date || !return_date) {
+    if (!reason || !leave_date || !return_date || !place || !(await validatePlaceGeo(place))) {
       return res.status(400).json({
         success: false,
-        message: 'reason, leave_date, and return_date are required',
+        message: 'reason, leave_date, return_date, and a valid destination place are required (real city, town, village, or place name)',
       });
     }
 
@@ -343,6 +346,7 @@ router.post('/home-visit', async (req, res) => {
       reason,
       leave_date,
       return_date,
+      place: String(place).trim().slice(0, 200),
     });
 
     res.status(201).json({
@@ -476,6 +480,18 @@ router.get('/home-visits', async (req, res) => {
       limit,
       visits: [...activeWithQr, ...recentHistory],
     });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /validate-place ──────────────────────────────────────────────────────
+router.post('/validate-place', async (req, res) => {
+  try {
+    const { place } = req.body;
+    if (!place) return res.status(400).json({ success: false, message: 'place required' });
+    const valid = await validatePlaceGeo(place);
+    res.json({ success: true, valid });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

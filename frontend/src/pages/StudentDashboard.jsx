@@ -53,10 +53,13 @@ const STEPS = {
   // In/Out
   INOUT_PLACE:   'INOUT_PLACE',
   INOUT_OTHER:   'INOUT_OTHER',
+  INOUT_REASON:  'INOUT_REASON',
+  INOUT_REASON_OTHER: 'INOUT_REASON_OTHER',
   INOUT_CONFIRM: 'INOUT_CONFIRM',
   // Home Visit
   HV_REASON:     'HV_REASON',
   HV_REASON_OTHER: 'HV_REASON_OTHER',
+  HV_PLACE:      'HV_PLACE',
   HV_LEAVE:      'HV_LEAVE',
   HV_RETURN:     'HV_RETURN',
   // Complaint
@@ -539,7 +542,7 @@ export default function StudentDashboard() {
     setHvData({});
     setStep(STEPS.HV_REASON);
     lastBotRef.current = { content: '', type: '', at: 0 };
-    botSay('🏠 *Home Visit Request*\n\nStep 1/3 — Select a reason below, or type your own:', 'buttons', {
+    botSay('🏠 *Home Visit Request*\n\nStep 1 — Select a reason below, or type your own:', 'buttons', {
       buttons: [
         { id: 'going_home', label: '🏠 Going Home' },
         { id: 'medical_reason', label: '🏥 Medical Reason' },
@@ -590,7 +593,7 @@ export default function StudentDashboard() {
         });
       } else if (id === '2') {
         setStep(STEPS.HV_REASON);
-        botSay('🏠 *Home Visit Request*\n\nStep 1/3 — Please select a reason below, or type your own:', 'buttons', {
+        botSay('🏠 *Home Visit Request*\n\nStep 1 — Please select a reason below, or type your own:', 'buttons', {
           buttons: [
             { id: 'going_home', label: '🏠 Going Home' },
             { id: 'medical_reason', label: '🏥 Medical Reason' },
@@ -637,12 +640,9 @@ export default function StudentDashboard() {
         botSay('Please type your detailed reason below:\n\n_Type *menu* or *cancel* anytime to go back._');
         return;
       }
-      // Use the button label as the reason
       setHvData({ reason: label });
-      setStep(STEPS.HV_LEAVE);
-      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
-        pickerStep: STEPS.HV_LEAVE,
-      });
+      setStep(STEPS.HV_PLACE);
+      botSay('📍 Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
     }
   };
 
@@ -667,16 +667,50 @@ export default function StudentDashboard() {
         return;
       }
       setHvData({ reason: text });
-      setStep(STEPS.HV_LEAVE);
-      botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below. Only dates from the current month are allowed:', 'date_picker', {
-        pickerStep: STEPS.HV_LEAVE,
-      });
-    } else if (step === STEPS.INOUT_OTHER) {
-      if (text.length < 2) {
-        botSay('❌ Please enter a valid location name.');
-        return;
+      setStep(STEPS.HV_PLACE);
+      botSay('📍 Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
+    } else if (step === STEPS.HV_PLACE) {
+      setLoading(true);
+      try {
+        const res = await api.post('/student/validate-place', { place: text });
+        if (!res.data.valid) {
+          botSay('❌ Please enter a valid destination place (real city, town, village, or country name).');
+          setLoading(false);
+          return;
+        }
+        setHvData((d) => ({ ...d, place: text }));
+        setStep(STEPS.HV_LEAVE);
+        botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+          pickerStep: STEPS.HV_LEAVE,
+        });
+      } catch (err) {
+        if (text.length < 3) {
+          botSay('❌ Please enter a valid destination place.');
+        } else {
+          setHvData((d) => ({ ...d, place: text }));
+          setStep(STEPS.HV_LEAVE);
+          botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+            pickerStep: STEPS.HV_LEAVE,
+          });
+        }
+      } finally {
+        setLoading(false);
       }
-      await submitInOutRequest(text);
+    } else if (step === STEPS.INOUT_OTHER) {
+      setLoading(true);
+      try {
+        const res = await api.post('/student/validate-place', { place: text });
+        if (!res.data.valid) {
+          botSay('❌ Please enter a valid location name (real city, town, village, or place name).');
+          setLoading(false);
+          return;
+        }
+        await submitInOutRequest(text);
+      } catch (err) {
+        await submitInOutRequest(text);
+      } finally {
+        setLoading(false);
+      }
     } else if (step === STEPS.HV_LEAVE || step === STEPS.HV_RETURN) {
       await processHomeVisitDate(text, step);
     } else if (step === STEPS.CPL_TEXT) {
@@ -685,7 +719,10 @@ export default function StudentDashboard() {
         return;
       }
       await submitComplaint(text);
-    } else if ([STEPS.HV_REASON, STEPS.HV_LEAVE, STEPS.HV_RETURN, STEPS.CPL_TEXT, STEPS.INOUT_OTHER].includes(step)) {
+    } else if ([
+      STEPS.HV_REASON, STEPS.HV_PLACE, STEPS.HV_LEAVE, STEPS.HV_RETURN,
+      STEPS.CPL_TEXT, STEPS.INOUT_OTHER
+    ].includes(step)) {
       botSay('You\'re in the middle of a request. Type *menu* for main menu, or use *Restart home visit* if dates are wrong.');
     } else {
       if (['hi', 'hello'].includes(t)) {
@@ -739,7 +776,7 @@ export default function StudentDashboard() {
 
       await api.post('/student/home-visit', data);
       botSay(
-        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The warden will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
+        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The warden will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
       );
       setHvData({});
       goToMainMenu();
@@ -771,7 +808,7 @@ export default function StudentDashboard() {
       setHvData((d) => ({ ...d, leave_date: leaveDate }));
       setStep(STEPS.HV_RETURN);
       botSay(
-        `📅 Step 3/3 — Select your *expected return date* below (after ${leaveDate}).`,
+        `📅 Step 4 — Select your *expected return date* below (after ${leaveDate}).`,
         'date_picker',
         { pickerStep: STEPS.HV_RETURN, leaveDate }
       );
@@ -792,9 +829,9 @@ export default function StudentDashboard() {
       }
       const leaveDate = hvData.leave_date;
       if (!leaveDate) {
-        botSay('❌ Leave date missing. Starting again from step 2.');
+        botSay('❌ Leave date missing. Starting again from step 3.');
         setStep(STEPS.HV_LEAVE);
-        botSay('📅 Step 2/3 — Select your *date of leaving* below:', 'date_picker', {
+        botSay('📅 Step 3 — Select your *date of leaving* below:', 'date_picker', {
           pickerStep: STEPS.HV_LEAVE,
         });
         scrollChatToBottom();
@@ -857,6 +894,9 @@ export default function StudentDashboard() {
         statusMsg += `\nType: ${s.pendingInOutRequest.scanType}`;
         if (s.pendingInOutRequest.place) {
           statusMsg += `\n📍 Location: ${s.pendingInOutRequest.place}`;
+        }
+        if (s.pendingInOutRequest.reason) {
+          statusMsg += `\n📝 Reason: ${s.pendingInOutRequest.reason}`;
         }
         if (s.pendingInOutRequest.expiresAt) {
           statusMsg += `\nExpires: ${new Date(s.pendingInOutRequest.expiresAt).toLocaleTimeString('en-IN')}`;
@@ -927,6 +967,7 @@ export default function StudentDashboard() {
           scanType: s.pendingInOutRequest.scanType,
           student: user,
           place: s.pendingInOutRequest.place,
+          reason: s.pendingInOutRequest.reason,
           passKind: 'inout',
         });
         goToMainMenu();
@@ -1390,7 +1431,7 @@ export default function StudentDashboard() {
         </div>
 
         {/* Input bar */}
-        {[STEPS.INOUT_OTHER, STEPS.HV_REASON_OTHER, STEPS.CPL_TEXT].includes(step) && (
+        {[STEPS.INOUT_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.CPL_TEXT].includes(step) && (
           <div style={{
             padding: isMobile ? '10px 10px' : '12px 24px',
             background: 'var(--bg-card)',
@@ -1404,6 +1445,8 @@ export default function StudentDashboard() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
                   step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
+                  step === STEPS.HV_PLACE
+                    ? 'Type destination place, or menu to go back...' :
                   step === STEPS.INOUT_OTHER
                     ? 'Type destination, or menu to go back...' :
                   step === STEPS.CPL_TEXT   ? 'Describe complaint, or menu / cancel...' :

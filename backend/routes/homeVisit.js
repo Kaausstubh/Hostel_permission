@@ -20,6 +20,8 @@ const {
 const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
 const { issueHomeVisitGatePass, findHomeVisitByScanToken } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
+const { validatePlaceGeo } = require('../utils/placeValidator');
+
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
   const year = date.getFullYear();
@@ -57,11 +59,11 @@ const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
 // ─── Student: Submit Home Visit Request ───────────────────────────────────────
 router.post('/request', protect, authorize('student'), async (req, res) => {
   try {
-    const { reason, leave_date, return_date } = req.body;
+    const { reason, leave_date, return_date, place } = req.body;
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
-    if (!reason || !leave_date || !return_date) {
-      return res.status(400).json({ success: false, message: 'Reason, leave date, and return date are required' });
+    if (!reason || !leave_date || !return_date || !place || !(await validatePlaceGeo(place))) {
+      return res.status(400).json({ success: false, message: 'Reason, leave date, return date, and a valid destination place are required (real city, town, village, or place name)' });
     }
 
     if (!dateRegex.test(leave_date) || !dateRegex.test(return_date)) {
@@ -112,6 +114,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       reason,
       leave_date,
       return_date,
+      place: String(place).trim().slice(0, 200),
       name: req.user.name,
       rollNo: req.user.rollNo || '',
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
@@ -181,7 +184,7 @@ router.post('/parent-approve', async (req, res) => {
       if (wardenUser && wardenUser.phone) {
         await enqueueWhatsAppMessage({
           to: wardenUser.phone,
-          body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNo || 'N/A'})\nHostel: ${student.hostel || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
+          body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNo || 'N/A'})\nHostel: ${student.hostel || 'N/A'}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
         });
       }
     } else {
@@ -189,7 +192,7 @@ router.post('/parent-approve', async (req, res) => {
       // Notify student of rejection
       await enqueueWhatsAppMessage({
         to: visit.student_id.phone,
-        body: `❌ Your home visit request has been *rejected by your parent*.\nReason: ${visit.reason}\nDates: ${visit.leave_date} → ${visit.return_date}`,
+        body: `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\nDates: ${visit.leave_date} → ${visit.return_date}`,
       });
     }
 

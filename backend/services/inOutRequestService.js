@@ -24,6 +24,7 @@ const buildEntry = ({
   studentPhone,
   parentPhone,
   place,
+  reason,
   scanType,
   createdAt,
   expiresAt,
@@ -41,6 +42,7 @@ const buildEntry = ({
   studentPhone: studentPhone || '',
   parentPhone: parentPhone || '',
   place,
+  reason,
   scanType,
   createdAt,
   expiresAt,
@@ -79,6 +81,7 @@ const createPendingInOutRequest = async ({
   studentPhone,
   parentPhone,
   place = '',
+  reason = '',
   scanType,
 }) => {
   const createdAt = new Date().toISOString();
@@ -98,6 +101,7 @@ const createPendingInOutRequest = async ({
     studentPhone,
     parentPhone,
     place,
+    reason,
     scanType,
     createdAt,
     expiresAt,

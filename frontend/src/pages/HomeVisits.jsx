@@ -123,6 +123,7 @@ export default function HomeVisits() {
                 <tr>
                   <th>Student</th>
                   <th>Hostel</th>
+                  <th>Place</th>
                   <th>Reason</th>
                   <th>Leave Date</th>
                   <th>Return Date</th>
@@ -139,8 +140,9 @@ export default function HomeVisits() {
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNo}</div>
                     </td>
                     <td><span className="badge badge-out">{v.student_id?.hostel || '—'}</span></td>
-                    <td style={{ maxWidth: 180, color: 'var(--text-secondary)', fontSize: 13 }}>
-                      {v.reason.substring(0, 60)}{v.reason.length > 60 ? '...' : ''}
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{v.place || '—'}</td>
+                    <td style={{ maxWidth: 180, color: 'var(--text-secondary)', fontSize: 13 }} title={v.reason}>
+                      {v.reason ? (v.reason.substring(0, 60) + (v.reason.length > 60 ? '...' : '')) : '—'}
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{v.leave_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{v.return_date}</td>

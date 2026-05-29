@@ -135,6 +135,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Student</th>
                   <th>Hostel</th>
                   <th>Status</th>
+                  <th>Place</th>
                   <th>Date</th>
                   <th>Out Time</th>
                   <th>In Time</th>
@@ -155,6 +156,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         {log.status === 'IN' ? '🚪 IN' : '🔓 OUT'}
                       </span>
                     </td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{log.place || '—'}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{log.date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                       {log.out_time
@@ -187,6 +189,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                 <tr>
                   <th>Student</th>
                   <th>Hostel</th>
+                  <th>Place</th>
+                  <th>Reason</th>
                   <th>Leave</th>
                   <th>Return</th>
                   <th>Home Out</th>
@@ -203,6 +207,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{visit.student_id?.rollNo || visit.rollNo || '—'}</div>
                     </td>
                     <td><span className="badge badge-out">{visit.student_id?.hostel || '—'}</span></td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{visit.place || '—'}</td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={visit.reason}>
+                      {visit.reason || '—'}
+                    </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.leave_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.return_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>

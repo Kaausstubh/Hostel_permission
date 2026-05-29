@@ -6,7 +6,7 @@
  * CHATBOT STATE MACHINE:
  * IDLE → greeting → MENU
  * MENU (1) → INOUT_CONFIRM
- * MENU (2) → HV_REASON → HV_LEAVE_DATE → HV_RETURN_DATE → HV_DONE
+ * MENU (2) → HV_REASON → HV_PLACE → HV_LEAVE_DATE → HV_RETURN_DATE → HV_DONE
  * MENU (3) → COMPLAINT_HOSTEL → COMPLAINT_TEXT → COMPLAINT_DONE
  * MENU (4) → VIEW_STATUS
  */
@@ -29,6 +29,8 @@ const {
   createPendingInOutRequest,
   getPendingInOutRequest,
 } = require('../services/inOutRequestService');
+const { normalizeToE164 } = require('../utils/phone');
+const { validatePlaceGeo } = require('../utils/placeValidator');
 
 const sendWhatsAppMessage = (to, body) => enqueueWhatsAppMessage({ to, body });
 const sendWhatsAppMediaMessage = (to, mediaUrl, qrDataUrl, caption = '') =>
@@ -106,7 +108,14 @@ const processMessage = async (from, body) => {
 
     // ── Home Visit ────────────────────────────────────────────────────────────
     case 'HV_REASON':
-      await updateSession(phone, 'HV_LEAVE_DATE', { reason: text });
+      await updateSession(phone, 'HV_PLACE', { reason: text });
+      return await sendWhatsAppMessage(phone, `📍 Where are you going (destination place)?`);
+
+    case 'HV_PLACE':
+      if (!(await validatePlaceGeo(text))) {
+        return await sendWhatsAppMessage(phone, '❌ Invalid destination. Please enter a valid place (real city, town, village, or country name).');
+      }
+      await updateSession(phone, 'HV_LEAVE_DATE', { place: text });
       return await sendWhatsAppMessage(phone, `📅 What is your *date of leaving*?\nFormat: YYYY-MM-DD (e.g., 2024-12-25)`);
 
     case 'HV_LEAVE_DATE':
@@ -188,7 +197,7 @@ const handleMenuChoice = async (phone, choice, user) => {
         return await sendWhatsAppMessage(phone, '❌ This option is for students only.');
       }
       await updateSession(phone, 'HV_REASON', {});
-      return await sendWhatsAppMessage(phone, `🏠 *Home Visit Request*\n\nStep 1/3: Please state the *reason* for your home visit:`);
+      return await sendWhatsAppMessage(phone, `🏠 *Home Visit Request*\n\nStep 1/4: Please state the *reason* for your home visit:`);
 
     case '3':
       if (!user || user.role !== 'student') {
@@ -274,7 +283,11 @@ const finalizeHomeVisitRequest = async (phone, returnDate, user, session) => {
 
     const visit = await HomeVisitLog.create({
       student_id: user._id,
+      name: user.name,
+      rollNo: user.rollNo || user.rollNumber || '',
+      parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       reason: session.data.reason,
+      place: session.data.place || '',
       leave_date: session.data.leave_date,
       return_date: returnDate,
     });
@@ -283,14 +296,14 @@ const finalizeHomeVisitRequest = async (phone, returnDate, user, session) => {
     if (user.parentPhone) {
       await sendWhatsAppMessage(
         user.parentPhone,
-        `🏠 *Home Visit Request — Action Required*\n\n👤 Student: *${user.name}*\n🏢 Hostel: ${user.hostel || 'N/A'}\n📝 Reason: ${session.data.reason}\n📅 Leave: ${session.data.leave_date}\n📅 Return: ${returnDate}\n\nPlease reply:\n✅ *APPROVE ${visit._id}*\n❌ *REJECT ${visit._id}*`
+        `🏠 *Home Visit Request — Action Required*\n\n👤 Student: *${user.name}*\n🏢 Hostel: ${user.hostel || 'N/A'}\n📍 Destination: ${session.data.place || 'N/A'}\n📝 Reason: ${session.data.reason}\n📅 Leave: ${session.data.leave_date}\n📅 Return: ${returnDate}\n\nPlease reply:\n✅ *APPROVE ${visit._id}*\n❌ *REJECT ${visit._id}*`
       );
     }
 
     await clearSession(phone);
     await sendWhatsAppMessage(
       phone,
-      `✅ *Home Visit Request Submitted!*\n\nDetails:\n📝 Reason: ${session.data.reason}\n📅 Leave: ${session.data.leave_date}\n📅 Return: ${returnDate}\n\n⏳ Awaiting parent approval. You will be notified once approved.\n\nRequest ID: ${visit._id}`
+      `✅ *Home Visit Request Submitted!*\n\nDetails:\n📍 Destination: ${session.data.place || 'N/A'}\n📝 Reason: ${session.data.reason}\n📅 Leave: ${session.data.leave_date}\n📅 Return: ${returnDate}\n\n⏳ Awaiting parent approval. You will be notified once approved.\n\nRequest ID: ${visit._id}`
     );
   } catch (err) {
     await clearSession(phone);
@@ -371,7 +384,7 @@ const handleParentReply = async (phone, visitId, action) => {
     // Notify student
     await sendWhatsAppMessage(
       student.phone,
-      `✅ Your parent has *approved* your home visit request!\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting warden approval...`
+      `✅ Your parent has *approved* your home visit request!\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting warden approval...`
     );
 
     // Notify warden
@@ -379,7 +392,7 @@ const handleParentReply = async (phone, visitId, action) => {
     if (warden && warden.phone) {
       await sendWhatsAppMessage(
         warden.phone,
-        `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNumber || 'N/A'})\nHostel: ${student.hostel}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`
+        `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNumber || 'N/A'})\nHostel: ${student.hostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`
       );
     }
   } else {
@@ -389,7 +402,7 @@ const handleParentReply = async (phone, visitId, action) => {
     await sendWhatsAppMessage(phone, `❌ You have *rejected* ${student.name}'s home visit request.`);
     await sendWhatsAppMessage(
       student.phone,
-      `❌ Your home visit request has been *rejected by your parent*.\nDates: ${visit.leave_date} → ${visit.return_date}`
+      `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
     );
   }
 };
@@ -428,13 +441,13 @@ const handleWardenReply = async (phone, visitId, action) => {
     // Send text first, then QR image
     await sendWhatsAppMessage(
       student.phone,
-      `🎉 *Home Visit APPROVED by Warden!*\n\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
+      `🎉 *Home Visit APPROVED by Warden!*\n\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
     );
     await sendWhatsAppMediaMessage(
       student.phone,
       qrPublicUrl,
       qrDataUrl,
-      `🏫 Home Visit Gate Pass\nStudent: ${student.name}\nLeave: ${visit.leave_date} → Return: ${visit.return_date}`
+      `🏫 Home Visit Gate Pass\nStudent: ${student.name}\nDestination: ${visit.place || 'N/A'}\nLeave: ${visit.leave_date} → Return: ${visit.return_date}`
     );
   } else {
     visit.overall_status = 'rejected';
@@ -443,7 +456,7 @@ const handleWardenReply = async (phone, visitId, action) => {
     await sendWhatsAppMessage(phone, `❌ You have *rejected* ${student.name}'s home visit request.`);
     await sendWhatsAppMessage(
       student.phone,
-      `❌ Your home visit request has been *rejected by the warden*.\nDates: ${visit.leave_date} → ${visit.return_date}`
+      `❌ Your home visit request has been *rejected by the warden*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
     );
   }
 };

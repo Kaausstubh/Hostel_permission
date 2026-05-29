@@ -93,6 +93,8 @@ const buildPassMeta = (visit, token, extra = {}) => {
     createdAt: visit.updatedAt || visit.createdAt,
     leaveDate: visit.leave_date,
     returnDate: visit.return_date,
+    place: visit.place || '',
+    reason: visit.reason || '',
     scannable: extra.scannable !== false && Boolean(token),
     statusNote: extra.statusNote || '',
     overallStatus: visit.overall_status,

@@ -32,6 +32,11 @@ const homeVisitLogSchema = new mongoose.Schema(
     },
 
     // ── Request details ───────────────────────────────────────────────────────
+    place: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     reason: {
       type: String,
       required: true,

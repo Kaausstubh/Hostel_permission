@@ -1061,6 +1061,20 @@ export default function SecurityDashboard() {
                               )}
                             </div>
                           )}
+                          {result.log && (result.log.place || result.log.reason) && (
+                            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+                              {result.log.place && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span>📍</span> <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{result.log.place}</span>
+                                </div>
+                              )}
+                              {result.log.reason && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span>📝</span> <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{result.log.reason}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div style={{
                           fontSize: 11, fontWeight: 700,
@@ -1334,6 +1348,16 @@ export default function SecurityDashboard() {
                                   {qr.hostel || '—'} • {qr.rollNumber || '—'}
                                   {isHome(qr) && qr.leaveDate && (
                                     <span> • {qr.leaveDate} → {qr.returnDate}</span>
+                                  )}
+                                  {qr.place && (
+                                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <span>📍</span> <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{qr.place}</span>
+                                    </div>
+                                  )}
+                                  {qr.reason && (
+                                    <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <span>📝</span> <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{qr.reason}</span>
+                                    </div>
                                   )}
                                 </div>
                                 {qr.studentPhone && (
