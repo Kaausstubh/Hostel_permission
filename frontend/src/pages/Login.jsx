@@ -1,52 +1,89 @@
 /**
- * Login Page
- * Role-based redirects: student → /student, security → /scanner, warden → /dashboard
+ * Login Page — Google OAuth
+ *
+ * Three portal cards: Student | Warden | Security
+ * Each card has a single "Continue with Google" button.
+ * Clicking initiates the Google OAuth flow via backend redirect.
+ *
+ * Student Portal shows domain restriction info (@cse.iiitp.ac.in, @ece.iiitp.ac.in).
+ * Warden and Security portals are currently open to any Google account.
  */
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import toast from 'react-hot-toast';
-import { MdVisibility, MdVisibilityOff, MdLightMode, MdDarkMode, MdArrowOutward } from 'react-icons/md';
-import iiitLogo from '../assets/iiitpune-logo.png';
 import { useTheme } from '../context/ThemeContext';
+import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
+import iiitLogo from '../assets/iiitpune-logo.png';
+
+// Google logo SVG (inline — no external dependency)
+const GoogleIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      fill="#4285F4"
+    />
+    <path
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      fill="#34A853"
+    />
+    <path
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+      fill="#FBBC05"
+    />
+    <path
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      fill="#EA4335"
+    />
+  </svg>
+);
+
+// Portal configuration
+const PORTALS = {
+  student: {
+    label:       'Student',
+    Icon:        MdSchool,
+    description: 'Access your student dashboard, request outpasses, and track gate logs.',
+    restriction: 'Restricted to @cse.iiitp.ac.in & @ece.iiitp.ac.in accounts.',
+    color:       '#3b82f6',
+    glow:        'rgba(59, 130, 246, 0.35)',
+  },
+  warden: {
+    label:       'Warden',
+    Icon:        MdAdminPanelSettings,
+    description: 'Review outpass requests, manage student profiles, and monitor campus activity.',
+    restriction: 'Authorized warden email accounts only.',
+    color:       '#10b981',
+    glow:        'rgba(16, 185, 129, 0.3)',
+  },
+  security: {
+    label:       'Security',
+    Icon:        MdSecurity,
+    description: 'Scan student QR codes and log gate entry/exit events in real time.',
+    restriction: 'Authorized security staff accounts only.',
+    color:       '#f59e0b',
+    glow:        'rgba(245, 158, 11, 0.3)',
+  },
+};
 
 export default function Login() {
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const { login } = useAuth();
+  const { initiateGoogleOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const navigate  = useNavigate();
+  const [selectedPortal, setSelectedPortal] = useState('student');
 
   useEffect(() => {
     prewarmApiConnection();
   }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email || !password) return toast.error('Email and password required');
-    setLoading(true);
-    try {
-      const user = await login(email, password);
-      toast.success(`Welcome back, ${user.name}! 👋`);
-      // Role-based redirect
-      if (user.role === 'student')  navigate('/student');
-      else if (user.role === 'security') navigate('/scanner');
-      else navigate('/dashboard');
-    } catch (err) {
-      const msg = err.response?.data?.message
-        || (err.code === 'ERR_NETWORK' ? 'Cannot reach server. Start the backend (npm start in backend/) and check VITE_API_URL.' : null)
-        || 'Login failed';
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleLogin = (portal) => {
+    initiateGoogleOAuth(portal);
   };
+
+  const currentPortal = PORTALS[selectedPortal];
 
   return (
     <div className="login-page">
+      {/* Theme toggle */}
       <button
         type="button"
         className="login-theme-toggle"
@@ -59,125 +96,202 @@ export default function Login() {
         <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
       </button>
 
-      <div className="login-card fade-in">
-        <div className="login-logo">
-          <div className="login-eyebrow">Smart Access Portal</div>
-          <div className="login-mark" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src={iiitLogo} alt="IIIT Pune logo" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }} />
-          </div>
-          <h1>IIIT Pune Campus</h1>
-          <p>Hostel Permissions, QR Gate Passes, and secure entry workflows in one futuristic console.</p>
-        </div>
+      {/* Main Single Box Login Card — Screen filling */}
+      <div
+        className="login-card fade-in"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          width: '100%',
+          maxWidth: '560px',
+          height: 'calc(var(--app-viewport-height, 100dvh) - 48px)',
+          maxHeight: '780px',
+          minHeight: '580px',
+          padding: '44px 44px 40px',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* ── Header ── */}
+        <div style={{ textAlign: 'center' }}>
+          <div className="login-eyebrow" style={{ marginBottom: '20px' }}>Smart Access Portal</div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Email Address</label>
-            <input
-              id="email"
-              type="email"
-              className="form-input"
-              placeholder="your@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                className="form-input"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                style={{ paddingRight: '40px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {showPassword ? <MdVisibilityOff size={20} /> : <MdVisibility size={20} />}
-              </button>
-            </div>
-          </div>
-
-          <button
-            id="login-btn"
-            type="submit"
-            className="btn btn-primary"
-            style={{ width: '100%', marginTop: '8px', justifyContent: 'center' }}
-            disabled={loading}
-          >
-            {loading
-              ? <><span className="loading-spinner" style={{ width: 16, height: 16 }} /> Authenticating...</>
-              : 'Sign In'}
-          </button>
-
-          {loading && (
-            <div style={{
-              position: 'absolute',
-              top: 0, left: 0, right: 0, bottom: 0,
-              background: 'rgba(10,10,46,0.85)',
-              backdropFilter: 'blur(8px)',
-              zIndex: 10,
+          {/* Logo */}
+          <div
+            className="login-mark"
+            style={{
+              width: 76,
+              height: 76,
+              margin: '0 auto 20px',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: '24px'
-            }}>
-              <div className="loading-spinner" style={{ width: 48, height: 48, borderWidth: 4, marginBottom: 16 }}></div>
-              <div style={{ fontWeight: 600, color: '#fff', fontSize: 16 }}>Authenticating...</div>
-            </div>
-          )}
-        </form>
-
-        {/* Student registration link */}
-        <div className="login-register-strip">
-          New student?{' '}
-          <Link
-            to="/register"
-            className="login-register-link"
+            }}
           >
-            Register with college email <MdArrowOutward size={16} />
-          </Link>
+            <img
+              src={iiitLogo}
+              alt="IIIT Pune logo"
+              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
+            />
+          </div>
+
+          {/* Title */}
+          <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '10px' }}>
+            IIIT Pune Campus
+          </h1>
+          <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
+            Hostel permissions, QR gate passes, and real-time entry workflows — all in one futuristic console.
+          </p>
         </div>
 
-        <div className="login-demo">
-          <div className="login-demo-title">
-            Demo Accounts <span className="login-demo-sub">(run <code>node seed.js</code> first)</span>
+        {/* ── Portal Switcher ── */}
+        <div>
+          <div style={{
+            display: 'flex',
+            background: 'rgba(255,255,255,0.04)',
+            borderRadius: '16px',
+            padding: '5px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            gap: '6px',
+            width: '100%',
+            marginBottom: '28px',
+          }}>
+            {Object.entries(PORTALS).map(([id, portal]) => {
+              const isActive = selectedPortal === id;
+              const Icon = portal.Icon;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSelectedPortal(id)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '7px',
+                    padding: '13px 8px',
+                    borderRadius: '12px',
+                    border: 'none',
+                    background: isActive ? portal.color : 'transparent',
+                    color: isActive ? '#fff' : 'var(--text-muted)',
+                    fontWeight: 700,
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: isActive ? `0 6px 20px ${portal.glow}` : 'none',
+                  }}
+                >
+                  <Icon size={17} />
+                  {portal.label}
+                </button>
+              );
+            })}
           </div>
-          <div className="login-demo-grid">
-            <div className="login-demo-row">
-              <span className="login-demo-role">Warden</span>
-              <span className="login-demo-cred"><code>warden@campus.edu</code> / <code>warden123</code></span>
+
+          {/* ── Portal Description + Badge ── */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '14px',
+            textAlign: 'center',
+            marginBottom: '28px',
+          }}>
+            {/* Big icon */}
+            <div style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: `${currentPortal.color}18`,
+              border: `2px solid ${currentPortal.color}40`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: `0 0 24px ${currentPortal.glow}`,
+            }}>
+              <currentPortal.Icon size={30} style={{ color: currentPortal.color }} />
             </div>
-            <div className="login-demo-row">
-              <span className="login-demo-role">Security</span>
-              <span className="login-demo-cred"><code>security@campus.edu</code> / <code>security123</code></span>
-            </div>
-            <div className="login-demo-row">
-              <span className="login-demo-role">Student</span>
-              <span className="login-demo-cred"><code>kaustubh@iiitpune.ac.in</code> / <code>student123</code></span>
+
+            <p style={{
+              fontSize: '15.5px',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.65,
+              margin: 0,
+              maxWidth: '380px',
+            }}>
+              {currentPortal.description}
+            </p>
+
+            <div style={{
+              fontSize: '12px',
+              fontWeight: 700,
+              color: currentPortal.color,
+              background: `${currentPortal.color}14`,
+              border: `1.5px solid ${currentPortal.color}40`,
+              padding: '8px 18px',
+              borderRadius: '999px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '7px',
+              letterSpacing: '0.02em',
+            }}>
+              🔒 {currentPortal.restriction}
             </div>
           </div>
+        </div>
+
+        {/* ── Google Sign-In Button ── */}
+        <div style={{ width: '100%' }}>
+          <button
+            id={`login-${selectedPortal}-google`}
+            type="button"
+            onClick={() => handleGoogleLogin(selectedPortal)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '16px 24px',
+              borderRadius: '14px',
+              border: `2px solid ${currentPortal.color}55`,
+              background: `${currentPortal.color}0e`,
+              color: 'var(--text-primary)',
+              fontFamily: 'Space Grotesk, Inter, sans-serif',
+              fontSize: '16px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.25s ease',
+              letterSpacing: '0.01em',
+              boxShadow: `0 4px 24px ${currentPortal.glow}`,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = `${currentPortal.color}22`;
+              e.currentTarget.style.borderColor = currentPortal.color;
+              e.currentTarget.style.boxShadow = `0 8px 32px ${currentPortal.glow}`;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = `${currentPortal.color}0e`;
+              e.currentTarget.style.borderColor = `${currentPortal.color}55`;
+              e.currentTarget.style.boxShadow = `0 4px 24px ${currentPortal.glow}`;
+              e.currentTarget.style.transform = 'none';
+            }}
+          >
+            <GoogleIcon />
+            Continue with Google
+          </button>
+
+          <p style={{
+            textAlign: 'center',
+            fontSize: '11.5px',
+            color: 'var(--text-muted)',
+            marginTop: '16px',
+            lineHeight: 1.5,
+          }}>
+            Secure, password-free login via Google OAuth. Your credentials are never stored.
+          </p>
         </div>
       </div>
     </div>

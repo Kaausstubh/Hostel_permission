@@ -1,13 +1,18 @@
 /**
- * JWT Authentication Middleware
- * Validates Bearer tokens and attaches user to request object.
+ * Authentication Middleware
+ *
+ * protect      — Verifies the short-lived JWT issued after Google OAuth callback.
+ *                Attaches the full user object to req.user.
+ *                Uses Redis (or in-memory fallback) session cache to avoid a
+ *                DB hit on every request (~0.5ms cached vs ~20ms uncached).
+ *
+ * authorize    — Role-based access guard factory. Use after protect:
+ *                  router.get('/admin', protect, authorize('warden'), handler)
+ *
+ * invalidateUserCache — Removes a user's cached session (called on logout).
  *
  * ⚡ PERFORMANCE: Redis session cache reduces per-request DB lookup from
- *    ~20ms (MongoDB) to ~0.5ms (Redis). Cache TTL is 5 minutes; any 401 or
- *    logout invalidates the cached entry immediately.
- *
- * 🔒 SECURITY: Token blacklist — JWT tokens added to blacklist on logout
- *    are rejected even if still within their 7-day validity window.
+ *    ~20ms (MongoDB) to ~0.5ms (Redis). Cache TTL is 5 minutes.
  */
 
 const jwt    = require('jsonwebtoken');
@@ -40,48 +45,6 @@ const memSet = (key, value) => {
 };
 
 const memDel = (key) => memCache.delete(key);
-
-// ── Token Blacklist ───────────────────────────────────────────────────────────
-// Blacklisted JWTs are stored in Redis as a sorted set keyed by expiry timestamp.
-// A background cleanup job (or TTL-based Redis expiry) removes expired entries.
-const BLACKLIST_PREFIX = 'jwt:blacklist:';
-const blacklistKey = (jti) => `${BLACKLIST_PREFIX}${jti}`;
-
-// In-memory blacklist fallback (cleared on server restart — acceptable for dev)
-const memBlacklist = new Set();
-
-const isBlacklisted = async (token, decoded) => {
-  // Use token hash as key to avoid storing full token
-  const { createHash } = require('crypto');
-  const tokenHash = createHash('sha256').update(token).digest('hex').slice(0, 32);
-  const redisKey = blacklistKey(tokenHash);
-
-  const redis = await getRedis();
-  if (redis) {
-    const exists = await redis.exists(redisKey);
-    return exists === 1;
-  }
-  return memBlacklist.has(tokenHash);
-};
-
-const addToBlacklist = async (token, decoded) => {
-  const { createHash } = require('crypto');
-  const tokenHash = createHash('sha256').update(token).digest('hex').slice(0, 32);
-  const redisKey = blacklistKey(tokenHash);
-
-  // TTL = remaining token validity so the blacklist entry auto-expires
-  const now = Math.floor(Date.now() / 1000);
-  const remaining = Math.max((decoded?.exp || now + SESSION_TTL_SECONDS) - now, 60);
-
-  const redis = await getRedis();
-  if (redis) {
-    await redis.set(redisKey, '1', { EX: remaining });
-    return;
-  }
-  memBlacklist.add(tokenHash);
-  // Auto-clean memory blacklist after remaining TTL
-  setTimeout(() => memBlacklist.delete(tokenHash), remaining * 1000);
-};
 
 // ── Cache Operations ───────────────────────────────────────────────────────────
 const getCachedUser = async (userId) => {
@@ -124,6 +87,7 @@ const invalidateUserCache = async (userId) => {
 };
 
 // ── protect middleware ─────────────────────────────────────────────────────────
+// Verifies the short-lived JWT issued by the Google OAuth callback.
 const protect = async (req, res, next) => {
   let token;
 
@@ -142,18 +106,12 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id;
 
-    // ── Token blacklist check ─────────────────────────────────────────────────
-    const blacklisted = await isBlacklisted(token, decoded);
-    if (blacklisted) {
-      return res.status(401).json({ success: false, message: 'Token has been revoked — please log in again' });
-    }
-
     // ⚡ Try cache first — skip DB entirely on hit (~0.5ms vs ~20ms)
     let user = await getCachedUser(userId);
 
     if (!user) {
       // Cache miss — fetch from DB and populate cache
-      user = await User.findById(userId).select('-password').lean();
+      user = await User.findById(userId).lean();
       if (!user) {
         return res.status(401).json({ success: false, message: 'User not found' });
       }
@@ -167,18 +125,17 @@ const protect = async (req, res, next) => {
     }
 
     req.user = user;
-    req._authToken = token;      // Store for blacklisting on logout
-    req._authDecoded = decoded;  // Store decoded for blacklisting on logout
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ success: false, message: 'Token expired — please log in again' });
+      return res.status(401).json({ success: false, message: 'Session expired — please sign in again' });
     }
-    return res.status(401).json({ success: false, message: 'Token invalid or expired' });
+    return res.status(401).json({ success: false, message: 'Invalid session token — please sign in again' });
   }
 };
 
 // ── authorize factory ─────────────────────────────────────────────────────────
+// Role-based access control. Always use after protect.
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -198,4 +155,4 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize, invalidateUserCache, addToBlacklist };
+module.exports = { protect, authorize, invalidateUserCache, setCachedUser };

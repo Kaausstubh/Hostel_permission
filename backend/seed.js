@@ -1,89 +1,96 @@
 /**
- * Database Seeder
- * Creates demo users: warden, security, 3 students with college emails
+ * Database Seeder — OAuth Edition
+ *
+ * Pre-seeds Warden and Security staff accounts so they have the correct role
+ * assigned before their first Google OAuth login.
+ *
+ * Students do NOT need to be seeded — they self-onboard via Google OAuth
+ * using their @cse.iiitp.ac.in or @ece.iiitp.ac.in institutional email.
+ *
+ * HOW IT WORKS:
+ *   On first Google login, Passport looks up the user by email.
+ *   If a seeded record exists, it links the oauthId to it and preserves the role.
+ *   If no record exists (e.g. an unknown email tries the warden portal), access is denied.
+ *
  * Run: node seed.js
+ *
+ * IMPORTANT: Replace the email addresses below with your REAL warden/security
+ *            Google accounts before going to production.
  */
 
 require('dotenv').config();
 const mongoose = require('mongoose');
 const User = require('./models/User');
+const InOutLog = require('./models/InOutLog');
+const HomeVisitLog = require('./models/HomeVisitLog');
+const Complaint = require('./models/Complaint');
 const connectDB = require('./config/db');
 
-const DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
+// ── Staff accounts to pre-seed ────────────────────────────────────────────────
+// Replace these with real institutional Google account emails.
+// Students are NOT seeded — they self-register via OAuth.
+const staffUsers = [
+  // ─── Wardens ──────────────────────────────────────────────────────────────
+  {
+    name:          'Dr. Mahesh Joshi',
+    email:         'kaaustubhkhandare@gmail.com',  // ← Replace with real Google email
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-warden-placeholder', // ← Will be replaced on first real login
+  },
 
-const seedUsers = [
-  // ─── Warden ─────────────────────────────────────────────────────────────────
+  // ─── Security Staff ────────────────────────────────────────────────────────
   {
-    name: 'Dr. Mahesh Joshi',
-    phone: '+919900001111',
-    email: 'warden@campus.edu',
-    password: 'warden123',
-    role: 'warden',
-  },
-  // ─── Security Guard ──────────────────────────────────────────────────────────
-  {
-    name: 'MSF Guard',
-    phone: '+919900002222',
-    email: 'security@campus.edu',
-    password: 'security123',
-    role: 'security',
-  },
-  // ─── Students (college email domain) ─────────────────────────────────────────
-  {
-    name: 'Kaustubh Khandare',
-    phone: '+919800011001',
-    email: `kaustubh@${DOMAIN}`,
-    password: 'student123',
-    role: 'student',
-    hostel: 'BH1',
-    rollNo: 'CS2021001',
-    parentPhone: '+919700011001',
-  },
-  {
-    name: 'Priya Patel',
-    phone: '+919800011002',
-    email: `priya@${DOMAIN}`,
-    password: 'student123',
-    role: 'student',
-    hostel: 'GH',
-    rollNo: 'EC2021042',
-    parentPhone: '+919700011002',
-  },
-  {
-    name: 'Ravi Verma',
-    phone: '+919800011003',
-    email: `ravi@${DOMAIN}`,
-    password: 'student123',
-    role: 'student',
-    hostel: 'BH2',
-    rollNo: 'ME2022015',
-    parentPhone: '+919700011003',
+    name:          'MSF Guard',
+    email:         'security@campus.edu', // ← Replace with real Google email
+    role:          'security',
+    oauthProvider: 'google',
+    oauthId:       'seeded-security-placeholder', // ← Will be replaced on first real login
   },
 ];
 
 const seed = async () => {
   try {
     await connectDB();
-    console.log('\n🌱 Starting database seed...');
+    console.log('\n🧹 Initiating complete database reset...');
+
+    // Drop all historical logs, complaints, and student records
+    await InOutLog.deleteMany({});
+    console.log('  🗑️  Cleared all In/Out gate logs');
+
+    await HomeVisitLog.deleteMany({});
+    console.log('  🗑️  Cleared all Home Visit logs');
+
+    await Complaint.deleteMany({});
+    console.log('  🗑️  Cleared all student complaints');
 
     await User.deleteMany({});
-    console.log('  🗑️  Cleared existing users');
+    console.log('  🗑️  Cleared all registered users');
 
-    for (const userData of seedUsers) {
+    for (const userData of staffUsers) {
       const user = await User.create(userData);
       console.log(`  ✅ [${user.role.padEnd(8)}] ${user.name} — ${user.email}`);
     }
 
-    console.log('\n✨ Seed complete! Demo credentials:');
-    console.log('─'.repeat(55));
-    console.log(`  Warden:   warden@campus.edu       / warden123`);
-    console.log(`  Security: security@campus.edu     / security123`);
-    console.log(`  Student:  kaustubh@${DOMAIN}  / student123`);
-    console.log(`  Student:  priya@${DOMAIN}  / student123`);
-    console.log('─'.repeat(55));
+    console.log('\n✨ Seed complete!');
+    console.log('─'.repeat(65));
+    console.log('  Warden and Security accounts have been pre-seeded.');
+    console.log('  These users must log in via Google OAuth using the emails above.');
+    console.log('  On first login, their Google account will be automatically linked.');
+    console.log('');
+    console.log('  Student Portal: open to @cse.iiitp.ac.in and @ece.iiitp.ac.in emails.');
+    console.log('  Students do NOT need to be seeded — they self-onboard via Google OAuth.');
+    console.log('─'.repeat(65));
+    
+    await mongoose.connection.close();
     process.exit(0);
   } catch (error) {
     console.error('❌ Seed failed:', error.message);
+    try {
+      await mongoose.connection.close();
+    } catch (dbErr) {
+      // Ignore secondary error
+    }
     process.exit(1);
   }
 };

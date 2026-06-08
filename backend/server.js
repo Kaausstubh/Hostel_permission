@@ -40,6 +40,8 @@ const { initSocketIO } = require('./services/socketService');
 const { metricsMiddleware, getMetricsSnapshot } = require('./middleware/metrics');
 const { apiLimiter } = require('./middleware/rateLimiters');
 const { protect, authorize } = require('./middleware/auth');
+const session = require('express-session');
+const passport = require('./config/passport');
 
 // ── Ensure QR image directory exists ─────────────────────────────────────────
 const QR_DIR = path.join(__dirname, 'public', 'qr');
@@ -105,7 +107,7 @@ app.use(helmet({
       defaultSrc:     ["'self'"],
       scriptSrc:      ["'self'"],
       styleSrc:       ["'self'", "'unsafe-inline'"],
-      imgSrc:         ["'self'", 'data:', 'blob:'],
+      imgSrc:         ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com'],
       connectSrc:     ["'self'", ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim())],
       frameAncestors: ["'none'"],
     },
@@ -117,6 +119,50 @@ app.use(helmet({
     preload: true,
   },
 }));
+
+// ── Session middleware (required for OAuth state/CSRF param during redirect) ───
+// Session is ONLY used during the OAuth handshake. After the callback, a JWT
+// is issued and sessions are not consulted for API requests.
+const sessionConfig = {
+  secret: process.env.SESSION_SECRET || process.env.JWT_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  name: 'heimdall.sid',
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 10 * 60 * 1000, // 10 minutes — only needed for OAuth handshake
+  },
+};
+
+// ── Dynamic Session middleware (prevents startup race conditions with Redis) ──
+let sessionMiddleware;
+app.use((req, res, next) => {
+  if (sessionMiddleware) {
+    return sessionMiddleware(req, res, next);
+  }
+  
+  getRedis().then((redis) => {
+    const store = redis ? new (require('connect-redis').default)({ client: redis }) : undefined;
+    sessionConfig.store = store;
+    sessionMiddleware = session(sessionConfig);
+    if (redis) {
+      logger.info('[Session] Using Redis session store (lazily initialized)');
+    } else {
+      logger.warn('[Session] Redis unavailable — using in-memory session store (dev only)');
+    }
+    sessionMiddleware(req, res, next);
+  }).catch((err) => {
+    logger.warn('[Session] Redis check failed — using in-memory session store', { error: err.message });
+    sessionMiddleware = session(sessionConfig);
+    sessionMiddleware(req, res, next);
+  });
+});
+
+// ── Passport (OAuth) ──────────────────────────────────────────────────────────
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Compression (before any route handling)
 app.use(compression({ threshold: 1024 }));

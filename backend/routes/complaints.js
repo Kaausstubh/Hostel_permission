@@ -57,7 +57,8 @@ router.get('/status/:student_id', protect, async (req, res) => {
       Complaint.find(filter)
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Complaint.countDocuments(filter),
     ]);
 
@@ -82,7 +83,8 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
         .populate('resolvedBy', 'name')
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Complaint.countDocuments(filter),
     ]);
 

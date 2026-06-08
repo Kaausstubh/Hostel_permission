@@ -6,7 +6,17 @@
 
 const logger = require('../utils/logger');
 
-const REQUIRED_IN_ALL = ['MONGODB_URI', 'JWT_SECRET', 'QR_SECRET'];
+const REQUIRED_IN_ALL = [
+  'MONGODB_URI',
+  'JWT_SECRET',       // Signs the short-lived JWT issued after OAuth callback
+  'QR_SECRET',        // Signs QR codes — separate from auth
+];
+// OAuth credentials — required to USE Google login, but server can boot without them in dev
+const REQUIRED_FOR_OAUTH = [
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'SESSION_SECRET',   // express-session secret for OAuth state cookie
+];
 const REQUIRED_IN_PRODUCTION = ['REDIS_URL', 'PUBLIC_BACKEND_URL', 'FRONTEND_URL'];
 
 const MIN_SECRET_LENGTH = 32;
@@ -53,6 +63,17 @@ const validateEnv = () => {
         } else {
           warnings.push(`${key} is shorter than ${MIN_SECRET_LENGTH} characters — strengthen before production`);
         }
+      }
+    }
+  }
+
+  // ── OAuth credentials — warn in dev, error in prod ────────────────────────
+  for (const key of REQUIRED_FOR_OAUTH) {
+    if (!process.env[key]) {
+      if (isProd) {
+        errors.push(`${key} is required but not set`);
+      } else {
+        warnings.push(`${key} is not set — Google OAuth login will not work until this is configured`);
       }
     }
   }

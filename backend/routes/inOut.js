@@ -211,7 +211,8 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       InOutLog.countDocuments(filter),
     ]);
 
@@ -236,7 +237,8 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
         .populate('student_id', studentSelect)
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       InOutLog.countDocuments(filter),
     ]);
 
@@ -260,7 +262,8 @@ router.get('/history/:id', protect, async (req, res) => {
       InOutLog.find(filter)
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       InOutLog.countDocuments(filter),
     ]);
 

@@ -11,11 +11,12 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { MdMenu } from 'react-icons/md';
 import ErrorBoundary from './components/ErrorBoundary';
+import SplashScreen from './components/SplashScreen';
 import './index.css';
 
 // ─── Lazy page imports (code splitting) ───────────────────────────────────────
 const Login               = lazy(() => import('./pages/Login'));
-const Register            = lazy(() => import('./pages/Register'));
+const OAuthCallback       = lazy(() => import('./pages/OAuthCallback'));
 const StudentDashboard    = lazy(() => import('./pages/StudentDashboard'));
 const WardenDashboard     = lazy(() => import('./pages/WardenDashboard'));
 const SecurityDashboard   = lazy(() => import('./pages/SecurityDashboard'));
@@ -27,6 +28,7 @@ const StudentsOut         = lazy(() => import('./pages/StudentsOut'));
 const WardenStudents      = lazy(() => import('./pages/WardenStudents'));
 const StudentSimulator    = lazy(() => import('./pages/StudentSimulator'));
 const ParentHomeVisitRespond = lazy(() => import('./pages/ParentHomeVisitRespond'));
+const Onboarding          = lazy(() => import('./pages/Onboarding'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -60,6 +62,19 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
         </div>
       </div>
     );
+  }
+
+  // Student onboarding redirection guard
+  if (user.role === 'student') {
+    const needsOnboard = !user.rollNo || !user.hostel || !user.phone || !user.parentPhone;
+    const isCurrentlyOnboarding = window.location.pathname === '/onboarding';
+
+    if (needsOnboard && !isCurrentlyOnboarding) {
+      return <Navigate to="/onboarding" replace />;
+    }
+    if (!needsOnboard && isCurrentlyOnboarding) {
+      return <Navigate to="/student" replace />;
+    }
   }
 
   return children;
@@ -111,10 +126,8 @@ function AppRoutes() {
           path="/login"
           element={user ? <Navigate to={defaultRedirect()} replace /> : <Login />}
         />
-        <Route
-          path="/register"
-          element={user ? <Navigate to={defaultRedirect()} replace /> : <Register />}
-        />
+        {/* OAuth callback — must be public and unguarded */}
+        <Route path="/auth/callback" element={<OAuthCallback />} />
         <Route path="/simulator" element={<StudentSimulator />} />
         <Route path="/home-visit/respond/:visitId" element={<ParentHomeVisitRespond />} />
 
@@ -124,6 +137,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={['student']}>
               <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/onboarding"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <Onboarding />
             </ProtectedRoute>
           }
         />
@@ -186,10 +207,13 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
+          {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
           <BrowserRouter>
             <AppRoutes />
             <Toaster

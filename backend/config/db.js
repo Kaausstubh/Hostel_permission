@@ -81,6 +81,15 @@ const connectDB = async () => {
         migrateAllLegacyHomeVisitQrs().catch((err) => {
           logger.warn('[DB] Home visit QR migration failed', { error: err.message });
         });
+        
+        // Drop legacy unique index on phone if it exists to prevent duplicate key errors on null values
+        mongoose.connection.db.collection('users').dropIndex('phone_1')
+          .then(() => logger.info('[DB] Legacy unique index phone_1 dropped successfully'))
+          .catch((err) => {
+            if (err.codeName !== 'IndexNotFound') {
+              logger.warn('[DB] Error dropping legacy phone index (non-critical)', { error: err.message });
+            }
+          });
       });
 
       // Connection lifecycle events

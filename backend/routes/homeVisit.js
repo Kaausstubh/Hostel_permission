@@ -319,7 +319,8 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
         .populate('student_id', 'name rollNo hostel parentPhone')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       HomeVisitLog.countDocuments(filter),
     ]);
 
@@ -338,7 +339,8 @@ router.get('/my', protect, authorize('student'), async (req, res) => {
       HomeVisitLog.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       HomeVisitLog.countDocuments(filter),
     ]);
 

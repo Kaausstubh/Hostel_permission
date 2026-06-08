@@ -2,12 +2,13 @@
  * User Model
  * Roles: student | warden | security
  *
- * Students MUST register with college email (@iiitpune.ac.in)
- * and a unique MIS roll number.
+ * Authentication is handled via OAuth (Google / Microsoft).
+ * No password field — identity is fully delegated to the OAuth provider.
+ *
+ * Student domain restriction is enforced in config/oauth.js.
  */
 
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
   {
@@ -16,22 +17,7 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Name is required'],
       trim: true,
     },
-    rollNo: {
-      // MIS / Roll Number — REQUIRED & UNIQUE for students
-      type: String,
-      trim: true,
-      // IMPORTANT: must be undefined (field absent) for sparse unique index to work.
-      // If set to null, MongoDB may treat multiple nulls as duplicates on a unique index.
-      default: undefined,
-      // Uniqueness enforced via sparse index below
-    },
-    phone: {
-      type: String,
-      required: [true, 'Phone number is required'],
-      unique: true,
-      trim: true,
-      // Stored as E.164, e.g. "+919876543210"
-    },
+
     email: {
       type: String,
       required: [true, 'Email is required'],
@@ -39,16 +25,50 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    password: {
+
+    // ── OAuth Fields ──────────────────────────────────────────────────────────
+    oauthProvider: {
+      // Which OAuth provider authenticated this user
       type: String,
-      required: [true, 'Password is required'],
-      minlength: 6,
-      select: false, // Never returned in queries by default
+      enum: ['google'],
+      required: [true, 'OAuth provider is required'],
     },
+    oauthId: {
+      // The provider's unique user ID (stable identifier)
+      type: String,
+      required: [true, 'OAuth ID is required'],
+      trim: true,
+    },
+    picture: {
+      // Profile photo URL from OAuth provider (may be null)
+      type: String,
+      default: null,
+    },
+    lastLoginAt: {
+      // Timestamp of most recent successful OAuth login
+      type: Date,
+      default: null,
+    },
+
+    // ── Role & Status ─────────────────────────────────────────────────────────
     role: {
       type: String,
       enum: ['student', 'warden', 'security'],
       default: 'student',
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    // ── Student-only Fields ───────────────────────────────────────────────────
+    rollNo: {
+      // MIS / Roll Number — optional, only used for students
+      // IMPORTANT: must be undefined (field absent) for sparse unique index to work.
+      // If set to null, MongoDB may treat multiple nulls as duplicates on a unique index.
+      type: String,
+      trim: true,
+      default: undefined,
     },
     hostel: {
       // Applicable to students: BH1 | BH2 | GH
@@ -56,43 +76,30 @@ const userSchema = new mongoose.Schema(
       enum: ['BH1', 'BH2', 'GH', null],
       default: null,
     },
+    phone: {
+      // Optional — OAuth providers don't always return a phone number
+      // Stored as E.164, e.g. "+919876543210"
+      type: String,
+      default: null,
+    },
     parentPhone: {
       // Student's parent WhatsApp number (E.164 format)
       type: String,
       default: null,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
   },
   {
-    timestamps: true,
+    timestamps: true, // createdAt, updatedAt
   }
 );
 
-// Sparse unique index on rollNo — enforces uniqueness only when rollNo is set
+// ── Indexes ────────────────────────────────────────────────────────────────────
+// Fast OAuth login lookup (primary auth path)
+userSchema.index({ oauthId: 1, oauthProvider: 1 }, { unique: true });
+// Fast roll number lookup — sparse so null values don't conflict
 userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
-// Fast login lookup index on email
-userSchema.index({ email: 1 });
-// Fast phone lookup index
-userSchema.index({ phone: 1 });
-// Fast role lookup index for dashboard count and lists
+// Fast role-based queries (dashboard counts, lists)
 userSchema.index({ role: 1 });
-
-// ── Hooks ──────────────────────────────────────────────────────────────────────
-// Hash password before saving
-// Salt rounds: 10 is OWASP-compliant and ~4x faster than 12 on low-CPU hosts
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// ── Methods ───────────────────────────────────────────────────────────────────
-userSchema.methods.comparePassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
+// Note: email already has a unique index from { unique: true } in the schema field definition.
 
 module.exports = mongoose.model('User', userSchema);

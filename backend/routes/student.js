@@ -17,6 +17,8 @@ const { protect, authorize } = require('../middleware/auth');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
+const User = require('../models/User');
+const logger = require('../utils/logger');
 const {
   INOUT_REQUEST_EXPIRY,
   createPendingInOutRequest,
@@ -414,7 +416,8 @@ router.get('/complaints', async (req, res) => {
       Complaint.find(filter)
       .sort({ timestamp: -1 })
       .skip(skip)
-      .limit(limit),
+      .limit(limit)
+      .lean(),
       Complaint.countDocuments(filter),
     ]);
     res.json({ success: true, count, page, limit, complaints });
@@ -493,6 +496,105 @@ router.post('/validate-place', async (req, res) => {
     const valid = await validatePlaceGeo(place);
     res.json({ success: true, valid });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── PUT /onboard ─────────────────────────────────────────────────────────────
+// Complete student profile onboarding (called once after first Google OAuth login)
+router.put('/onboard', async (req, res) => {
+  try {
+    const { name, rollNo, phone, parentPhone, hostel } = req.body;
+    const user = req.user;
+
+    // Validate presence
+    if (!name || !rollNo || !phone || !parentPhone || !hostel) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, Roll/MIS number, phone, parent phone, and hostel selection are required.',
+      });
+    }
+
+    // Validate Name format
+    const trimmedName = String(name).trim();
+    if (trimmedName.length < 2 || trimmedName.length > 80) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name must be between 2 and 80 characters.',
+      });
+    }
+
+    // Validate Roll Number format
+    const normalizedRollNo = String(rollNo).trim().toUpperCase();
+    if (normalizedRollNo.length < 3 || normalizedRollNo.length > 20) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Roll/MIS number format.',
+      });
+    }
+
+    // Check duplicate rollNo
+    const existingRoll = await User.findOne({ rollNo: normalizedRollNo, _id: { $ne: user._id } }).lean();
+    if (existingRoll) {
+      return res.status(409).json({
+        success: false,
+        message: 'This Roll/MIS number is already registered to another student.',
+      });
+    }
+
+    // Validate phone numbers
+    const normalizedPhone = normalizeToE164(phone);
+    const normalizedParentPhone = normalizeToE164(parentPhone);
+
+    if (!normalizedPhone || !normalizedParentPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter valid phone numbers (with country code, e.g. +91XXXXXXXXXX).',
+      });
+    }
+
+    // Validate hostel selection
+    const allowedHostels = ['BH1', 'BH2', 'GH'];
+    const normalizedHostel = String(hostel).trim().toUpperCase();
+    if (!allowedHostels.includes(normalizedHostel)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hostel must be BH1, BH2, or GH.',
+      });
+    }
+
+    // Update student details
+    const updatedUser = await User.findByIdAndUpdate(
+      user._id,
+      {
+        $set: {
+          name: trimmedName,
+          rollNo: normalizedRollNo,
+          phone: normalizedPhone,
+          parentPhone: normalizedParentPhone,
+          hostel: normalizedHostel,
+        },
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Onboarding completed successfully!',
+      user: {
+        id:          updatedUser._id,
+        name:        updatedUser.name,
+        email:       updatedUser.email,
+        role:        updatedUser.role,
+        picture:     updatedUser.picture || null,
+        hostel:      updatedUser.hostel || null,
+        rollNo:      updatedUser.rollNo || null,
+        phone:       updatedUser.phone || null,
+        parentPhone: updatedUser.parentPhone || null,
+      },
+    });
+  } catch (err) {
+    logger.error('[Student] Onboarding error', { error: err.message, userId: req.user._id });
     res.status(500).json({ success: false, message: err.message });
   }
 });

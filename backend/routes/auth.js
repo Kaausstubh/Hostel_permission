@@ -1,186 +1,219 @@
 /**
- * Auth Routes
- * POST /api/auth/register - Student self-registration (college email only)
- * POST /api/auth/login    - Login and receive JWT (7 days)
- * GET  /api/auth/me       - Get logged-in user profile
- * POST /api/auth/logout   - Invalidate session cache + blacklist JWT
+ * Auth Routes — Google OAuth
+ *
+ * GET  /api/auth/google?portal=student|warden|security
+ *        → Initiates Google OAuth flow. Stores portal in session state.
+ *
+ * GET  /api/auth/google/callback
+ *        → Google redirects here after authentication.
+ *          Validates domain/email per portal → issues JWT → redirects to frontend.
+ *
+ * GET  /api/auth/me
+ *        → Returns the currently authenticated user (requires Bearer token).
+ *
+ * POST /api/auth/logout
+ *        → Invalidates session cache. Frontend discards token.
  */
 
-const express = require('express');
-const router = express.Router();
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { protect, invalidateUserCache, addToBlacklist } = require('../middleware/auth');
-const { normalizeToE164 } = require('../utils/phone');
-const { loginLimiter, registerLimiter } = require('../middleware/rateLimiters');
-const logger = require('../utils/logger');
+const express  = require('express');
+const router   = express.Router();
+const jwt      = require('jsonwebtoken');
+const passport = require('../config/passport');
+const { protect, invalidateUserCache } = require('../middleware/auth');
+const { validatePortalAccess, portalToRole } = require('../config/oauth');
+const logger   = require('../utils/logger');
 
-// College email domain restriction for student self-registration
-const COLLEGE_EMAIL_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'iiitpune.ac.in';
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Helper: generate 7-day JWT
+// Issue a JWT (15 days) after successful OAuth.
+// The JWT is used as a stateless Bearer token for all subsequent API calls.
 const signToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15d' });
 
-// ── Register (Students Only) ──────────────────────────────────────────────────
-router.post('/register', registerLimiter, async (req, res) => {
-  try {
-    const { name, rollNo, email, phone, parentPhone, hostel, password } = req.body;
+// Build the frontend redirect URL with token and user info encoded in query params.
+// Using a one-time URL is acceptable here; PKCE would be needed for mobile.
+const buildFrontendRedirect = (baseUrl, token, user) => {
+  const userPayload = Buffer.from(
+    JSON.stringify({
+      id:           user._id,
+      name:         user.name,
+      email:        user.email,
+      role:         user.role,
+      picture:      user.picture || null,
+      hostel:       user.hostel || null,
+      rollNo:       user.rollNo || null,
+      phone:        user.phone || null,
+      parentPhone:  user.parentPhone || null,
+    })
+  ).toString('base64');
 
-    if (!name || !rollNo || !email || !phone || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'name, rollNo, email, phone, and password are required',
-      });
-    }
+  const params = new URLSearchParams({ token, user: userPayload });
+  return `${baseUrl}/auth/callback?${params.toString()}`;
+};
 
-    // Input length caps — prevent oversized payloads slipping through
-    if (name.trim().length > 100 || rollNo.trim().length > 30) {
-      return res.status(400).json({ success: false, message: 'Input fields exceed allowed length' });
-    }
+const buildErrorRedirect = (baseUrl, errorCode, message) => {
+  const params = new URLSearchParams({ error: errorCode, message });
+  return `${baseUrl}/auth/callback?${params.toString()}`;
+};
 
-    if (!EMAIL_REGEX.test(email)) {
-      return res.status(400).json({ success: false, message: 'Invalid email format' });
-    }
+// ── Initiate Google OAuth ─────────────────────────────────────────────────────
+// Step 1: Frontend calls this URL with ?portal=student|warden|security
+// We store the portal in the session before redirecting to Google.
+router.get('/google', (req, res, next) => {
+  const portal = req.query.portal;
+  const validPortals = ['student', 'warden', 'security'];
 
-    const emailDomain = email.split('@')[1]?.toLowerCase();
-    if (emailDomain !== COLLEGE_EMAIL_DOMAIN) {
-      return res.status(400).json({
-        success: false,
-        message: `Only college emails (@${COLLEGE_EMAIL_DOMAIN}) are allowed for student registration`,
-      });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
-    }
-
-    // Single query to check all duplicates at once (replaces 3 sequential DB hits)
-    const existing = await User.findOne({
-      $or: [
-        { email: email.toLowerCase() },
-        { rollNo },
-        { phone },
-      ],
-    }).lean();
-
-    if (existing) {
-      if (existing.email === email.toLowerCase()) {
-        return res.status(400).json({ success: false, message: 'Email already registered' });
-      }
-      if (existing.rollNo === rollNo) {
-        return res.status(400).json({ success: false, message: 'Roll number (MIS) already registered' });
-      }
-      return res.status(400).json({ success: false, message: 'Phone number already registered' });
-    }
-
-    const user = await User.create({
-      name: name.trim(),
-      rollNo: rollNo.trim(),
-      email: email.toLowerCase().trim(),
-      phone: normalizeToE164(phone),
-      parentPhone: parentPhone ? normalizeToE164(parentPhone) : null,
-      hostel: hostel || null,
-      password,
-      role: 'student',
+  if (!portal || !validPortals.includes(portal)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid portal. Must be one of: ${validPortals.join(', ')}`,
     });
-
-    const token = signToken(user._id);
-
-    logger.info('[Auth] Student registered', { userId: user._id, email: user.email, requestId: req.requestId });
-
-    res.status(201).json({
-      success: true,
-      message: 'Registration successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        rollNo: user.rollNo,
-        email: user.email,
-        phone: user.phone,
-        hostel: user.hostel,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    logger.error('[Auth] Register error', { error: error.message, requestId: req.requestId });
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      return res.status(400).json({ success: false, message: `${field} is already taken` });
-    }
-    res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
   }
+
+  // Check if OAuth is configured to avoid Passport crashes
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    logger.error('[Auth] Google OAuth credentials are not set in the backend environment.');
+    return res.status(500).json({
+      success: false,
+      message: 'Google OAuth is not configured on this server. Please add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env',
+    });
+  }
+
+  // Store portal in session — read in callback
+  req.session.oauthPortal = portal;
+  req.session.save((err) => {
+    if (err) logger.warn('[Auth] Session save error before OAuth redirect', { error: err.message });
+  });
+
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    prompt: 'select_account', // Always show account picker for multi-account users
+  })(req, res, next);
 });
 
-// ── Login ─────────────────────────────────────────────────────────────────────
-router.post('/login', loginLimiter, async (req, res) => {
-  try {
-    const { email, password } = req.body;
+// ── Google OAuth Callback ─────────────────────────────────────────────────────
+// Step 2: Google redirects here after user authenticates.
+router.get(
+  '/google/callback',
+  (req, res, next) => {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password required' });
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      logger.error('[Auth] Google OAuth callback triggered but credentials are not set.');
+      return res.redirect(
+        buildErrorRedirect(frontendUrl, 'oauth_unconfigured', 'Google OAuth is not configured on this server.')
+      );
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() })
-      .select('+password name rollNo email phone hostel parentPhone role isActive');
-    if (!user || !(await user.comparePassword(password))) {
-      // Generic message — do not reveal whether email exists
-      return res.status(401).json({ success: false, message: 'Invalid email or password' });
-    }
+    // Custom callback to handle errors gracefully with frontend redirect
+    passport.authenticate('google', { session: false }, async (err, user) => {
+      const portal = req.session?.oauthPortal;
+      
+      if (!portal) {
+        logger.error('[Auth] Google OAuth callback triggered but oauthPortal was missing in session');
+        return res.redirect(
+          buildErrorRedirect(frontendUrl, 'session_lost', 'Authentication session expired. Please choose a portal and try again.')
+        );
+      }
 
-    if (!user.isActive) {
-      return res.status(403).json({ success: false, message: 'Account has been deactivated' });
-    }
+      if (err || !user) {
+        logger.error('[Auth] Google OAuth callback error', {
+          error: err?.message || 'No user returned',
+          portal,
+        });
+        return res.redirect(
+          buildErrorRedirect(frontendUrl, 'oauth_failed', 'Google authentication failed. Please try again.')
+        );
+      }
 
-    const token = signToken(user._id);
+      try {
+        const email = user.email;
 
-    logger.info('[Auth] Login success', { userId: user._id, role: user.role, requestId: req.requestId });
+        // ── Portal access validation ─────────────────────────────────────────
+        const { allowed, reason } = validatePortalAccess(portal, email);
+        if (!allowed) {
+          logger.warn('[Auth] Portal access denied', { email, portal, reason });
+          return res.redirect(
+            buildErrorRedirect(frontendUrl, 'access_denied', reason)
+          );
+        }
 
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        rollNo: user.rollNo,
-        email: user.email,
-        phone: user.phone,
-        hostel: user.hostel,
-        parentPhone: user.parentPhone,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    logger.error('[Auth] Login error', { error: error.message, requestId: req.requestId });
-    res.status(500).json({ success: false, message: 'Login failed. Please try again.' });
+        // ── Ensure role is set correctly for the portal ─────────────────────
+        // For existing users: role stays as-is (already assigned at first login).
+        // For new users: role was set in passport.js findOrCreateUser → safe.
+        const expectedRole = portalToRole(portal);
+        if (user.role !== expectedRole) {
+          // Edge case: user signed into a different portal than their assigned role.
+          // Deny to prevent role confusion.
+          logger.warn('[Auth] Role mismatch for portal', {
+            email,
+            portal,
+            userRole: user.role,
+            expectedRole,
+          });
+          return res.redirect(
+            buildErrorRedirect(
+              frontendUrl,
+              'role_mismatch',
+              `Your account is registered as '${user.role}' but you tried to access the ${portal} portal. Please use the correct portal.`
+            )
+          );
+        }
+
+        // ── Issue JWT & redirect ─────────────────────────────────────────────
+        const token = signToken(user._id);
+        logger.info('[Auth] Google OAuth login success', {
+          userId: user._id,
+          email,
+          role: user.role,
+          portal,
+        });
+
+        return res.redirect(buildFrontendRedirect(frontendUrl, token, user));
+      } catch (callbackErr) {
+        logger.error('[Auth] OAuth callback processing error', { error: callbackErr.message });
+        return res.redirect(
+          buildErrorRedirect(frontendUrl, 'server_error', 'An internal error occurred. Please try again.')
+        );
+      }
+    })(req, res, next);
   }
-});
+);
 
 // ── Get current user ──────────────────────────────────────────────────────────
-router.get('/me', protect, async (req, res) => {
-  res.json({ success: true, user: req.user });
+// Used by AuthContext on mount to silently re-validate the stored token.
+router.get('/me', protect, (req, res) => {
+  const u = req.user;
+  res.json({
+    success: true,
+    user: {
+      id:          u._id,
+      name:        u.name,
+      email:       u.email,
+      role:        u.role,
+      picture:     u.picture || null,
+      hostel:      u.hostel || null,
+      rollNo:      u.rollNo || null,
+      phone:       u.phone || null,
+      parentPhone: u.parentPhone || null,
+    },
+  });
 });
 
 // ── Logout ────────────────────────────────────────────────────────────────────
+// Invalidates Redis/in-memory session cache.
+// The JWT (15d) will expire naturally — no blacklist needed.
 router.post('/logout', protect, async (req, res) => {
   try {
-    const userId = String(req.user._id);
-
-    // 1. Invalidate Redis/in-memory session cache
-    await invalidateUserCache(userId);
-
-    // 2. Add current JWT to blacklist (prevents reuse even within 7-day validity)
-    if (req._authToken && req._authDecoded) {
-      await addToBlacklist(req._authToken, req._authDecoded);
-    }
-
-    logger.info('[Auth] User logged out', { userId, requestId: req.requestId });
+    await invalidateUserCache(String(req.user._id));
+    logger.info('[Auth] User logged out', {
+      userId: req.user._id,
+      requestId: req.requestId,
+    });
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
-    logger.warn('[Auth] Logout cleanup error (non-critical)', { error: err.message, requestId: req.requestId });
-    res.json({ success: true, message: 'Logged out (cleanup partial)' });
+    logger.warn('[Auth] Logout cache cleanup error (non-critical)', { error: err.message });
+    res.json({ success: true, message: 'Logged out' });
   }
 });
 
