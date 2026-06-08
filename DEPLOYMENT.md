@@ -17,10 +17,21 @@
 2. Set root directory to `backend`.
 3. Build command: `npm install`
 4. Start command: `npm start`
-5. Add all backend env vars from `backend/.env.example`.
+5. Add all backend env vars from `backend/.env.example`, especially:
+   - `PUBLIC_BACKEND_URL=https://<your-backend-domain>`
+   - `FRONTEND_URL=https://<your-frontend-domain>`
+   - `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 6. Verify:
    - `GET /api/health` returns `ok`
    - `GET /api/ready` returns `ready`
+
+## Google OAuth Setup
+1. In Google Cloud Console, open your OAuth client.
+2. Add the backend callback exactly as:
+   - `https://<your-backend-domain>/api/auth/google/callback`
+3. Add your frontend origin to the allowed origins list if Google asks for it.
+4. Make sure the frontend uses the same backend by setting:
+   - `VITE_API_URL=https://<your-backend-domain>/api`
 
 ## 3) Deploy Frontend (Vercel)
 ### Option A — Dashboard (no CLI)
@@ -28,6 +39,7 @@
 2. Build command: `npm run build`
 3. Output directory: `dist`
 4. Set `VITE_API_URL` to your deployed backend API URL (`https://.../api`).
+   Do not rely on a committed `frontend/.env.production` value for this.
 5. `frontend/vercel.json` handles SPA route rewrites.
 
 ### Option B — CLI (fully scriptable)

@@ -3,31 +3,10 @@
  * Centralized HTTP client with JWT interceptor, retry logic, and graceful 401 handling.
  */
 import axios from 'axios';
+import { resolveApiUrl } from './backendUrl';
 
-const LOCAL_API_FALLBACK = 'http://localhost:5001/api';
 const WARMUP_CACHE_KEY = 'api-prewarm-at';
 const WARMUP_TTL_MS = 4 * 60 * 1000;
-
-const normalizeApiUrl = (value) => {
-  if (!value) return '';
-  const trimmed = value.trim().replace(/\/+$/, '');
-  if (!trimmed) return '';
-  return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
-};
-
-const resolveApiUrl = () => {
-  const envUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
-  if (envUrl) return envUrl;
-
-  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-  if (isLocalHost) return LOCAL_API_FALLBACK;
-
-  console.warn(
-    '[API] Missing VITE_API_URL in production build. Falling back to default Render backend URL.'
-  );
-
-  return 'https://hostel-permission-8add.onrender.com/api';
-};
 
 const API_URL = resolveApiUrl();
 

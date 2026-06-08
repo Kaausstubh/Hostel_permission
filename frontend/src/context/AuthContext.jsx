@@ -16,6 +16,7 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { resolveBackendOrigin } from '../services/backendUrl';
 
 const AuthContext = createContext(null);
 
@@ -104,9 +105,7 @@ export const AuthProvider = ({ children }) => {
   // ── initiateGoogleOAuth: redirects browser to begin Google OAuth ─────────────
   // portal: 'student' | 'warden' | 'security'
   const initiateGoogleOAuth = useCallback((portal) => {
-    const backendUrl =
-      import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') ||
-      'http://localhost:5001';
+    const backendUrl = resolveBackendOrigin();
     window.location.href = `${backendUrl}/api/auth/google?portal=${portal}`;
   }, []);
 

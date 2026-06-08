@@ -19,11 +19,19 @@ services:
         sync: false
       - key: QR_SECRET
         sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: PUBLIC_BACKEND_URL
         sync: false
       - key: FRONTEND_URL
         sync: false
       - key: FRONTEND_URLS
         sync: false
+      - key: ALLOW_VERCEL_PREVIEWS
+        value: "false"
       - key: REDIS_URL
         sync: false
