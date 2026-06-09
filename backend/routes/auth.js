@@ -96,7 +96,7 @@ router.get('/google', (req, res, next) => {
 router.get(
   '/google/callback',
   (req, res, next) => {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       logger.error('[Auth] Google OAuth callback triggered but credentials are not set.');
