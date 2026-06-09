@@ -36,6 +36,7 @@ const apiLimiter = rateLimit({
   max:      parseInt(process.env.API_RATE_LIMIT_MAX || '3000', 10),
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, // Render uses a reverse proxy
   message: { success: false, message: 'Too many requests — please try again later.' },
   skip: (req) => req.path === '/api/health', // Never rate-limit health check
 });
