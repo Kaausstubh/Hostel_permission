@@ -43,24 +43,27 @@ const PORTALS = {
   student: {
     label:       'Student',
     Icon:        MdSchool,
-    description: 'Access your student dashboard, request outpasses, and track gate logs.',
+    description: 'Your digital key to hostel freedom. Request outpasses, track approvals in real-time, and carry your gate pass — right in your pocket.',
     restriction: 'Restricted to @cse.iiitp.ac.in & @ece.iiitp.ac.in accounts.',
+    btnText:     '🎓 Enter Student Portal',
     color:       '#3b82f6',
     glow:        'rgba(59, 130, 246, 0.35)',
   },
   warden: {
     label:       'Warden',
     Icon:        MdAdminPanelSettings,
-    description: 'Review outpass requests, manage student profiles, and monitor campus activity.',
-    restriction: 'Authorized warden email accounts only.',
+    description: 'Command your hostel block. Approve outpasses, monitor every movement, and keep your students safe — all from one powerful dashboard.',
+    restriction: 'Any authorized Google account.',
+    btnText:     '🛡️ Enter Warden Command Centre',
     color:       '#10b981',
     glow:        'rgba(16, 185, 129, 0.3)',
   },
   security: {
     label:       'Security',
     Icon:        MdSecurity,
-    description: 'Scan student QR codes and log gate entry/exit events in real time.',
-    restriction: 'Authorized security staff accounts only.',
+    description: 'You are the last line of defense. Scan QR codes, verify student passes in seconds, and ensure every gate entry is legitimate.',
+    restriction: 'Any authorized Google account.',
+    btnText:     '🔍 Enter Security Control',
     color:       '#f59e0b',
     glow:        'rgba(245, 158, 11, 0.3)',
   },
@@ -114,7 +117,7 @@ export default function Login() {
       >
         {/* ── Header ── */}
         <div style={{ textAlign: 'center' }}>
-          <div className="login-eyebrow" style={{ marginBottom: '20px' }}>Smart Access Portal</div>
+          <div className="login-eyebrow" style={{ marginBottom: '20px' }}>IIIT Pune · Smart Campus Portal</div>
 
           {/* Logo */}
           <div
@@ -140,7 +143,7 @@ export default function Login() {
             IIIT Pune Campus
           </h1>
           <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
-            Hostel permissions, QR gate passes, and real-time entry workflows — all in one futuristic console.
+            Sign in with your institutional account to access your portal.
           </p>
         </div>
 
@@ -280,7 +283,7 @@ export default function Login() {
             }}
           >
             <GoogleIcon />
-            Continue with Google
+            {currentPortal.btnText}
           </button>
 
           <p style={{

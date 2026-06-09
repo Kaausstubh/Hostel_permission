@@ -142,25 +142,36 @@ router.get(
         }
 
         // ── Ensure role is set correctly for the portal ─────────────────────
-        // For existing users: role stays as-is (already assigned at first login).
-        // For new users: role was set in passport.js findOrCreateUser → safe.
         const expectedRole = portalToRole(portal);
         if (user.role !== expectedRole) {
-          // Edge case: user signed into a different portal than their assigned role.
-          // Deny to prevent role confusion.
-          logger.warn('[Auth] Role mismatch for portal', {
-            email,
-            portal,
-            userRole: user.role,
-            expectedRole,
-          });
-          return res.redirect(
-            buildErrorRedirect(
-              frontendUrl,
-              'role_mismatch',
-              `Your account is registered as '${user.role}' but you tried to access the ${portal} portal. Please use the correct portal.`
-            )
-          );
+          // For warden/security: auto-correct the role if their email passes
+          // portal access validation (e.g. user was accidentally created as
+          // 'student' during testing but is a valid warden/security account).
+          if (portal === 'warden' || portal === 'security') {
+            logger.info('[Auth] Auto-correcting role to match portal', {
+              email,
+              oldRole: user.role,
+              newRole: expectedRole,
+              portal,
+            });
+            user.role = expectedRole;
+            await user.save();
+          } else {
+            // For student portal: strict role match required
+            logger.warn('[Auth] Role mismatch for portal', {
+              email,
+              portal,
+              userRole: user.role,
+              expectedRole,
+            });
+            return res.redirect(
+              buildErrorRedirect(
+                frontendUrl,
+                'role_mismatch',
+                `Your account is registered as '${user.role}' but you tried to access the ${portal} portal. Please use the correct portal.`
+              )
+            );
+          }
         }
 
         // ── Issue JWT & redirect ─────────────────────────────────────────────
