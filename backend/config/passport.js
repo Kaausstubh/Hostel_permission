@@ -112,7 +112,8 @@ const registerGoogleStrategy = () => {
       },
       async (req, accessToken, refreshToken, profile, done) => {
         try {
-          const portal = req.session?.oauthPortal || 'student';
+          // state param is more reliable than session on free-tier hosts
+          const portal = req.query?.state || req.session?.oauthPortal || 'student';
           const role   = require('./oauth').portalToRole(portal);
           const { user } = await findOrCreateUser(profile, 'google', role);
           // Attach portal to user object temporarily — read in callback route

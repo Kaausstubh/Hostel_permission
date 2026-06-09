@@ -79,7 +79,8 @@ router.get('/google', (req, res, next) => {
     });
   }
 
-  // Store portal in session — read in callback
+  // Pass portal via OAuth state param (more reliable than session on free-tier hosts
+  // where the process may restart between the initiation and callback requests)
   req.session.oauthPortal = portal;
   req.session.save((err) => {
     if (err) logger.warn('[Auth] Session save error before OAuth redirect', { error: err.message });
@@ -88,6 +89,7 @@ router.get('/google', (req, res, next) => {
   passport.authenticate('google', {
     scope: ['profile', 'email'],
     prompt: 'select_account', // Always show account picker for multi-account users
+    state: portal,            // Carry portal through Google redirect as state param
   })(req, res, next);
 });
 
@@ -107,10 +109,11 @@ router.get(
 
     // Custom callback to handle errors gracefully with frontend redirect
     passport.authenticate('google', { session: false }, async (err, user) => {
-      const portal = req.session?.oauthPortal;
-      
+      // Read portal from state param first (reliable), fall back to session (local dev)
+      const portal = req.query.state || req.session?.oauthPortal;
+
       if (!portal) {
-        logger.error('[Auth] Google OAuth callback triggered but oauthPortal was missing in session');
+        logger.error('[Auth] Google OAuth callback triggered but portal was missing in both state and session');
         return res.redirect(
           buildErrorRedirect(frontendUrl, 'session_lost', 'Authentication session expired. Please choose a portal and try again.')
         );
