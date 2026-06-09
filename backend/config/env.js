@@ -17,7 +17,7 @@ const REQUIRED_FOR_OAUTH = [
   'GOOGLE_CLIENT_SECRET',
   'SESSION_SECRET',   // express-session secret for OAuth state cookie
 ];
-const REQUIRED_IN_PRODUCTION = ['REDIS_URL', 'PUBLIC_BACKEND_URL', 'FRONTEND_URL'];
+const REQUIRED_IN_PRODUCTION = ['PUBLIC_BACKEND_URL', 'FRONTEND_URL'];
 
 const MIN_SECRET_LENGTH = 32;
 
@@ -86,9 +86,12 @@ const validateEnv = () => {
       }
     }
 
-    // Redis is mandatory in production for distributed scan locking
-    if (!process.env.REDIS_URL) {
-      errors.push('REDIS_URL is required in production — scan locking and session caching require Redis');
+    // Redis is optional in production — set REQUIRE_REDIS_IN_PRODUCTION=false to skip
+    const requireRedis = (process.env.REQUIRE_REDIS_IN_PRODUCTION ?? 'true') !== 'false';
+    if (requireRedis && !process.env.REDIS_URL) {
+      errors.push('REDIS_URL is required in production — set REQUIRE_REDIS_IN_PRODUCTION=false to disable this check');
+    } else if (!process.env.REDIS_URL) {
+      warnings.push('REDIS_URL not set — running without Redis (scan locking and session cache disabled)');
     }
 
     // Vercel preview access must be explicitly disabled in production
