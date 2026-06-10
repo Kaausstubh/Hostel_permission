@@ -21,7 +21,31 @@ const jwt      = require('jsonwebtoken');
 const passport = require('../config/passport');
 const { protect, invalidateUserCache } = require('../middleware/auth');
 const { validatePortalAccess, portalToRole } = require('../config/oauth');
+const User     = require('../models/User');
 const logger   = require('../utils/logger');
+
+// ── Temporary reset endpoint for production correction ─────────────────────────
+router.get('/temp-reset-user', async (req, res) => {
+  try {
+    const { email, secret, action } = req.query;
+    if (secret !== 'heimdall_temp_reset_9988') {
+      return res.status(403).send('Forbidden: Invalid secret');
+    }
+    if (!email) {
+      return res.status(400).send('Bad Request: Email required');
+    }
+    const query = { email: email.toLowerCase().trim() };
+    if (action === 'delete') {
+      const result = await User.deleteOne(query);
+      return res.json({ success: true, message: `Deleted user ${email}`, result });
+    } else {
+      const result = await User.updateOne(query, { $set: { role: 'student' } });
+      return res.json({ success: true, message: `Updated user ${email} to student`, result });
+    }
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
