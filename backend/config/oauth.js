@@ -48,25 +48,27 @@ const validateStudentEmail = (email) => {
 
 /**
  * Returns true if the email is allowed to access the Warden Portal.
- * When WARDEN_ALLOWED_EMAILS is empty, any authenticated account is allowed.
+ * When WARDEN_ALLOWED_EMAILS is empty, any authenticated account is allowed EXCEPT student domains.
  * @param {string} email
  * @returns {boolean}
  */
 const validateWardenEmail = (email) => {
   if (!email) return false;
-  if (WARDEN_ALLOWED_EMAILS.length === 0) return true; // Open — any authenticated account
+  if (validateStudentEmail(email)) return false; // Block student accounts
+  if (WARDEN_ALLOWED_EMAILS.length === 0) return true; // Open — any other authenticated account
   return WARDEN_ALLOWED_EMAILS.includes(email.toLowerCase());
 };
 
 /**
  * Returns true if the email is allowed to access the Security Portal.
- * When SECURITY_ALLOWED_EMAILS is empty, any authenticated account is allowed.
+ * When SECURITY_ALLOWED_EMAILS is empty, any authenticated account is allowed EXCEPT student domains.
  * @param {string} email
  * @returns {boolean}
  */
 const validateSecurityEmail = (email) => {
   if (!email) return false;
-  if (SECURITY_ALLOWED_EMAILS.length === 0) return true; // Open — any authenticated account
+  if (validateStudentEmail(email)) return false; // Block student accounts
+  if (SECURITY_ALLOWED_EMAILS.length === 0) return true; // Open — any other authenticated account
   return SECURITY_ALLOWED_EMAILS.includes(email.toLowerCase());
 };
 
