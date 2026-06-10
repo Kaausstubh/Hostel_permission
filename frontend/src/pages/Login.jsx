@@ -101,7 +101,7 @@ export default function Login() {
 
       {/* Main Single Box Login Card — Screen filling */}
       <div
-        className="login-card fade-in"
+        className="login-card login-card-oauth fade-in"
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -142,14 +142,14 @@ export default function Login() {
           <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '10px' }}>
             IIIT Pune Campus
           </h1>
-          <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
+          <p className="login-subtitle" style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
             Sign in with your institutional account to access your portal.
           </p>
         </div>
 
         {/* ── Portal Switcher ── */}
         <div>
-          <div style={{
+          <div className="login-portal-switcher" style={{
             display: 'flex',
             background: 'rgba(255,255,255,0.04)',
             borderRadius: '16px',
@@ -166,6 +166,7 @@ export default function Login() {
                 <button
                   key={id}
                   type="button"
+                  className="login-portal-btn"
                   onClick={() => setSelectedPortal(id)}
                   style={{
                     flex: 1,
@@ -193,7 +194,7 @@ export default function Login() {
           </div>
 
           {/* ── Portal Description + Badge ── */}
-          <div style={{
+          <div className="login-portal-description-area" style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -202,7 +203,7 @@ export default function Login() {
             marginBottom: '28px',
           }}>
             {/* Big icon */}
-            <div style={{
+            <div className="login-portal-icon-wrap" style={{
               width: 64,
               height: 64,
               borderRadius: '50%',
@@ -216,7 +217,7 @@ export default function Login() {
               <currentPortal.Icon size={30} style={{ color: currentPortal.color }} />
             </div>
 
-            <p style={{
+            <p className="login-portal-text" style={{
               fontSize: '15.5px',
               color: 'var(--text-secondary)',
               lineHeight: 1.65,
@@ -226,7 +227,7 @@ export default function Login() {
               {currentPortal.description}
             </p>
 
-            <div style={{
+            <div className="login-portal-restriction" style={{
               fontSize: '12px',
               fontWeight: 700,
               color: currentPortal.color,
@@ -249,6 +250,7 @@ export default function Login() {
           <button
             id={`login-${selectedPortal}-google`}
             type="button"
+            className="login-google-btn"
             onClick={() => handleGoogleLogin(selectedPortal)}
             style={{
               width: '100%',

@@ -2428,3 +2428,85 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
     width: 100%;
   }
 }
+
+/* ── Mobile/Small Screen Styles for OAuth Login page ── */
+@media (max-width: 640px) {
+  .login-card-oauth {
+    padding: 24px 20px 20px !important;
+    border-radius: 20px !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: calc(var(--app-viewport-height, 100dvh) - 32px) !important;
+    overflow-y: auto !important;
+    justify-content: flex-start !important;
+    gap: 16px !important;
+  }
+
+  .login-card-oauth .login-eyebrow {
+    margin-bottom: 12px !important;
+    font-size: 10px !important;
+    padding: 6px 12px !important;
+  }
+
+  .login-card-oauth .login-mark {
+    width: 54px !important;
+    height: 54px !important;
+    margin: 0 auto 12px !important;
+  }
+
+  .login-card-oauth h1 {
+    font-size: 22px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .login-card-oauth .login-subtitle {
+    font-size: 13px !important;
+    max-width: 320px !important;
+  }
+
+  .login-portal-switcher {
+    border-radius: 12px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .login-portal-btn {
+    padding: 10px 4px !important;
+    font-size: 12.5px !important;
+    gap: 5px !important;
+  }
+
+  .login-portal-description-area {
+    gap: 10px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .login-portal-icon-wrap {
+    width: 48px !important;
+    height: 48px !important;
+  }
+
+  .login-portal-icon-wrap svg {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .login-portal-text {
+    font-size: 13px !important;
+    max-width: 300px !important;
+    line-height: 1.5 !important;
+  }
+
+  .login-portal-restriction {
+    font-size: 11px !important;
+    padding: 6px 14px !important;
+    gap: 5px !important;
+  }
+
+  .login-google-btn {
+    padding: 12px 20px !important;
+    font-size: 14.5px !important;
+    border-radius: 12px !important;
+  }
+}
