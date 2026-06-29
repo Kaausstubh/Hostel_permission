@@ -35,8 +35,7 @@ if (INSECURE_PLACEHOLDERS.has(_QR_SECRET_RAW)) {
 const QR_SECRET = _QR_SECRET_RAW || '__DEV_ONLY_FALLBACK_QR_SECRET_DO_NOT_USE_IN_PROD__';
 const QR_EXPIRY = parseInt(process.env.QR_EXPIRY_SECONDS, 10) || 3600;
 
-// Public directory where QR PNG files are saved
-const QR_DIR = path.join(__dirname, '..', 'public', 'qr');
+
 
 const ACTIVE_QR_INDEX = 'active_qr_tokens';
 const activeQrKey = (token) => `active_qr:${token}`;
@@ -47,12 +46,6 @@ const isSignedJwtQrToken = (token) =>
   typeof token === 'string' && /^eyJ[A-Za-z0-9_-]+\./.test(token);
 
 const renderQRValue = async (value, filename, options = {}) => {
-  const stem = filename || `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const qrFilename = `${stem}.png`;
-  const qrFilePath = path.join(QR_DIR, qrFilename);
-
-  if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
-
   const qrOptions = {
     // 'H' = 30% damage recovery — handles cracked screens, partial obstructions
     errorCorrectionLevel: options.errorCorrectionLevel || 'H',
@@ -64,10 +57,10 @@ const renderQRValue = async (value, filename, options = {}) => {
   };
 
   const qrDataUrl = await QRCode.toDataURL(value, qrOptions);
-  await QRCode.toFile(qrFilePath, value, qrOptions);
 
-  const PUBLIC_BASE = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 8000}`;
-  const qrPublicUrl = `${PUBLIC_BASE}/qr/${qrFilename}`;
+  const PUBLIC_BASE = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const qrPublicUrl = `${PUBLIC_BASE}/api/qr/render?token=${encodeURIComponent(value)}`;
+  const qrFilename = filename ? `${filename}.png` : `qr_${Date.now()}.png`;
 
   return { token: value, qrDataUrl, qrPublicUrl, qrFilename };
 };

@@ -43,9 +43,7 @@ const { protect, authorize } = require('./middleware/auth');
 const session = require('express-session');
 const passport = require('./config/passport');
 
-// ── Ensure QR image directory exists ─────────────────────────────────────────
-const QR_DIR = path.join(__dirname, 'public', 'qr');
-if (!fs.existsSync(QR_DIR)) fs.mkdirSync(QR_DIR, { recursive: true });
+// ── QR Directory (Removed — now generating dynamically in memory) ──────────
 
 // ── Route imports ─────────────────────────────────────────────────────────────
 const authRoutes      = require('./routes/auth');
@@ -199,11 +197,20 @@ app.use(cors({
 }));
 app.options('*', cors());
 
-// Static QR images
-app.use('/qr', express.static(QR_DIR, {
-  maxAge: '1d',
-  etag: true,
-}));
+// Dynamic QR Image rendering (stateless)
+app.get('/api/qr/render', async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(400).send('Token required');
+  try {
+    const QRCode = require('qrcode');
+    const buffer = await QRCode.toBuffer(token, { errorCorrectionLevel: 'H', width: 512, margin: 3 });
+    res.type('image/png');
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).send('Error generating QR');
+  }
+});
 
 // Body parsing (skip for WhatsApp webhook which needs raw body)
 app.use((req, res, next) => {
