@@ -132,8 +132,9 @@ const withScanLock = async (token, fn) => {
   }
 
   // ── In-memory fallback (development / single-instance only) ──────────────
-  if (process.env.NODE_ENV === 'production') {
-    // In production without Redis, reject rather than risk double-processing
+  const requireRedis = (process.env.REQUIRE_REDIS_IN_PRODUCTION ?? 'true') !== 'false';
+  if (process.env.NODE_ENV === 'production' && requireRedis) {
+    // In production with REQUIRE_REDIS_IN_PRODUCTION=true, reject rather than risk double-processing
     const err = new Error('Scan lock service unavailable — Redis is required in production');
     err.statusCode = 503;
     throw err;
