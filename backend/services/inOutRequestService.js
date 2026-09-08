@@ -90,7 +90,7 @@ const createPendingInOutRequest = async ({
   const { token, qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(
     compactToken,
     `inout_request_${studentId}_${Date.now()}`,
-    { errorCorrectionLevel: 'M', width: 420, margin: 1 }
+    { errorCorrectionLevel: 'H', width: 512, margin: 4 }
   );
 
   const entry = buildEntry({

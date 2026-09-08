@@ -51,7 +51,7 @@ const renderQRValue = async (value, filename, options = {}) => {
     errorCorrectionLevel: options.errorCorrectionLevel || 'H',
     // 512px — large enough to scan from 30–40cm distance on mobile
     width: options.width || 512,
-    margin: options.margin ?? 3,
+    margin: options.margin ?? 4,
     // Pure black/white maximizes contrast for all lighting conditions
     color: options.color || { dark: '#000000', light: '#FFFFFF' },
   };

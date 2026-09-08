@@ -126,9 +126,9 @@ const issueHomeVisitGatePass = async (visit) => {
 
   const visitId = visit._id.toString();
   const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(token, `hv_${visitId}`, {
-    errorCorrectionLevel: 'L',
-    width: 360,
-    margin: 2,
+    errorCorrectionLevel: 'H',
+    width: 512,
+    margin: 4,
   });
 
   await HomeVisitLog.updateOne({ _id: visit._id }, { qr_token: token });

@@ -1046,13 +1046,28 @@ export default function StudentDashboard() {
               cursor: 'zoom-in',
             }} onClick={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}>
               {m.meta.qrDataUrl ? (
-                <img
-                  key={m.meta.qrToken || m.id}
-                  src={m.meta.qrDataUrl}
-                  alt="Home visit QR code"
-                  style={{ width: 200, height: 200, borderRadius: 10,
-                    border: '2px solid var(--glass-border)' }}
-                />
+                <div style={{
+                  background: '#ffffff',
+                  padding: 12,
+                  borderRadius: 14,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.18)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <img
+                    key={m.meta.qrToken || m.id}
+                    src={m.meta.qrDataUrl}
+                    alt="Gate pass QR code"
+                    style={{
+                      width: 210,
+                      height: 210,
+                      borderRadius: 0,
+                      display: 'block',
+                      imageRendering: 'pixelated',
+                    }}
+                  />
+                </div>
               ) : (
                 <div style={{ width: 200, height: 200, background: 'var(--bg-input)',
                   borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1494,8 +1509,21 @@ export default function StudentDashboard() {
             <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>
               {zoomedQR.zoomTitle || 'Gate Pass QR'}
             </div>
-            <img src={zoomedQR.dataUrl} alt="QR"
-              style={{ width: 300, height: 300, borderRadius: 12 }} />
+            <div style={{
+              background: '#ffffff',
+              padding: 16,
+              borderRadius: 16,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <img
+                src={zoomedQR.dataUrl}
+                alt="Gate Pass QR"
+                style={{ width: 280, height: 280, borderRadius: 0, display: 'block', imageRendering: 'pixelated' }}
+              />
+            </div>
             <div style={{ display: 'flex', gap: 12, width: '100%' }}>
               <button onClick={() => downloadQR(zoomedQR.dataUrl, zoomedQR.filename)} style={{
                 flex: 1, padding: '11px 0', borderRadius: 10,

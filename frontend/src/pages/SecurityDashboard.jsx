@@ -309,81 +309,82 @@ export default function SecurityDashboard() {
         SCANNER_ELEMENT_ID,
         {
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          useBarCodeDetectorIfSupported: true,
+          useBarCodeDetectorIfSupported: false,
           verbose: false,
         }
       );
 
       const scanConfig = {
-        fps: 30,
+        fps: 25,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
-          const size = Math.min(
-            320,
-            Math.max(220, Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72))
-          );
+          const minDim = Math.min(viewfinderWidth, viewfinderHeight);
+          const size = Math.min(360, Math.max(220, Math.floor(minDim * 0.78)));
           return { width: size, height: size };
         },
         aspectRatio: 1.0,
         disableFlip: cameraFacing !== 'front',
         videoConstraints: useDeviceId
-          ? {
-              deviceId: { exact: desiredCameraId },
-              width: { ideal: 960 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30, max: 30 },
-            }
-          : {
-              facingMode,
-              width: { ideal: 960 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30, max: 30 },
-            },
+          ? { deviceId: desiredCameraId }
+          : { facingMode },
       };
 
-      await scanner.start(
-        cameraConfig,
-        scanConfig,
-        async (decodedText) => {
-          const normalized = normalizeToken(decodedText);
-          if (!normalized) {
-            unlockAudio();
-            setScanTone('error');
-            playTone('error');
-            try { navigator.vibrate?.([120, 60, 120]); } catch {}
-            setResult({
-              success: false,
-              message: 'Unrecognized QR — use a HEIMDALL daily or home visit gate pass',
-            });
-            setScannerStatus('QR detected but unreadable');
-            scheduleFeedbackReset('error');
-            return;
-          }
-          clearFrameStreakRef.current = 0;
-          if (blockedTokenUntilClearRef.current === normalized) {
-            setScannerStatus(MOVE_QR_STATUS);
-            return;
-          }
-          if (isProcessingScanRef.current) return;
-          if (shouldIgnoreRecentScan(normalized)) return;
-          setScannerStatus('QR detected — processing...');
-          await processToken(normalized);
-        },
-        () => {
-          releaseBlockedTokenIfFrameCleared();
-          if (Date.now() < feedbackHoldUntilRef.current) return;
-
-          // Frame-level errors (no QR in frame) — debounce status updates to prevent re-render storm
-          if (frameErrorDebounceRef.current) return;
-          frameErrorDebounceRef.current = setTimeout(() => {
-            frameErrorDebounceRef.current = null;
-            if (!isProcessingScanRef.current) {
-              setScannerStatus(
-                blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : ACTIVE_STATUS
-              );
-            }
-          }, 700);
+      const onScanSuccess = async (decodedText) => {
+        const normalized = normalizeToken(decodedText);
+        if (!normalized) {
+          unlockAudio();
+          setScanTone('error');
+          playTone('error');
+          try { navigator.vibrate?.([120, 60, 120]); } catch {}
+          setResult({
+            success: false,
+            message: 'Unrecognized QR — use a HEIMDALL daily or home visit gate pass',
+          });
+          setScannerStatus('QR detected but unreadable');
+          scheduleFeedbackReset('error');
+          return;
         }
-      );
+        clearFrameStreakRef.current = 0;
+        if (blockedTokenUntilClearRef.current === normalized) {
+          setScannerStatus(MOVE_QR_STATUS);
+          return;
+        }
+        if (isProcessingScanRef.current) return;
+        if (shouldIgnoreRecentScan(normalized)) return;
+        setScannerStatus('QR detected — processing...');
+        await processToken(normalized);
+      };
+
+      const onScanFailure = () => {
+        releaseBlockedTokenIfFrameCleared();
+        if (Date.now() < feedbackHoldUntilRef.current) return;
+
+        // Frame-level errors (no QR in frame) — debounce status updates to prevent re-render storm
+        if (frameErrorDebounceRef.current) return;
+        frameErrorDebounceRef.current = setTimeout(() => {
+          frameErrorDebounceRef.current = null;
+          if (!isProcessingScanRef.current) {
+            setScannerStatus(
+              blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : ACTIVE_STATUS
+            );
+          }
+        }, 700);
+      };
+
+      try {
+        await scanner.start(cameraConfig, scanConfig, onScanSuccess, onScanFailure);
+      } catch (firstError) {
+        if (useDeviceId) {
+          // Fallback to facingMode if specific deviceId failed
+          await scanner.start(
+            { facingMode },
+            { ...scanConfig, videoConstraints: { facingMode } },
+            onScanSuccess,
+            onScanFailure
+          );
+        } else {
+          throw firstError;
+        }
+      }
 
       // Try to apply continuous autofocus safely after scanner starts
       try {
@@ -494,17 +495,34 @@ export default function SecurityDashboard() {
 
   // ── Process Token ─────────────────────────────────────────────────────────
   const normalizeToken = (raw) => {
-    const trimmed = String(raw || '')
-      .replace(/^\uFEFF/, '')
+    let trimmed = String(raw || '')
+      .replace(/[\uFEFF\u200B\u00A0]/g, '')
       .trim()
       .replace(/\s+/g, '');
     if (!trimmed) return '';
+
+    try {
+      if (/^https?:\/\//i.test(trimmed)) {
+        const url = new URL(trimmed);
+        const fromQuery =
+          url.searchParams.get('token') ||
+          url.searchParams.get('t') ||
+          url.searchParams.get('qr');
+        if (fromQuery) trimmed = fromQuery.trim();
+      }
+    } catch {
+      // not a URL
+    }
+
     const jwtMatch = trimmed.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
     if (jwtMatch) return jwtMatch[0];
+
     const ioMatch = trimmed.match(/IO-[A-Za-z0-9_-]+/i);
     if (ioMatch) return `IO-${ioMatch[0].slice(3)}`;
+
     const hvMatch = trimmed.match(/HV-[A-Za-z0-9_-]+/i);
     if (hvMatch) return `HV-${hvMatch[0].slice(3)}`;
+
     return trimmed;
   };
 
