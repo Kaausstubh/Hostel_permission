@@ -5,6 +5,7 @@
 - Backend API: Render (always-on Node service)
 - Database: MongoDB Atlas
 - Cache/Queue: Redis Cloud or Upstash
+- Archival Object Storage: Cloudflare R2
 - DNS/SSL: Cloudflare
 
 ## 1) Prepare Environment Variables
@@ -58,6 +59,15 @@ Vercel device login must be done in a browser; this environment cannot complete 
 
 ## 5) Post-Deploy Verification
 - Login, QR generation, gate scan, complaint flow, and home-visit approval.
+
+## 6) Cloudflare R2 Historical Archiving Setup
+1. Create a private bucket `heimdall-archives` in Cloudflare R2.
+2. Issue R2 API Token with Object Read & Write permissions.
+3. Configure backend environment variables:
+   - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+   - `ARCHIVE_ENABLED=true`, `ARCHIVE_RETENTION_MONTHS=3`, `ARCHIVE_CRON=0 2 1 * *`
+4. Access Admin Archive Dashboard at `/archived-records` to verify job status, test signed downloads, and run historical searches.
+
 - Check queue behavior with Redis enabled (`WhatsApp Queue: ENABLED` in backend logs).
 - Verify health and readiness endpoints.
 

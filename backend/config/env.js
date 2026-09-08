@@ -103,6 +103,20 @@ const validateEnv = () => {
     }
   }
 
+  // ── Archival R2 config check ────────────────────────────────────────────────
+  const archiveEnabled = (process.env.ARCHIVE_ENABLED ?? 'true') !== 'false';
+  if (archiveEnabled) {
+    const r2Keys = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME'];
+    const missingR2 = r2Keys.filter((k) => !process.env[k]);
+    if (missingR2.length > 0) {
+      if (isProd) {
+        warnings.push(`Archiving enabled but R2 credentials missing: ${missingR2.join(', ')}`);
+      } else {
+        warnings.push(`Archiving enabled — R2 credentials missing (${missingR2.join(', ')}). R2 operations will run in local fallback mode`);
+      }
+    }
+  }
+
   // ── Port sanity check ──────────────────────────────────────────────────────
   const port = parseInt(process.env.PORT || '5000', 10);
   if (Number.isNaN(port) || port < 1 || port > 65535) {

@@ -32,7 +32,9 @@ const connectDB = require('./config/db');
 const logger = require('./utils/logger');
 const { scheduleNotReturnedAlert } = require('./jobs/notReturnedAlert');
 const { scheduleQrCleanup } = require('./jobs/qrCleanup');
+const { scheduleArchiveJob } = require('./jobs/archiveScheduler');
 const { startWhatsAppWorker, hasQueueInfra } = require('./queues/whatsappQueue');
+const { startArchiveWorker } = require('./queues/archiveQueue');
 const { initScanQueue } = require('./queues/scanQueue');
 const { getRedis, hasRedis } = require('./services/redisClient');
 const { logCampusStartup, validateCampusConfig } = require('./config/campus');
@@ -54,6 +56,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const whatsappRoutes  = require('./routes/whatsapp');
 const studentRoutes   = require('./routes/student');
 const gateScanRoutes  = require('./routes/gateScan');
+const archiveRoutes   = require('./routes/archive');
 
 // ── App & HTTP server (shared with Socket.IO) ─────────────────────────────────
 const app = express();
@@ -231,6 +234,7 @@ app.use('/api/dashboard',  dashboardRoutes);
 app.use('/api/whatsapp',   whatsappRoutes);
 app.use('/api/student',    studentRoutes);
 app.use('/api/gatescan',   gateScanRoutes);
+app.use('/api/archive',    archiveRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -344,7 +348,9 @@ server.listen(PORT, async () => {
   // Background jobs
   scheduleNotReturnedAlert();
   scheduleQrCleanup();
+  scheduleArchiveJob();
   startWhatsAppWorker();
+  startArchiveWorker();
 
   // Campus config validation report
   await logCampusStartup();

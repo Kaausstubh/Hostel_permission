@@ -53,7 +53,7 @@ const userSchema = new mongoose.Schema(
     // ── Role & Status ─────────────────────────────────────────────────────────
     role: {
       type: String,
-      enum: ['student', 'warden', 'security'],
+      enum: ['student', 'warden', 'security', 'admin'],
       default: 'student',
     },
     isActive: {

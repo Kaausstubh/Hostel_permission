@@ -5,6 +5,8 @@
 - [ ] Frontend deployed with `VITE_API_URL` pointing to backend `/api`.
 - [ ] MongoDB Atlas connected and indexes built.
 - [ ] Redis connected (`REDIS_URL`) and queue enabled.
+- [ ] Cloudflare R2 bucket `heimdall-archives` created with private access policy.
+- [ ] R2 environment variables set (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`).
 - [ ] Health endpoint returns `ok`: `/api/health`
 - [ ] Readiness endpoint returns `ready`: `/api/ready`
 
@@ -28,6 +30,9 @@
 - [ ] Home-visit request and approval flow
 - [ ] Complaint filing and warden resolution
 - [ ] WhatsApp simulation/live notification path
+- [ ] Monthly archival trigger, verification, R2 upload & safe deletion
+- [ ] Admin Archive Dashboard (`/archived-records`) historical search & presigned download
+
 
 ## Rollback Plan
 - [ ] Keep previous deploy available in host platform.

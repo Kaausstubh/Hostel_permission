@@ -6,7 +6,9 @@ build/
 .env.local
 .env.*.local
 backend/public/qr/*.png
+backend/public/archives/
 coverage/
 .idea/
 .vscode/
 .vercel/
+
