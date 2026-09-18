@@ -50,15 +50,10 @@ export const AuthProvider = ({ children }) => {
               setUser(freshUser);
             }
           })
-          .catch((err) => {
+          .catch(() => {
             if (cancelled) return;
-            // Only clear session if backend explicitly rejected the token (401 / 403).
-            // Do NOT log users out because of a temporary backend cold start, 502/503, or network timeout.
-            if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-              _clearSession(parsedUser);
-            } else {
-              console.warn('[Auth] Token revalidation deferred (backend cold-starting or offline)');
-            }
+            // Token is invalid or expired — clear everything and force re-login
+            _clearSession(parsedUser);
           });
 
         return () => { cancelled = true; };
@@ -115,19 +110,14 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ── logout ───────────────────────────────────────────────────────────────────
-  const logout = useCallback(() => {
-    const currentToken = token || localStorage.getItem('token');
-
-    // Synchronously clear local session & React state immediately
-    _clearSession(user);
-
-    // Best-effort server-side cache invalidation (non-blocking)
-    if (currentToken) {
-      api.post('/auth/logout', {}, {
-        headers: { Authorization: `Bearer ${currentToken}` }
-      }).catch(() => {});
+  const logout = useCallback(async () => {
+    try {
+      // Best-effort server-side cache invalidation (non-blocking)
+      await api.post('/auth/logout').catch(() => {});
+    } finally {
+      _clearSession(user);
     }
-  }, [user, token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isAuthenticated = Boolean(user && token);
 

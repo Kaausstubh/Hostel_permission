@@ -4,7 +4,6 @@
  */
 import axios from 'axios';
 import { resolveApiUrl } from './backendUrl';
-import backendHealthService from './backendHealthService';
 
 const WARMUP_CACHE_KEY = 'api-prewarm-at';
 const WARMUP_TTL_MS = 4 * 60 * 1000;
@@ -68,51 +67,31 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ─── Response interceptor: handle 401 globally + cold-start retries ─────────
+// ─── Response interceptor: handle 401 globally + 1 retry on network error ─────
 api.interceptors.response.use(
-  (response) => {
-    // Mark backend as healthy upon receiving any successful response
-    backendHealthService.markHealthy();
-    return response;
-  },
+  (response) => response,
   async (error) => {
     const config = error.config;
-    const status = error.response?.status;
 
-    // Strict 401 check: Only dispatch logout when the backend explicitly rejects the token.
-    // Never logout on network errors, timeouts, or 5xx cold-start statuses!
-    if (status === 401) {
+    // On 401 — dispatch a custom event. AuthContext listens and clears state
+    // without forcing a full page reload (better UX than window.location.href).
+    if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.dispatchEvent(new CustomEvent('auth:logout'));
       return Promise.reject(error);
     }
 
-    // Identify cold-start or temporary network failure conditions
-    const isNetworkError = !error.response || error.code === 'ECONNABORTED';
-    const isWakingStatus = status === 502 || status === 503 || status === 504;
-    const isRetryable = isNetworkError || isWakingStatus;
+    // Retry once on network errors (no response) or 503 — but never on 4xx
+    const isNetworkError = !error.response;
+    const isRetryable    = isNetworkError || error.response?.status === 503;
+    const hasNotRetried  = config && config._retryCount < 1;
 
-    // Retry read operations or uncompleted requests up to 2 times during cold start
-    const method = (config?.method || 'get').toLowerCase();
-    const isSafeOrGet = ['get', 'head', 'options'].includes(method) || isNetworkError;
-    const maxRetries = 2;
-    const retryCount = config?._retryCount ?? 0;
-
-    if (isRetryable && isSafeOrGet && config && retryCount < maxRetries) {
-      config._retryCount = retryCount + 1;
-      backendHealthService.invalidateCache();
-
-      // Exponential backoff: 1.2s on attempt 1, 2.5s on attempt 2
-      const delayMs = retryCount === 0 ? 1200 : 2500;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-
+    if (isRetryable && hasNotRetried) {
+      config._retryCount += 1;
+      // Wait 800ms before retry
+      await new Promise((resolve) => setTimeout(resolve, 800));
       return api(config);
-    }
-
-    // Attach user-friendly explanation to error for UI components
-    if (isWakingStatus || isNetworkError) {
-      error.userFriendlyMessage = 'Campus server is waking up or temporarily busy. Please wait a few seconds and try again.';
     }
 
     return Promise.reject(error);
@@ -120,4 +99,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-

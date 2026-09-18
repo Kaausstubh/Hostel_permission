@@ -56,7 +56,6 @@ const initSocketIO = (httpServer) => {
     transports: ['websocket', 'polling'], // WebSocket preferred
     pingTimeout: 60000,
     pingInterval: 25000,
-    connectTimeout: 45000, // Generous timeout for Render free-tier cold starts
     // Per-connection rate limiting to prevent socket flooding
     maxHttpBufferSize: 1e5, // 100KB max message size
   });
