@@ -13,7 +13,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings } from 'react-icons/md';
+import toast from 'react-hot-toast';
 import { prewarmApiConnection } from '../services/api';
+import backendHealthService from '../services/backendHealthService';
 import iiitLogo from '../assets/iiitpune-logo.png';
 
 // Google logo SVG (inline — no external dependency)
@@ -78,8 +80,24 @@ export default function Login() {
     prewarmApiConnection();
   }, []);
 
-  const handleGoogleLogin = (portal) => {
-    initiateGoogleOAuth(portal);
+  const [isWakingServer, setIsWakingServer] = useState(false);
+
+  const handleGoogleLogin = async (portal) => {
+    if (isWakingServer) return;
+
+    if (backendHealthService.isHealthy()) {
+      initiateGoogleOAuth(portal);
+      return;
+    }
+
+    setIsWakingServer(true);
+    try {
+      await backendHealthService.waitForBackend({ maxDurationMs: 60000 });
+      initiateGoogleOAuth(portal);
+    } catch {
+      toast.error('Campus server is waking up. Please try again in a few seconds.');
+      setIsWakingServer(false);
+    }
   };
 
   const currentPortal = PORTALS[selectedPortal];
@@ -251,6 +269,7 @@ export default function Login() {
             id={`login-${selectedPortal}-google`}
             type="button"
             className="login-google-btn"
+            disabled={isWakingServer}
             onClick={() => handleGoogleLogin(selectedPortal)}
             style={{
               width: '100%',
@@ -261,31 +280,54 @@ export default function Login() {
               padding: '16px 24px',
               borderRadius: '14px',
               border: `2px solid ${currentPortal.color}55`,
-              background: `${currentPortal.color}0e`,
+              background: isWakingServer ? `${currentPortal.color}22` : `${currentPortal.color}0e`,
               color: 'var(--text-primary)',
               fontFamily: 'Space Grotesk, Inter, sans-serif',
               fontSize: '16px',
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: isWakingServer ? 'wait' : 'pointer',
               transition: 'all 0.25s ease',
               letterSpacing: '0.01em',
               boxShadow: `0 4px 24px ${currentPortal.glow}`,
+              opacity: isWakingServer ? 0.85 : 1,
             }}
             onMouseEnter={(e) => {
+              if (isWakingServer) return;
               e.currentTarget.style.background = `${currentPortal.color}22`;
               e.currentTarget.style.borderColor = currentPortal.color;
               e.currentTarget.style.boxShadow = `0 8px 32px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={(e) => {
+              if (isWakingServer) return;
               e.currentTarget.style.background = `${currentPortal.color}0e`;
               e.currentTarget.style.borderColor = `${currentPortal.color}55`;
               e.currentTarget.style.boxShadow = `0 4px 24px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'none';
             }}
           >
-            <GoogleIcon />
-            {currentPortal.btnText}
+            {isWakingServer ? (
+              <>
+                <div
+                  className="loading-spinner"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderWidth: 2,
+                    borderColor: 'rgba(255,255,255,0.2)',
+                    borderTopColor: '#fff',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                  }}
+                />
+                <span>Connecting to Campus Server…</span>
+              </>
+            ) : (
+              <>
+                <GoogleIcon />
+                <span>{currentPortal.btnText}</span>
+              </>
+            )}
           </button>
 
           <p style={{

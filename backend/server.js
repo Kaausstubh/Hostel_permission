@@ -222,6 +222,14 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: true }));
 
+// ── Lightweight Health Check (No DB/Redis overhead, bypassing rate limits) ──
+app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.status(200).json({
+    status: 'ok',
+  });
+});
+
 // Global API rate limiter
 app.use('/api', apiLimiter);
 
