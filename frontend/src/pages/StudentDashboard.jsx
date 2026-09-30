@@ -1209,20 +1209,20 @@ export default function StudentDashboard() {
             <div
               style={{
                 width: '100%',
-                padding: '11px 14px',
+                padding: '12px 14px',
                 borderTop: '1px solid var(--glass-border, rgba(255, 255, 255, 0.08))',
                 background: pass.instructionType === 'OUT'
-                  ? 'rgba(239, 68, 68, 0.08)'
+                  ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.18)')
                   : pass.instructionType === 'IN'
-                  ? 'rgba(16, 185, 129, 0.08)'
-                  : 'rgba(99, 102, 241, 0.08)',
+                  ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.18)')
+                  : (theme === 'light' ? '#eef2ff' : 'rgba(99, 102, 241, 0.18)'),
                 color: pass.instructionType === 'OUT'
-                  ? '#f87171'
+                  ? (theme === 'light' ? '#991b1b' : '#fca5a5')
                   : pass.instructionType === 'IN'
-                  ? '#34d399'
-                  : 'var(--primary-light, #818cf8)',
-                fontSize: 12.5,
-                fontWeight: 700,
+                  ? (theme === 'light' ? '#065f46' : '#6ee7b7')
+                  : (theme === 'light' ? '#312e81' : '#c7d2fe'),
+                fontSize: 13,
+                fontWeight: 800,
                 textAlign: 'center',
                 display: 'flex',
                 alignItems: 'center',
@@ -1231,6 +1231,7 @@ export default function StudentDashboard() {
                 lineHeight: 1.35,
                 borderBottomLeftRadius: 16,
                 borderBottomRightRadius: 16,
+                boxShadow: theme === 'light' ? 'inset 0 1px 0 rgba(0,0,0,0.04)' : 'none',
               }}
             >
               <span>{pass.instruction}</span>
@@ -1740,7 +1741,7 @@ export default function StudentDashboard() {
                 {zoomedQR.zoomTitle || 'Gate Pass QR'}
               </div>
               {zoomedQR.cardSubtitle && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: theme === 'light' ? '#334155' : 'var(--text-secondary)', marginTop: 2 }}>
                   {zoomedQR.cardSubtitle}
                 </div>
               )}
@@ -1768,7 +1769,7 @@ export default function StudentDashboard() {
               />
             </div>
 
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 280 }}>
+            <div style={{ fontSize: 11.5, color: theme === 'light' ? '#475569' : 'var(--text-muted)', textAlign: 'center', maxWidth: 280, fontWeight: 500 }}>
               {zoomedQR.hint || 'Show to security at the gate'}
             </div>
 
@@ -1776,30 +1777,31 @@ export default function StudentDashboard() {
             <div
               style={{
                 width: '100%',
-                padding: '12px 14px',
+                padding: '13px 16px',
                 borderRadius: 12,
                 background: zoomedQR.instructionType === 'OUT'
-                  ? 'rgba(239, 68, 68, 0.1)'
+                  ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.18)')
                   : zoomedQR.instructionType === 'IN'
-                  ? 'rgba(16, 185, 129, 0.1)'
-                  : 'rgba(99, 102, 241, 0.1)',
+                  ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.18)')
+                  : (theme === 'light' ? '#eef2ff' : 'rgba(99, 102, 241, 0.18)'),
                 color: zoomedQR.instructionType === 'OUT'
-                  ? '#f87171'
+                  ? (theme === 'light' ? '#991b1b' : '#fca5a5')
                   : zoomedQR.instructionType === 'IN'
-                  ? '#34d399'
-                  : 'var(--primary-light, #818cf8)',
-                fontSize: 13.5,
-                fontWeight: 700,
+                  ? (theme === 'light' ? '#065f46' : '#6ee7b7')
+                  : (theme === 'light' ? '#312e81' : '#c7d2fe'),
+                fontSize: 14,
+                fontWeight: 800,
                 textAlign: 'center',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
                 border: zoomedQR.instructionType === 'OUT'
-                  ? '1px solid rgba(239, 68, 68, 0.25)'
+                  ? (theme === 'light' ? '1.5px solid #dc2626' : '1px solid rgba(239, 68, 68, 0.4)')
                   : zoomedQR.instructionType === 'IN'
-                  ? '1px solid rgba(16, 185, 129, 0.25)'
-                  : '1px solid rgba(99, 102, 241, 0.25)',
+                  ? (theme === 'light' ? '1.5px solid #059669' : '1px solid rgba(16, 185, 129, 0.4)')
+                  : (theme === 'light' ? '1.5px solid #4f46e5' : '1px solid rgba(99, 102, 241, 0.4)'),
+                boxShadow: theme === 'light' ? '0 2px 8px rgba(0, 0, 0, 0.05)' : 'none',
               }}
             >
               <span>{zoomedQR.instruction || 'Show this QR to security at the gate'}</span>
@@ -1810,14 +1812,14 @@ export default function StudentDashboard() {
               style={{
                 width: '100%',
                 padding: '12px 0',
-                borderRadius: 10,
-                background: theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-                border: 'none',
-                color: 'var(--text-primary)',
+                borderRadius: 12,
+                background: theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.08)',
+                border: theme === 'light' ? '1px solid #cbd5e1' : 'none',
+                color: theme === 'light' ? '#0f172a' : 'var(--text-primary)',
                 fontSize: 14,
                 cursor: 'pointer',
-                fontWeight: 600,
-                transition: 'background 0.15s ease',
+                fontWeight: 700,
+                transition: 'all 0.15s ease',
               }}
             >
               Close
