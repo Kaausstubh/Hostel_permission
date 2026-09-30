@@ -4,7 +4,8 @@
  * Appears exactly once when a new student logs in and has missing profile details
  * (Roll/MIS number, phone, parent phone, or hostel selection).
  *
- * Collects critical data securely and stores it before directing them to their dashboard.
+ * Compact single-view layout on desktop (no vertical scrolling needed)
+ * and fully responsive for mobile screens.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +13,18 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode, MdLock, MdArrowBack, MdLogout } from 'react-icons/md';
+import {
+  MdPerson,
+  MdSchool,
+  MdPhone,
+  MdPeople,
+  MdHome,
+  MdLightMode,
+  MdDarkMode,
+  MdLock,
+  MdArrowBack,
+  MdLogout,
+} from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 
 const extractMisFromEmail = (email = '') => {
@@ -42,7 +54,7 @@ export default function Onboarding() {
   const [phone, setPhone] = useState(user?.phone || '');
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
-  const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
+  const [hostel, setHostel] = useState(user?.hostel || '');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -54,7 +66,6 @@ export default function Onboarding() {
     }
   }, [user?.email]);
 
-  // Simple validation helpers
   const isValidName = (val) => val.trim().length >= 2 && val.trim().length <= 80;
   const isValidRoll = (val) => val.trim().length >= 3 && val.trim().length <= 20;
   const isValidPhone = (val) => {
@@ -72,19 +83,19 @@ export default function Onboarding() {
       return toast.error('Please enter a valid Roll/MIS number.');
     }
     if (!isValidPhone(phone)) {
-      return toast.error('Please enter a valid personal phone number (e.g. +919876543210).');
+      return toast.error('Please enter a valid personal phone number (10 digits).');
     }
     if (!isValidPhone(parentPhone)) {
-      return toast.error('Please enter a valid Parent Contact 1 phone number.');
+      return toast.error('Please enter a valid Parent Contact 1 phone number (10 digits).');
     }
     if (!isValidPhone(parentPhone2)) {
-      return toast.error('Please enter a valid Parent Contact 2 phone number.');
+      return toast.error('Please enter a valid Parent Contact 2 phone number (10 digits).');
     }
     if (parentPhone.replace(/\D/g, '') === parentPhone2.replace(/\D/g, '')) {
       return toast.error('Parent Contact 1 and Parent Contact 2 must be different numbers.');
     }
     if (!hostel) {
-      return toast.error('Please select your hostel.');
+      return toast.error('Please select your hostel block.');
     }
 
     setSubmitting(true);
@@ -99,11 +110,9 @@ export default function Onboarding() {
       });
 
       if (res.data?.success) {
-        // Update user state globally in AuthContext
         const token = localStorage.getItem('token');
         loginWithOAuth(token, res.data.user);
-        
-        toast.success('Profile setup completed successfully! 🎉');
+        toast.success('Registration complete! Entering Student Portal 🎉');
         navigate('/student', { replace: true });
       }
     } catch (err) {
@@ -115,340 +124,358 @@ export default function Onboarding() {
   };
 
   return (
-    <div
-      className="login-page"
-      style={{
-        height: 'auto',
-        minHeight: '100vh',
-        maxHeight: 'none',
-        overflowY: 'auto',
-        padding: '80px 16px 48px',
-        alignItems: 'start',
-      }}
-    >
-      {/* Top action navigation bar */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 16,
-          left: 16,
-          right: 16,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          zIndex: 100,
-          pointerEvents: 'none',
-        }}
-      >
+    <div className="onboard-viewport">
+      <style>{`
+        .onboard-viewport {
+          min-height: 100vh;
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 60px 16px 20px;
+          box-sizing: border-box;
+          background: var(--bg-main, #0b0f19);
+          overflow-y: auto;
+          position: relative;
+        }
+        .onboard-card-container {
+          width: 100%;
+          max-width: 660px;
+          background: var(--card-bg, rgba(255, 255, 255, 0.98));
+          border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+          border-radius: 18px;
+          box-shadow: 0 20px 45px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(20px);
+          padding: 22px 26px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin: auto;
+        }
+        .onboard-header-section {
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+        }
+        .onboard-logo-badge {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          padding: 3px;
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 2px;
+        }
+        .onboard-logo-badge img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          border-radius: 50%;
+        }
+        .onboard-title-text {
+          font-size: 19px;
+          font-weight: 800;
+          color: var(--text-primary, #0f172a);
+          letter-spacing: -0.3px;
+          margin: 0;
+        }
+        .onboard-subtitle-text {
+          font-size: 12px;
+          color: var(--text-muted, #64748b);
+          line-height: 1.4;
+          margin: 0;
+          max-width: 480px;
+        }
+        .onboard-form-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 14px;
+        }
+        .onboard-field-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .onboard-field-label {
+          font-size: 11.5px;
+          font-weight: 600;
+          color: var(--text-secondary, #475569);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .onboard-input-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+        .onboard-icon-left {
+          position: absolute;
+          left: 11px;
+          color: var(--text-muted, #94a3b8);
+          font-size: 16px;
+          pointer-events: none;
+        }
+        .onboard-input-control {
+          width: 100%;
+          height: 38px;
+          padding: 0 10px 0 34px;
+          border-radius: 9px;
+          border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+          background: var(--bg-input, rgba(255, 255, 255, 0.05));
+          color: var(--text-primary, #0f172a);
+          font-size: 13px;
+          outline: none;
+          box-sizing: border-box;
+          transition: all 0.2s ease;
+        }
+        .onboard-input-control:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.15);
+        }
+        .onboard-input-control.locked-input {
+          background: rgba(16, 185, 129, 0.04);
+          color: var(--primary-light, #2563eb);
+          font-weight: 700;
+          cursor: not-allowed;
+          padding-right: 32px;
+          border-color: rgba(16, 185, 129, 0.25);
+        }
+        .onboard-submit-button {
+          width: 100%;
+          height: 42px;
+          border: none;
+          border-radius: 11px;
+          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 6px 18px -3px rgba(37, 99, 235, 0.45);
+          transition: all 0.2s ease;
+          margin-top: 4px;
+        }
+        .onboard-submit-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 8px 22px -3px rgba(37, 99, 235, 0.55);
+          filter: brightness(1.04);
+        }
+        .onboard-submit-button:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+        .onboard-nav-top {
+          position: fixed;
+          top: 12px;
+          left: 16px;
+          right: 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          z-index: 100;
+          pointer-events: none;
+        }
+        .onboard-top-btn {
+          pointer-events: auto;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          padding: 6px 14px;
+          border-radius: 9999px;
+          border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+          background: var(--card-bg, rgba(255, 255, 255, 0.85));
+          backdrop-filter: blur(12px);
+          color: var(--text-primary, #0f172a);
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+          transition: all 0.2s ease;
+        }
+        .onboard-top-btn:hover {
+          background: var(--card-bg, #ffffff);
+          transform: translateY(-1px);
+        }
+        .onboard-footer-btn {
+          background: none;
+          border: none;
+          color: var(--text-muted, #64748b);
+          font-size: 12px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 3px 8px;
+          border-radius: 6px;
+          transition: color 0.2s ease;
+        }
+        .onboard-footer-btn:hover {
+          color: var(--text-primary, #0f172a);
+        }
+
+        @media (max-width: 640px) {
+          .onboard-viewport {
+            padding: 56px 12px 16px;
+            align-items: flex-start;
+          }
+          .onboard-card-container {
+            padding: 16px 14px;
+            border-radius: 14px;
+            gap: 10px;
+          }
+          .onboard-form-grid {
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+          .onboard-title-text {
+            font-size: 17px;
+          }
+          .onboard-logo-badge {
+            width: 40px;
+            height: 40px;
+          }
+          .onboard-input-control {
+            height: 38px;
+            font-size: 13px;
+          }
+        }
+      `}</style>
+
+      {/* Top action bar: Back to Portals + Theme toggle */}
+      <div className="onboard-nav-top">
         <button
           type="button"
+          className="onboard-top-btn"
           onClick={handleBackToPortals}
-          style={{
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 16px',
-            borderRadius: 9999,
-            border: '1px solid var(--border-color)',
-            background: 'var(--card-bg, rgba(255, 255, 255, 0.85))',
-            backdropFilter: 'blur(12px)',
-            color: 'var(--text-primary)',
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: 'var(--card-shadow, 0 4px 12px rgba(0,0,0,0.06))',
-            transition: 'all 0.2s ease',
-          }}
           title="Return to the Three Portals Login Page"
         >
-          <MdArrowBack size={16} />
+          <MdArrowBack size={15} />
           <span>← Back to Portals</span>
         </button>
 
         <button
           type="button"
-          className="login-theme-toggle"
+          className="onboard-top-btn"
           onClick={toggleTheme}
-          style={{ position: 'static', pointerEvents: 'auto', margin: 0 }}
+          style={{ padding: '6px 12px' }}
           aria-label={`Switch to ${theme === 'light' ? 'dark' : 'bright'} mode`}
         >
-          <span className="login-theme-toggle-icon">
-            {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
-          </span>
-          <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
+          {theme === 'light' ? <MdDarkMode size={15} /> : <MdLightMode size={15} />}
+          <span>{theme === 'light' ? 'Dark' : 'Light'}</span>
         </button>
       </div>
 
-      {/* Main glassmorphic onboarding card */}
-      <form
-        onSubmit={handleSubmit}
-        className="login-card fade-in"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100%',
-          maxWidth: '520px',
-          margin: '0 auto',
-          padding: '32px 28px',
-          boxSizing: 'border-box',
-          gap: '20px',
-        }}
-      >
+      {/* Main compact card */}
+      <form onSubmit={handleSubmit} className="onboard-card-container fade-in">
         {/* Header */}
-        <div style={{ textAlign: 'center' }}>
-          {/* Logo */}
-          <div
-            className="login-mark"
-            style={{
-              width: 76,
-              height: 76,
-              margin: '0 auto 16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <img
-              src={iiitLogo}
-              alt="IIIT Pune logo"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
-            />
+        <div className="onboard-header-section">
+          <div className="onboard-logo-badge">
+            <img src={iiitLogo} alt="IIIT Pune logo" />
           </div>
-
-          <div className="login-eyebrow" style={{ marginBottom: '8px' }}>First-time Setup</div>
-          <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '8px' }}>
-            Complete Your Profile
-          </h1>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '380px', margin: '0 auto' }}>
-            Hi {user?.name || 'Student'}, please confirm your details once to access gate permissions and outpasses.
+          <h1 className="onboard-title-text">Complete Student Profile</h1>
+          <p className="onboard-subtitle-text">
+            Hi {user?.name || 'Student'}, verify your institutional & emergency contact details to activate gate access.
           </p>
         </div>
 
-        {/* Inputs */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Official Name Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Official Name (for college records)
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdPerson size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
+        {/* 2-Column Responsive Input Grid */}
+        <div className="onboard-form-grid">
+          {/* 1. Official Name */}
+          <div className="onboard-field-group">
+            <label className="onboard-field-label">Official Name (Records)</label>
+            <div className="onboard-input-wrapper">
+              <MdPerson className="onboard-icon-left" />
               <input
                 type="text"
-                placeholder="Enter your full official name"
+                placeholder="Full official name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))'}
+                className="onboard-input-control"
               />
             </div>
           </div>
-          {/* Roll Number Input (Locked & Auto-fetched from College Email) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                Roll / MIS Number *
-              </label>
+
+          {/* 2. Roll / MIS (Locked) */}
+          <div className="onboard-field-group">
+            <div className="onboard-field-label">
+              <span>Roll / MIS Number *</span>
               {autoMis && (
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#10b981',
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  padding: '2px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(16, 185, 129, 0.25)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}>
-                  <MdLock size={12} /> Auto-fetched from email (Locked)
+                <span style={{ fontSize: '10px', color: '#10b981', fontWeight: 700 }}>
+                  Locked
                 </span>
               )}
             </div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdSchool size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
+            <div className="onboard-input-wrapper">
+              <MdSchool className="onboard-icon-left" />
               <input
                 type="text"
-                placeholder="e.g. 112415098"
+                placeholder="Roll / MIS"
                 value={rollNo}
                 readOnly={Boolean(autoMis)}
                 onChange={(e) => !autoMis && setRollNo(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: autoMis ? '12px 38px 12px 42px' : '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: autoMis
-                    ? 'rgba(255, 255, 255, 0.03)'
-                    : 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: autoMis ? 'var(--primary-light, #93c5fd)' : 'var(--text-primary)',
-                  fontSize: '14px',
-                  fontWeight: autoMis ? 700 : 400,
-                  letterSpacing: autoMis ? '0.5px' : 'normal',
-                  outline: 'none',
-                  cursor: autoMis ? 'not-allowed' : 'text',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => !autoMis && (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
+                className={`onboard-input-control ${autoMis ? 'locked-input' : ''}`}
               />
               {autoMis && (
                 <MdLock
-                  size={16}
-                  style={{ position: 'absolute', right: '14px', color: 'var(--text-muted)' }}
-                  title="Locked: auto-fetched from your college email"
+                  size={15}
+                  style={{ position: 'absolute', right: '11px', color: '#10b981' }}
+                  title="Auto-detected from email (Locked)"
                 />
               )}
             </div>
-            {autoMis && (
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Auto-detected from <strong>{user?.email}</strong>. This field is verified and locked.
-              </span>
-            )}
           </div>
 
-          {/* Personal Phone Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Your Phone Number *
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdPhone size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
+          {/* 3. Student Phone */}
+          <div className="onboard-field-group">
+            <label className="onboard-field-label">Your Phone Number *</label>
+            <div className="onboard-input-wrapper">
+              <MdPhone className="onboard-icon-left" />
               <input
                 type="tel"
-                placeholder="e.g. +919876543210"
+                placeholder="e.g. 9876543210"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
+                className="onboard-input-control"
               />
             </div>
           </div>
 
-          {/* Parent Phone 1 Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Parent Contact 1 (Father / Primary Phone) *
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdPeople size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
-              <input
-                type="tel"
-                placeholder="e.g. +919988776655"
-                value={parentPhone}
-                onChange={(e) => setParentPhone(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
-              />
-            </div>
-          </div>
-
-          {/* Parent Phone 2 Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Parent Contact 2 (Mother / Alternate Phone) *
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdPeople size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
-              <input
-                type="tel"
-                placeholder="e.g. +919877665544"
-                value={parentPhone2}
-                onChange={(e) => setParentPhone2(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
-              />
-            </div>
-          </div>
-
-          {/* Hostel Selection Dropdown */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Select Hostel Block
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdHome size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
+          {/* 4. Hostel Block */}
+          <div className="onboard-field-group">
+            <label className="onboard-field-label">Select Hostel Block *</label>
+            <div className="onboard-input-wrapper">
+              <MdHome className="onboard-icon-left" />
               <select
                 value={hostel}
                 onChange={(e) => setHostel(e.target.value)}
                 required
-                style={{
-                  width: '100%',
-                  padding: '12px 14px 12px 42px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  appearance: 'none',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.2s ease',
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))'}
+                className="onboard-input-control"
+                style={{ cursor: 'pointer', appearance: 'none' }}
               >
-                <option value="" disabled style={{ background: 'var(--bg-card, #13192c)' }}>Choose Hostel</option>
-                <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Boys Hostel 1 (BH1)</option>
-                <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Boys Hostel 2 (BH2)</option>
-                <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Girls Hostel (GH)</option>
+                <option value="" disabled>Choose Hostel</option>
+                <option value="BH1">Boys Hostel 1 (BH1)</option>
+                <option value="BH2">Boys Hostel 2 (BH2)</option>
+                <option value="GH">Girls Hostel (GH)</option>
               </select>
               <div style={{
                 position: 'absolute',
-                right: '16px',
+                right: '13px',
                 pointerEvents: 'none',
-                border: 'solid var(--text-muted)',
+                border: 'solid var(--text-muted, #94a3b8)',
                 borderWidth: '0 2px 2px 0',
                 display: 'inline-block',
                 padding: '3px',
@@ -456,68 +483,57 @@ export default function Onboarding() {
               }} />
             </div>
           </div>
+
+          {/* 5. Parent Phone 1 */}
+          <div className="onboard-field-group">
+            <label className="onboard-field-label">Parent Contact 1 (Father / Primary) *</label>
+            <div className="onboard-input-wrapper">
+              <MdPeople className="onboard-icon-left" />
+              <input
+                type="tel"
+                placeholder="Father / Primary phone"
+                value={parentPhone}
+                onChange={(e) => setParentPhone(e.target.value)}
+                required
+                className="onboard-input-control"
+              />
+            </div>
+          </div>
+
+          {/* 6. Parent Phone 2 */}
+          <div className="onboard-field-group">
+            <label className="onboard-field-label">Parent Contact 2 (Mother / Alt) *</label>
+            <div className="onboard-input-wrapper">
+              <MdPeople className="onboard-icon-left" />
+              <input
+                type="tel"
+                placeholder="Mother / Alternate phone"
+                value={parentPhone2}
+                onChange={(e) => setParentPhone2(e.target.value)}
+                required
+                className="onboard-input-control"
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Submit button */}
+        {/* Submit Button */}
         <button
           type="submit"
           disabled={submitting}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '14px 20px',
-            borderRadius: '12px',
-            border: 'none',
-            background: 'var(--primary, #3b82f6)',
-            color: '#ffffff',
-            fontSize: '15px',
-            fontWeight: 700,
-            cursor: submitting ? 'not-allowed' : 'pointer',
-            transition: 'all 0.25s ease',
-            letterSpacing: '0.01em',
-            boxShadow: '0 4px 24px rgba(59, 130, 246, 0.4)',
-            marginTop: '6px',
-          }}
-          onMouseEnter={(e) => {
-            if (!submitting) {
-              e.currentTarget.style.filter = 'brightness(1.1)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!submitting) {
-              e.currentTarget.style.filter = 'none';
-              e.currentTarget.style.transform = 'none';
-            }
-          }}
+          className="onboard-submit-button"
         >
-          {submitting ? 'Setting up Profile...' : 'Complete Registration 🚀'}
+          {submitting ? 'Setting up Profile...' : 'Complete Registration & Enter Portal 🚀'}
         </button>
 
-        {/* Back to portal selection / Sign out link */}
-        <div style={{ textAlign: 'center', marginTop: 4 }}>
+        {/* Footer switch/back link */}
+        <div style={{ textAlign: 'center' }}>
           <button
             type="button"
             onClick={handleBackToPortals}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-muted, #64748b)',
-              fontSize: '13px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              transition: 'color 0.2s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary, #0f172a)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #64748b)')}
+            className="onboard-footer-btn"
           >
-            <MdLogout size={15} />
+            <MdLogout size={13} />
             <span>Wrong account or portal? Back to Three Portals</span>
           </button>
         </div>
