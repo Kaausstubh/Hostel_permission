@@ -76,8 +76,23 @@ export default function StudentsOut() {
                   return (
                     <tr key={log._id}>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {(log.student_photo || log.student_id?.picture) ? (
+                            <img
+                              src={log.student_photo || log.student_id?.picture}
+                              alt=""
+                              style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1.5px solid var(--border-color)' }}
+                            />
+                          ) : (
+                            <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                              {(log.student_id?.name || 'S')[0]}
+                            </div>
+                          )}
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo}</div>
+                          </div>
+                        </div>
                       </td>
                       <td><span className="badge badge-out">{log.student_id?.hostel || '—'}</span></td>
                       <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>

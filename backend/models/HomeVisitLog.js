@@ -16,8 +16,9 @@ const homeVisitLogSchema = new mongoose.Schema(
     },
 
     // ── Denormalized student info ─────────────────────────────────────────────
-    name:   { type: String, default: '' },
-    rollNo: { type: String, default: '' },
+    name:          { type: String, default: '' },
+    rollNo:        { type: String, default: '' },
+    student_photo: { type: String, default: null },
 
     // ── Parent contact snapshot (for warden call) ─────────────────────────────
     parent_phone: { type: String, default: null }, // E.164, e.g. +9198...

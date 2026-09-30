@@ -195,6 +195,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         phone: student.phone || '',
         parentPhone: student.parentPhone || '',
         hostel: student.hostel || '',
+        student_photo: student.picture || '',
         place: pendingRequest.place || '',
         reason: pendingRequest.reason || '',
         qr_token: token,
@@ -220,6 +221,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
           hostel: student.hostel,
           studentPhone: student.phone || null,
           parentPhone: student.parentPhone || null,
+          picture: student.picture || null,
         },
         log: { status: 'OUT', timestamp: now, place: pendingRequest.place || '', reason: pendingRequest.reason || '' },
         scanDuration: Date.now() - scanStart,
@@ -243,6 +245,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
           hostel: student.hostel,
           studentPhone: student.phone || null,
           parentPhone: student.parentPhone || null,
+          picture: student.picture || null,
         },
         log: {
           status: 'OUT',
@@ -342,6 +345,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         hostel: student.hostel,
         studentPhone: student.phone || null,
         parentPhone: student.parentPhone || null,
+        picture: student.picture || null,
       },
       log: {
         status: 'IN',
@@ -395,6 +399,7 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         qr_used_out: true,
         actual_out_time: now,
         actual_out: now,
+        student_photo: existing.student_id?.picture || existing.student_photo || null,
       },
     },
     { new: true }
@@ -416,6 +421,7 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
           hostel: student?.hostel || 'N/A',
           studentPhone: student?.phone || null,
           parentPhone: student?.parentPhone || null,
+          picture: student?.picture || visit.student_photo || null,
         },
         log: { status: 'HOME OUT', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
         scanDuration: Date.now() - scanStart,
@@ -436,6 +442,7 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         actual_in_time: now,
         actual_in: now,
         overall_status: 'completed',
+        student_photo: existing.student_id?.picture || existing.student_photo || null,
       },
     },
     { new: true }
@@ -457,6 +464,7 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
           hostel: student?.hostel || 'N/A',
           studentPhone: student?.phone || null,
           parentPhone: student?.parentPhone || null,
+          picture: student?.picture || visit.student_photo || null,
         },
         log: { status: 'HOME IN', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
         scanDuration: Date.now() - scanStart,

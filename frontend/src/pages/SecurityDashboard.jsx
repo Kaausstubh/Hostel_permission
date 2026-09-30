@@ -1039,20 +1039,38 @@ export default function SecurityDashboard() {
                         border: '1px solid rgba(255,255,255,0.08)',
                         marginBottom: 16,
                       }}>
-                        {/* Avatar */}
-                        <div style={{
-                          width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-                          background: isIN
-                            ? 'linear-gradient(135deg, #10b981, #059669)'
-                            : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontWeight: 800, fontSize: 17, color: '#fff',
-                          boxShadow: isIN
-                            ? '0 4px 12px rgba(16,185,129,0.35)'
-                            : '0 4px 12px rgba(99,102,241,0.35)',
-                        }}>
-                          {initials}
-                        </div>
+                        {/* Avatar / Student Photo */}
+                        {result.student.picture ? (
+                          <img
+                            src={result.student.picture}
+                            alt={result.student.name}
+                            style={{
+                              width: 56,
+                              height: 56,
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                              border: isIN ? '2.5px solid #10b981' : '2.5px solid #6366f1',
+                              boxShadow: isIN
+                                ? '0 0 16px rgba(16,185,129,0.35)'
+                                : '0 0 16px rgba(99,102,241,0.35)',
+                            }}
+                          />
+                        ) : (
+                          <div style={{
+                            width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+                            background: isIN
+                              ? 'linear-gradient(135deg, #10b981, #059669)'
+                              : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 800, fontSize: 17, color: '#fff',
+                            boxShadow: isIN
+                              ? '0 4px 12px rgba(16,185,129,0.35)'
+                              : '0 4px 12px rgba(99,102,241,0.35)',
+                          }}>
+                            {initials}
+                          </div>
+                        )}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
                             {result.student.name}
@@ -1352,8 +1370,40 @@ export default function SecurityDashboard() {
                               transition: 'all 0.15s',
                             }}
                           >
-                            <div className="security-pending-card-row">
-                              <div className="security-pending-card-main">
+                            <div className="security-pending-card-row" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              {qr.studentPhoto ? (
+                                <img
+                                  src={qr.studentPhoto}
+                                  alt=""
+                                  style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: '50%',
+                                    objectFit: 'cover',
+                                    flexShrink: 0,
+                                    border: '1.5px solid var(--border-color)',
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: '50%',
+                                    background: 'rgba(99, 102, 241, 0.15)',
+                                    color: 'var(--primary-light)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {(qr.studentName || '?')[0]}
+                                </div>
+                              )}
+                              <div className="security-pending-card-main" style={{ flex: 1, minWidth: 0 }}>
                                 <div className="security-pending-card-name">
                                   {qr.studentName || 'Unknown'}
                                   {qr.scanType === 'AWAITING WARDEN' && (

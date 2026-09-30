@@ -23,6 +23,7 @@ const inOutLogSchema = new mongoose.Schema(
     phone:       { type: String, default: '' },
     parentPhone: { type: String, default: '' },
     hostel:      { type: String, default: '' },
+    student_photo: { type: String, default: null },
     place:       { type: String, default: '' },
     reason:      { type: String, default: '' },
 

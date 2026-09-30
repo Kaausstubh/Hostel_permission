@@ -317,7 +317,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
+        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

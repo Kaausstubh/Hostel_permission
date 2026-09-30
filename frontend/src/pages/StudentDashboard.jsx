@@ -2170,18 +2170,34 @@ export default function StudentDashboard() {
                 textAlign: 'left',
               }}
             >
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Student
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {scanAlertModal.studentName}
-                </div>
-                {scanAlertModal.rollNo && (
-                  <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
-                    {scanAlertModal.rollNo}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {user?.picture ? (
+                  <img
+                    src={user.picture}
+                    alt=""
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: '50%',
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                      border: '1.5px solid rgba(255,255,255,0.3)',
+                    }}
+                  />
+                ) : null}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Student
                   </div>
-                )}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {scanAlertModal.studentName}
+                  </div>
+                  {scanAlertModal.rollNo && (
+                    <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
+                      {scanAlertModal.rollNo}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>

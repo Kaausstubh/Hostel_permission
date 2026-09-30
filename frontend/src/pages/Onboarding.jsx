@@ -6,13 +6,26 @@
  *
  * Collects critical data securely and stores it before directing them to their dashboard.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode, MdLock, MdArrowBack, MdLogout } from 'react-icons/md';
+import {
+  MdPerson,
+  MdSchool,
+  MdPhone,
+  MdPeople,
+  MdHome,
+  MdLightMode,
+  MdDarkMode,
+  MdLock,
+  MdArrowBack,
+  MdPhotoCamera,
+  MdUpload,
+  MdClose,
+} from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 
 const extractMisFromEmail = (email = '') => {
@@ -43,7 +56,15 @@ export default function Onboarding() {
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
   const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
+  const [photo, setPhoto] = useState(user?.picture || '');
   const [submitting, setSubmitting] = useState(false);
+
+  // Live camera states
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const fileInputRef = useRef(null);
+  const videoRef = useRef(null);
+  const mediaStreamRef = useRef(null);
 
   useEffect(() => {
     if (user?.email) {
@@ -53,6 +74,92 @@ export default function Onboarding() {
       }
     }
   }, [user?.email]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const startCamera = async () => {
+    setCameraLoading(true);
+    setCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 640 },
+        },
+        audio: false,
+      });
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Unable to access camera. Please allow camera permissions or upload a photo.');
+      stopCamera();
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setCameraOpen(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    const size = Math.min(video.videoWidth || 360, video.videoHeight || 360);
+    const sx = ((video.videoWidth || 360) - size) / 2;
+    const sy = ((video.videoHeight || 360) - size) / 2;
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, 360, 360);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setPhoto(dataUrl);
+    stopCamera();
+    toast.success('Face photo captured! ✓');
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      return toast.error('Please upload an image file (JPG or PNG).');
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 360;
+        canvas.height = 360;
+        const ctx = canvas.getContext('2d');
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, 360, 360);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setPhoto(dataUrl);
+        toast.success('Face photo recorded! ✓');
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Simple validation helpers
   const isValidName = (val) => val.trim().length >= 2 && val.trim().length <= 80;
@@ -65,6 +172,9 @@ export default function Onboarding() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!photo) {
+      return toast.error('Student face photo is compulsory for gate security and hostel records. Please take or upload a photo.');
+    }
     if (!isValidName(name)) {
       return toast.error('Please enter your official name (min 2 characters).');
     }
@@ -96,6 +206,7 @@ export default function Onboarding() {
         parentPhone: parentPhone.trim(),
         parentPhone2: parentPhone2.trim(),
         hostel,
+        photo,
       });
 
       if (res.data?.success) {
@@ -183,43 +294,159 @@ export default function Onboarding() {
           height: 'calc(var(--app-viewport-height, 100dvh) - 48px)',
           maxHeight: '780px',
           minHeight: '580px',
-          padding: '40px 44px 34px',
+          padding: '24px 38px 20px',
           boxSizing: 'border-box',
         }}
       >
         {/* Header */}
-        <div style={{ textAlign: 'center' }}>
-          <div className="login-eyebrow" style={{ marginBottom: '14px' }}>IIIT Pune · Smart Campus Portal</div>
-
-          {/* Logo */}
-          <div
-            className="login-mark"
-            style={{
-              width: 72,
-              height: 72,
-              margin: '0 auto 14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <img
-              src={iiitLogo}
-              alt="IIIT Pune logo"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
-            />
+        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <img src={iiitLogo} alt="IIIT Pune" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+            <span className="login-eyebrow" style={{ margin: 0, fontSize: 11, letterSpacing: '0.06em' }}>
+              IIIT Pune · Student Registration
+            </span>
           </div>
 
-          <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 6px', color: 'var(--text-primary)' }}>
+          {/* Student Face Photo Capture Area (Compulsory) */}
+          <div style={{ position: 'relative', margin: '2px auto 6px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div
+              style={{
+                position: 'relative',
+                width: 72,
+                height: 72,
+                borderRadius: '50%',
+                padding: 3,
+                background: photo
+                  ? 'linear-gradient(135deg, #10b981, #059669)'
+                  : 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                boxShadow: photo
+                  ? '0 0 16px rgba(16, 185, 129, 0.35)'
+                  : '0 0 16px rgba(59, 130, 246, 0.25)',
+              }}
+            >
+              {photo ? (
+                <img
+                  src={photo}
+                  alt="Student face preview"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    display: 'block',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    background: 'var(--card-bg, #1a2234)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--primary-light, #93c5fd)',
+                    border: '1.5px dashed rgba(59, 130, 246, 0.6)',
+                  }}
+                >
+                  <MdPhotoCamera size={26} />
+                </div>
+              )}
+
+              {/* Status Indicator Badge */}
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: -2,
+                  right: -2,
+                  width: 22,
+                  height: 22,
+                  borderRadius: '50%',
+                  background: photo ? '#10b981' : '#f59e0b',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  border: '2px solid var(--card-bg, #13192c)',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                }}
+              >
+                {photo ? '✓' : '*'}
+              </div>
+            </div>
+
+            {/* Quick Action Buttons for Photo */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={startCamera}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '4px 10px',
+                  borderRadius: 9999,
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  color: 'var(--primary-light, #93c5fd)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <MdPhotoCamera size={13} />
+                <span>{photo ? 'Retake' : 'Live Camera *'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '4px 10px',
+                  borderRadius: 9999,
+                  border: '1px solid var(--border-color)',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  color: 'var(--text-secondary)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <MdUpload size={13} />
+                <span>Upload</span>
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+            </div>
+          </div>
+
+          <h1 style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.3px', margin: '2px 0 2px', color: 'var(--text-primary)' }}>
             Complete Your Profile
           </h1>
-          <p className="login-subtitle" style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto' }}>
-            Hi <strong>{user?.name || 'Student'}</strong>, please confirm your details once to access gate permissions.
+          <p style={{ fontSize: '12px', color: photo ? '#10b981' : '#f59e0b', margin: 0, fontWeight: 600 }}>
+            {photo
+              ? '✓ Face photo recorded for gate verification & records'
+              : '⚠️ Face photo is compulsory for gate security records'}
           </p>
         </div>
 
         {/* Form Inputs Grid */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
           {/* Official Name Input */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -489,6 +716,152 @@ export default function Onboarding() {
           </button>
         </div>
       </form>
+
+      {/* Live Camera Viewfinder Modal */}
+      {cameraOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.88)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 400,
+              background: 'var(--card-bg, #1a2234)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 24,
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+            }}
+          >
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Record Student Face
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Position your face clearly within the circle
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={stopCamera}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 4,
+                }}
+              >
+                <MdClose size={22} />
+              </button>
+            </div>
+
+            {/* Video Viewfinder with Circular Face Guide */}
+            <div
+              style={{
+                position: 'relative',
+                width: 260,
+                height: 260,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                background: '#000',
+                border: '3px solid #3b82f6',
+                boxShadow: '0 0 30px rgba(59, 130, 246, 0.35)',
+              }}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: 'scaleX(-1)', // mirror selfie
+                }}
+              />
+              {cameraLoading && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 13,
+                    background: 'rgba(0,0,0,0.6)',
+                  }}
+                >
+                  Starting camera...
+                </div>
+              )}
+            </div>
+
+            {/* Capture & Cancel Action Buttons */}
+            <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+              <button
+                type="button"
+                onClick={capturePhoto}
+                style={{
+                  flex: 1,
+                  padding: '12px 18px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+              >
+                <MdPhotoCamera size={18} />
+                <span>Snap Face Photo</span>
+              </button>
+              <button
+                type="button"
+                onClick={stopCamera}
+                style={{
+                  padding: '12px 18px',
+                  borderRadius: 12,
+                  border: '1px solid var(--border-color)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

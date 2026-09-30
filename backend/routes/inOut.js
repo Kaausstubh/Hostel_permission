@@ -203,7 +203,7 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     const filter = {};
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
-    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel' : 'name rollNo hostel phone';
+    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel picture' : 'name rollNo hostel phone picture';
 
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
@@ -231,7 +231,7 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
       returned: false,
       date: todayStr(),
     };
-    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel' : 'name rollNo hostel phone parentPhone';
+    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel picture' : 'name rollNo hostel phone parentPhone picture';
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
         .populate('student_id', studentSelect)

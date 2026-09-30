@@ -89,6 +89,7 @@ const buildPassMeta = (visit, token, extra = {}) => {
     hostel: student?.hostel || 'N/A',
     studentPhone: student?.phone || visit.phone || '',
     parentPhone: student?.parentPhone || visit.parent_phone || '',
+    studentPhoto: student?.picture || visit.student_photo || '',
     scanType: extra.scanType || (visit.qr_used_out ? 'HOME IN' : 'HOME OUT'),
     createdAt: visit.updatedAt || visit.createdAt,
     leaveDate: visit.leave_date,
@@ -163,7 +164,7 @@ const listPendingHomeVisitPasses = async (limit = 500) => {
     overall_status: { $in: ['pending', 'parent_approved'] },
     qr_used_in: false,
   })
-    .populate('student_id', 'name rollNo hostel phone parentPhone')
+    .populate('student_id', 'name rollNo hostel phone parentPhone picture')
     .sort({ createdAt: -1 })
     .limit(cap)
     .lean();
@@ -190,7 +191,7 @@ const listPendingHomeVisitPasses = async (limit = 500) => {
     overall_status: 'approved',
     qr_used_in: false,
   })
-    .populate('student_id', 'name rollNo hostel phone parentPhone')
+    .populate('student_id', 'name rollNo hostel phone parentPhone picture')
     .sort({ updatedAt: -1 })
     .limit(cap)
     .lean();

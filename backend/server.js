@@ -62,7 +62,7 @@ const archiveRoutes   = require('./routes/archive');
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
-const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '1mb';
+const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '10mb';
 
 // ── CORS configuration ────────────────────────────────────────────────────────
 const parseOriginList = (...values) =>

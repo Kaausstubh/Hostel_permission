@@ -236,6 +236,7 @@ router.post('/request-inout', async (req, res) => {
         rollNumber: user.rollNo || 'N/A',
         studentPhone: user.phone || '',
         parentPhone: user.parentPhone || '',
+        studentPhoto: user.picture || '',
         scanType,
         place: scanType === 'OUT' ? place : (existingOut?.place || place),
         reason: '',
@@ -344,6 +345,7 @@ router.post('/home-visit', async (req, res) => {
       student_id: user._id,
       name: user.name,
       rollNo: user.rollNo || '',
+      student_photo: user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       reason,
       leave_date,
@@ -504,14 +506,21 @@ router.post('/validate-place', async (req, res) => {
 // Complete student profile onboarding (called once after first Google OAuth login)
 router.put('/onboard', async (req, res) => {
   try {
-    const { name, rollNo, phone, parentPhone, parentPhone2, hostel } = req.body;
+    const { name, rollNo, phone, parentPhone, parentPhone2, hostel, photo } = req.body;
     const user = req.user;
 
-    // Validate presence
+    // Validate presence (including compulsory face photo)
     if (!name || !rollNo || !phone || !parentPhone || !parentPhone2 || !hostel) {
       return res.status(400).json({
         success: false,
         message: 'Name, Roll/MIS number, phone, both parent phone numbers, and hostel selection are required.',
+      });
+    }
+
+    if (!photo || typeof photo !== 'string' || !photo.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'A clear student face photo is compulsory for verification records.',
       });
     }
 
@@ -592,6 +601,7 @@ router.put('/onboard', async (req, res) => {
           parentPhone: normalizedParentPhone,
           parentPhone2: normalizedParentPhone2,
           hostel: normalizedHostel,
+          picture: photo.trim(),
         },
       },
       { new: true }
