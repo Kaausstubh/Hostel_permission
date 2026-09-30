@@ -115,27 +115,14 @@ export default function Onboarding() {
   };
 
   return (
-    <div
-      className="login-page"
-      style={{
-        height: '100vh',
-        minHeight: '100vh',
-        maxHeight: '100vh',
-        overflow: 'hidden',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px 16px',
-        boxSizing: 'border-box',
-      }}
-    >
+    <div className="login-page">
       {/* Top action navigation bar */}
       <div
         style={{
           position: 'fixed',
-          top: 16,
-          left: 18,
-          right: 18,
+          top: 20,
+          left: 20,
+          right: 20,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -183,31 +170,34 @@ export default function Onboarding() {
         </button>
       </div>
 
-      {/* Main glassmorphic onboarding card */}
+      {/* Main Single Box Onboarding Card — Exact same size as Login card */}
       <form
         onSubmit={handleSubmit}
-        className="login-card fade-in"
+        className="login-card login-card-oauth fade-in"
         style={{
           display: 'flex',
           flexDirection: 'column',
+          justifyContent: 'space-between',
           width: '100%',
-          maxWidth: '520px',
-          margin: '0 auto',
-          padding: '28px 30px 22px',
+          maxWidth: '560px',
+          height: 'calc(var(--app-viewport-height, 100dvh) - 48px)',
+          maxHeight: '780px',
+          minHeight: '580px',
+          padding: '40px 44px 34px',
           boxSizing: 'border-box',
-          gap: '14px',
-          borderRadius: '24px',
         }}
       >
         {/* Header */}
         <div style={{ textAlign: 'center' }}>
+          <div className="login-eyebrow" style={{ marginBottom: '14px' }}>IIIT Pune · Smart Campus Portal</div>
+
           {/* Logo */}
           <div
             className="login-mark"
             style={{
-              width: 58,
-              height: 58,
-              margin: '0 auto 8px',
+              width: 72,
+              height: 72,
+              margin: '0 auto 14px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -220,28 +210,10 @@ export default function Onboarding() {
             />
           </div>
 
-          <div
-            className="login-eyebrow"
-            style={{
-              display: 'inline-block',
-              fontSize: '10.5px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              padding: '3px 11px',
-              borderRadius: '9999px',
-              background: 'rgba(99, 102, 241, 0.1)',
-              color: 'var(--primary, #6366f1)',
-              border: '1px solid rgba(99, 102, 241, 0.2)',
-              marginBottom: '5px',
-            }}
-          >
-            First-time Setup
-          </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.3px', margin: '0 0 4px', color: 'var(--text-primary)' }}>
+          <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 6px', color: 'var(--text-primary)' }}>
             Complete Your Profile
           </h1>
-          <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.4, margin: 0 }}>
+          <p className="login-subtitle" style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto' }}>
             Hi <strong>{user?.name || 'Student'}</strong>, please confirm your details once to access gate permissions.
           </p>
         </div>
