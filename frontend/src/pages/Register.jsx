@@ -5,14 +5,23 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
 const COLLEGE_DOMAIN = 'iiitpune.ac.in';
 
+const extractMisFromEmail = (email = '') => {
+  if (!email || typeof email !== 'string') return '';
+  const localPart = (email.split('@')[0] || '').trim();
+  const numMatch = localPart.match(/\d+/);
+  return numMatch ? numMatch[0] : localPart.toUpperCase();
+};
+
 export default function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -20,12 +29,25 @@ export default function Register() {
     email: '',
     phone: '',
     parentPhone: '',
+    parentPhone2: '',
     hostel: '',
     password: '',
     confirmPassword: '',
   });
 
+  const autoMis = extractMisFromEmail(form.email);
+
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleEmailChange = (e) => {
+    const emailVal = e.target.value;
+    const extracted = extractMisFromEmail(emailVal);
+    setForm((f) => ({
+      ...f,
+      email: emailVal,
+      rollNo: extracted || f.rollNo,
+    }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,17 +62,21 @@ export default function Register() {
     if (form.password.length < 6) {
       return toast.error('Password must be at least 6 characters');
     }
+    if (form.parentPhone && form.parentPhone2 && form.parentPhone.replace(/\D/g, '') === form.parentPhone2.replace(/\D/g, '')) {
+      return toast.error('Parent phone 1 and parent phone 2 must be different numbers');
+    }
 
     setLoading(true);
     try {
       const res = await api.post('/auth/register', {
-        name:        form.name,
-        rollNo:      form.rollNo,
-        email:       form.email.toLowerCase(),
-        phone:       form.phone,
-        parentPhone: form.parentPhone || undefined,
-        hostel:      form.hostel || undefined,
-        password:    form.password,
+        name:         form.name,
+        rollNo:       (autoMis || form.rollNo).trim().toUpperCase(),
+        email:        form.email.toLowerCase(),
+        phone:        form.phone,
+        parentPhone:  form.parentPhone || undefined,
+        parentPhone2: form.parentPhone2 || undefined,
+        hostel:       form.hostel || undefined,
+        password:     form.password,
       });
 
       // Auto-login after registration
@@ -72,32 +98,23 @@ export default function Register() {
   return (
     <div className="login-page">
       <div className="login-card fade-in" style={{ maxWidth: 480 }}>
-        <div className="login-logo">
-          <h1>🏛️ HEIMDALL</h1>
-          <p>Student Registration</p>
+        <div className="login-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+          <img
+            src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
+            alt="HEIMDALL Logo"
+            style={{ width: 58, height: 58, objectFit: 'contain', borderRadius: '50%', marginBottom: 4 }}
+          />
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '0.4px' }}>HEIMDALL</h1>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>Student Registration</p>
         </div>
 
         <form onSubmit={handleSubmit}>
-          {/* Name + Roll No */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Full Name *</label>
-              <input id="reg-name" type="text" className="form-input"
-                placeholder="Arjun Sharma" value={form.name} onChange={set('name')} required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">MIS / Roll No *</label>
-              <input id="reg-rollno" type="text" className="form-input"
-                placeholder="CS2021001" value={form.rollNo} onChange={set('rollNo')} required />
-            </div>
-          </div>
-
           {/* College Email */}
           <div className="form-group">
             <label className="form-label">College Email *</label>
             <input id="reg-email" type="email" className="form-input"
-              placeholder={`yourname@${COLLEGE_DOMAIN}`}
-              value={form.email} onChange={set('email')} required />
+              placeholder={`112415098@${COLLEGE_DOMAIN}`}
+              value={form.email} onChange={handleEmailChange} required />
             {form.email && !form.email.toLowerCase().endsWith(`@${COLLEGE_DOMAIN}`) && (
               <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
                 ⚠️ Must be a @{COLLEGE_DOMAIN} email
@@ -105,17 +122,56 @@ export default function Register() {
             )}
           </div>
 
-          {/* Phone + Parent Phone */}
+          {/* Name + Roll No (Locked if extracted from email) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
-              <label className="form-label">Phone *</label>
-              <input id="reg-phone" type="tel" className="form-input"
-                placeholder="+919800000000" value={form.phone} onChange={set('phone')} required />
+              <label className="form-label">Full Name *</label>
+              <input id="reg-name" type="text" className="form-input"
+                placeholder="Arjun Sharma" value={form.name} onChange={set('name')} required />
             </div>
             <div className="form-group">
-              <label className="form-label">Parent's Phone</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="form-label">MIS / Roll No *</label>
+                {autoMis && (
+                  <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>🔒 Locked</span>
+                )}
+              </div>
+              <input
+                id="reg-rollno"
+                type="text"
+                className="form-input"
+                placeholder="112415098"
+                value={autoMis || form.rollNo}
+                readOnly={Boolean(autoMis)}
+                onChange={set('rollNo')}
+                required
+                style={{
+                  background: autoMis ? 'rgba(255, 255, 255, 0.04)' : undefined,
+                  cursor: autoMis ? 'not-allowed' : undefined,
+                  fontWeight: autoMis ? 700 : undefined,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Phone */}
+          <div className="form-group">
+            <label className="form-label">Student Phone *</label>
+            <input id="reg-phone" type="tel" className="form-input"
+              placeholder="+919800000000" value={form.phone} onChange={set('phone')} required />
+          </div>
+
+          {/* Parent Phone 1 + Parent Phone 2 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Parent Contact 1 *</label>
               <input id="reg-parent-phone" type="tel" className="form-input"
-                placeholder="+919700000000" value={form.parentPhone} onChange={set('parentPhone')} />
+                placeholder="+919700000000" value={form.parentPhone} onChange={set('parentPhone')} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Parent Contact 2 *</label>
+              <input id="reg-parent-phone-2" type="tel" className="form-input"
+                placeholder="+919600000000" value={form.parentPhone2} onChange={set('parentPhone2')} required />
             </div>
           </div>
 

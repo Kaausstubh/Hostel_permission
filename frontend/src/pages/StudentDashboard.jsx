@@ -378,6 +378,8 @@ export default function StudentDashboard() {
   const [loading, setLoading]   = useState(false);
   const [hvData, setHvData]     = useState({});
   const [zoomedQR, setZoomedQR] = useState(null);
+  const [activePasses, setActivePasses] = useState([]);
+  const [qrQuickLoading, setQrQuickLoading] = useState(false);
   const bottomRef = useRef(null);
   const menuTimerRef = useRef(null);
   const bootTimerRef = useRef(null);
@@ -745,6 +747,7 @@ export default function StudentDashboard() {
         `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n📍 Going to: *${place || 'Not specified'}*\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nShow the QR below at the gate.`,
       );
       pushQrMessage({ qrDataUrl, scanType: scan_type, student, passKind: 'inout', place });
+      checkActivePassSilently();
       setStep(STEPS.DONE);
       goToMainMenu();
     } catch (err) {
@@ -877,11 +880,127 @@ export default function StudentDashboard() {
     }
   };
 
+  const parseActivePasses = useCallback((s) => {
+    const passes = [];
+    if (!s) return passes;
+
+    if (s.pendingInOutRequest?.qrDataUrl) {
+      const meta = {
+        qrDataUrl: s.pendingInOutRequest.qrDataUrl,
+        qrToken: s.pendingInOutRequest.qrToken || s.pendingInOutRequest.qr_token,
+        scanType: s.pendingInOutRequest.scanType,
+        student: user,
+        place: s.pendingInOutRequest.place,
+        reason: s.pendingInOutRequest.reason,
+        expiresAt: s.pendingInOutRequest.expiresAt,
+        passKind: 'inout',
+      };
+      const display = getPassDisplay(meta);
+      passes.push({
+        ...meta,
+        ...display,
+        id: 'inout',
+        tabLabel: 'Daily In/Out',
+      });
+    }
+
+    if (s.approvedVisits?.length > 0) {
+      s.approvedVisits.forEach((v, idx) => {
+        if (v.qrDataUrl) {
+          const phase = v.qr_used_out ? 'return' : 'departure';
+          const meta = {
+            qrDataUrl: v.qrDataUrl,
+            qrToken: v.qr_token,
+            passKind: 'home_visit',
+            scanPhase: phase,
+            scanType: phase === 'return' ? 'HOME RETURN' : 'HOME VISIT',
+            leaveDate: v.leave_date,
+            returnDate: v.return_date,
+          };
+          const display = getPassDisplay(meta);
+          passes.push({
+            ...meta,
+            ...display,
+            id: `hv_${v._id || idx}`,
+            tabLabel: `Home Visit (${v.leave_date})`,
+          });
+        }
+      });
+    }
+
+    return passes;
+  }, [user]);
+
+  const checkActivePassSilently = useCallback(async () => {
+    try {
+      const res = await api.get('/student/status');
+      const s = res.data?.status;
+      const passes = parseActivePasses(s);
+      setActivePasses(passes);
+    } catch {
+      // background silent check
+    }
+  }, [parseActivePasses]);
+
+  useEffect(() => {
+    if (user) {
+      checkActivePassSilently();
+    }
+  }, [user, checkActivePassSilently]);
+
+  const handleQuickViewQR = async () => {
+    setQrQuickLoading(true);
+    try {
+      const res = await api.get('/student/status');
+      const s = res.data?.status;
+      const passes = parseActivePasses(s);
+      setActivePasses(passes);
+
+      const qrMap = {};
+      if (s?.approvedVisits?.length > 0) {
+        s.approvedVisits.forEach((v) => {
+          if (v.qrDataUrl) {
+            const phase = v.qr_used_out ? 'return' : 'departure';
+            qrMap[`qr_${v._id}`] = {
+              qrDataUrl: v.qrDataUrl,
+              qrToken: v.qr_token,
+              passKind: 'home_visit',
+              scanPhase: phase,
+              scanType: phase === 'return' ? 'HOME RETURN' : 'HOME VISIT',
+              leaveDate: v.leave_date,
+              returnDate: v.return_date,
+            };
+          }
+        });
+      }
+      if (Object.keys(qrMap).length > 0) {
+        setHvData((prev) => ({ ...prev, ...qrMap }));
+      }
+
+      if (passes.length > 0) {
+        setZoomedQR({
+          dataUrl: passes[0].qrDataUrl,
+          ...passes[0],
+        });
+      } else if (s?.pendingVisits?.length > 0) {
+        toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
+      } else {
+        toast('No active QR code found. You can request a pass from the chat menu.', { icon: 'ℹ️' });
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not fetch current QR status.');
+    } finally {
+      setQrQuickLoading(false);
+    }
+  };
+
   const fetchStatus = async () => {
     setLoading(true);
     try {
       const res = await api.get('/student/status');
       const s = res.data.status;
+      const passes = parseActivePasses(s);
+      setActivePasses(passes);
 
       let statusMsg = `📊 *Your Current Status*\n\n`;
       statusMsg += `🚦 Right now: *${s.currentStatus}*`;
@@ -1267,9 +1386,22 @@ export default function StudentDashboard() {
         ...(isMobile ? { display: 'none' } : {}),
       }}>
         {/* Brand */}
-        <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid var(--glass-border)' }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🛡️ HEIMDALL</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Student Portal</div>
+        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img
+            src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
+            alt="HEIMDALL Logo"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              boxShadow: theme === 'light' ? '0 2px 8px rgba(124,58,237,0.18)' : '0 0 12px rgba(139,92,246,0.4)',
+            }}
+          />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.4px' }}>HEIMDALL</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Student Portal</div>
+          </div>
         </div>
 
         {/* Nav */}
@@ -1338,11 +1470,12 @@ export default function StudentDashboard() {
           boxShadow: 'var(--shadow-sm)',
           flexWrap: isMobile ? 'wrap' : 'nowrap',
         }}>
-          <div className="chatbot-avatar" style={{ background: BOT_LOGO_BG }}>
+          <div className="chatbot-avatar" style={{ background: 'transparent', padding: 0 }}>
             <img
-              src={BOT_LOGO_SRC}
+              src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
               alt="HEIMDALL Bot"
               className="chatbot-avatar-img"
+              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
             />
           </div>
           <div>
@@ -1355,6 +1488,54 @@ export default function StudentDashboard() {
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* View Status / Active QR Pass Button */}
+            <button
+              onClick={handleQuickViewQR}
+              disabled={qrQuickLoading}
+              title="View Active QR Pass / Status"
+              aria-label="View Active QR Pass"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: activePasses.length > 0 ? '#10b981' : 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+                position: 'relative',
+                borderRadius: '8px',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = activePasses.length > 0 ? '#10b981' : 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = activePasses.length > 0 ? '#10b981' : 'var(--text-muted)';
+              }}
+            >
+              <MdQrCode2
+                size={20}
+                style={{
+                  animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
+                }}
+              />
+              {activePasses.length > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    boxShadow: '0 0 6px #10b981',
+                  }}
+                />
+              )}
+            </button>
+
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -1502,13 +1683,61 @@ export default function StudentDashboard() {
           justifyContent: 'center', zIndex: 1000, cursor: 'zoom-out',
         }}>
           <div onClick={e => e.stopPropagation()} style={{
-            background: 'var(--bg-card)', borderRadius: 20, padding: 32,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+            background: 'var(--bg-card)', borderRadius: 20, padding: isMobile ? '20px 16px' : '28px 32px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
             border: '1px solid var(--glass-border)',
+            maxWidth: '92vw',
+            width: isMobile ? '92vw' : 'auto',
+            cursor: 'default',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
           }}>
-            <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>
-              {zoomedQR.zoomTitle || 'Gate Pass QR'}
+            {/* Multiple passes switcher if more than 1 pass active */}
+            {activePasses.length > 1 && (
+              <div style={{
+                display: 'flex',
+                gap: 8,
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                width: '100%',
+                paddingBottom: 6,
+                borderBottom: '1px solid var(--glass-border)',
+              }}>
+                {activePasses.map((p, idx) => {
+                  const isSelected = (zoomedQR.qrDataUrl || zoomedQR.dataUrl) === p.qrDataUrl;
+                  return (
+                    <button
+                      key={p.id || idx}
+                      onClick={() => setZoomedQR({ dataUrl: p.qrDataUrl, ...p })}
+                      style={{
+                        padding: '4px 12px',
+                        borderRadius: 99,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        border: isSelected ? '1px solid var(--primary)' : '1px solid var(--glass-border)',
+                        background: isSelected ? 'var(--primary)' : 'rgba(255,255,255,0.06)',
+                        color: isSelected ? '#fff' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {p.tabLabel || `Pass ${idx + 1}`}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>
+                {zoomedQR.zoomTitle || 'Gate Pass QR'}
+              </div>
+              {zoomedQR.cardSubtitle && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {zoomedQR.cardSubtitle}
+                </div>
+              )}
             </div>
+
             <div style={{
               background: '#ffffff',
               padding: 16,
@@ -1519,25 +1748,44 @@ export default function StudentDashboard() {
               justifyContent: 'center',
             }}>
               <img
-                src={zoomedQR.dataUrl}
+                src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
                 alt="Gate Pass QR"
-                style={{ width: 280, height: 280, borderRadius: 0, display: 'block', imageRendering: 'pixelated' }}
+                style={{
+                  width: isMobile ? 220 : 280,
+                  height: isMobile ? 220 : 280,
+                  borderRadius: 0,
+                  display: 'block',
+                  imageRendering: 'pixelated',
+                }}
               />
             </div>
+
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 280 }}>
+              {zoomedQR.hint || 'Show to security at the gate'}
+            </div>
+
             <div style={{ display: 'flex', gap: 12, width: '100%' }}>
-              <button onClick={() => downloadQR(zoomedQR.dataUrl, zoomedQR.filename)} style={{
-                flex: 1, padding: '11px 0', borderRadius: 10,
-                background: 'var(--primary)', border: 'none',
-                color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              }}>
+              <button
+                onClick={() => downloadQR(zoomedQR.dataUrl || zoomedQR.qrDataUrl, zoomedQR.filename || 'gate-pass.png')}
+                style={{
+                  flex: 1, padding: '11px 0', borderRadius: 10,
+                  background: 'var(--primary)', border: 'none',
+                  color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
                 <MdDownload size={16} /> Download
               </button>
-              <button onClick={() => setZoomedQR(null)} style={{
-                flex: 1, padding: '11px 0', borderRadius: 10,
-                background: theme === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.07)', border: 'none',
-                color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer',
-              }}>
+              <button
+                onClick={() => setZoomedQR(null)}
+                style={{
+                  flex: 1, padding: '11px 0', borderRadius: 10,
+                  background: theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+                  border: 'none',
+                  color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
                 Close
               </button>
             </div>

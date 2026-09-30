@@ -7,6 +7,8 @@ export function ThemeProvider({ children }) {
     return localStorage.getItem('theme') || 'light';
   });
 
+  const logoSrc = theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png';
+
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
@@ -17,7 +19,7 @@ export function ThemeProvider({ children }) {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, logoSrc }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -87,6 +87,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    parentPhone2: {
+      // Student's secondary / alternate parent contact number (E.164 format)
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true, // createdAt, updatedAt

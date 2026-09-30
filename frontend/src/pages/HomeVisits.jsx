@@ -147,10 +147,15 @@ export default function HomeVisits() {
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{v.leave_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{v.return_date}</td>
                     <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5 }}>
                           {v.parent_phone || v.student_id?.parentPhone || '—'}
                         </div>
+                        {(v.parent_phone_alt || v.student_id?.parentPhone2) && (
+                          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-muted)' }}>
+                            Alt: {v.parent_phone_alt || v.student_id?.parentPhone2}
+                          </div>
+                        )}
                         <span className={`badge badge-${v.parent_call_confirmed ? 'approved' : 'pending'}`}>
                           {v.parent_call_confirmed ? 'call confirmed' : 'not confirmed'}
                         </span>

@@ -68,6 +68,7 @@ const buildFrontendRedirect = (baseUrl, token, user) => {
       rollNo:       user.rollNo || null,
       phone:        user.phone || null,
       parentPhone:  user.parentPhone || null,
+      parentPhone2: user.parentPhone2 || null,
     })
   ).toString('base64');
 
@@ -234,6 +235,7 @@ router.get('/me', protect, (req, res) => {
       rollNo:      u.rollNo || null,
       phone:       u.phone || null,
       parentPhone: u.parentPhone || null,
+      parentPhone2: u.parentPhone2 || null,
     },
   });
 });

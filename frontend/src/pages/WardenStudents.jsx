@@ -116,7 +116,13 @@ export default function WardenStudents() {
                               {student.parentPhone && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                                   <MdPhone size={14} color="var(--text-muted)" />
-                                  Parent: {student.parentPhone}
+                                  Parent 1: {student.parentPhone}
+                                </div>
+                              )}
+                              {student.parentPhone2 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                  <MdPhone size={14} color="var(--text-muted)" />
+                                  Parent 2: {student.parentPhone2}
                                 </div>
                               )}
                             </div>

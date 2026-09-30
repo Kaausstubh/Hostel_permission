@@ -6,32 +6,49 @@
  *
  * Collects critical data securely and stores it before directing them to their dashboard.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode } from 'react-icons/md';
+import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode, MdLock } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
+
+const extractMisFromEmail = (email = '') => {
+  if (!email || typeof email !== 'string') return '';
+  const localPart = (email.split('@')[0] || '').trim();
+  const numMatch = localPart.match(/\d+/);
+  return numMatch ? numMatch[0] : localPart.toUpperCase();
+};
 
 export default function Onboarding() {
   const { user, loginWithOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
+  const autoMis = extractMisFromEmail(user?.email || '');
   const [name, setName] = useState(user?.name || '');
-  const [rollNo, setRollNo] = useState('');
-  const [phone, setPhone] = useState('');
-  const [parentPhone, setParentPhone] = useState('');
-  const [hostel, setHostel] = useState(''); // BH1 | BH2 | GH
+  const [rollNo, setRollNo] = useState(autoMis || user?.rollNo || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
+  const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
+  const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (user?.email) {
+      const extracted = extractMisFromEmail(user.email);
+      if (extracted) {
+        setRollNo(extracted);
+      }
+    }
+  }, [user?.email]);
 
   // Simple validation helpers
   const isValidName = (val) => val.trim().length >= 2 && val.trim().length <= 80;
   const isValidRoll = (val) => val.trim().length >= 3 && val.trim().length <= 20;
   const isValidPhone = (val) => {
-    // Basic check: must contain numbers and length between 10-15
     const digits = val.replace(/\D/g, '');
     return digits.length >= 10 && digits.length <= 15;
   };
@@ -46,10 +63,16 @@ export default function Onboarding() {
       return toast.error('Please enter a valid Roll/MIS number.');
     }
     if (!isValidPhone(phone)) {
-      return toast.error('Please enter a valid phone number (e.g. +919876543210).');
+      return toast.error('Please enter a valid personal phone number (e.g. +919876543210).');
     }
     if (!isValidPhone(parentPhone)) {
-      return toast.error('Please enter a valid parent phone number.');
+      return toast.error('Please enter a valid Parent Contact 1 phone number.');
+    }
+    if (!isValidPhone(parentPhone2)) {
+      return toast.error('Please enter a valid Parent Contact 2 phone number.');
+    }
+    if (parentPhone.replace(/\D/g, '') === parentPhone2.replace(/\D/g, '')) {
+      return toast.error('Parent Contact 1 and Parent Contact 2 must be different numbers.');
     }
     if (!hostel) {
       return toast.error('Please select your hostel.');
@@ -62,6 +85,7 @@ export default function Onboarding() {
         rollNo: rollNo.trim().toUpperCase(),
         phone: phone.trim(),
         parentPhone: parentPhone.trim(),
+        parentPhone2: parentPhone2.trim(),
         hostel,
       });
 
@@ -172,40 +196,76 @@ export default function Onboarding() {
               />
             </div>
           </div>
-          {/* Roll Number Input */}
+          {/* Roll Number Input (Locked & Auto-fetched from College Email) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Roll / MIS Number
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Roll / MIS Number *
+              </label>
+              {autoMis && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: '#10b981',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}>
+                  <MdLock size={12} /> Auto-fetched from email (Locked)
+                </span>
+              )}
+            </div>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <MdSchool size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
               <input
                 type="text"
-                placeholder="e.g. 11241509X"
+                placeholder="e.g. 112415098"
                 value={rollNo}
-                onChange={(e) => setRollNo(e.target.value)}
+                readOnly={Boolean(autoMis)}
+                onChange={(e) => !autoMis && setRollNo(e.target.value)}
                 required
                 style={{
                   width: '100%',
-                  padding: '12px 14px 12px 42px',
+                  padding: autoMis ? '12px 38px 12px 42px' : '12px 14px 12px 42px',
                   borderRadius: '10px',
                   border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
+                  background: autoMis
+                    ? 'rgba(255, 255, 255, 0.03)'
+                    : 'var(--bg-input, rgba(255, 255, 255, 0.03))',
+                  color: autoMis ? 'var(--primary-light, #93c5fd)' : 'var(--text-primary)',
                   fontSize: '14px',
+                  fontWeight: autoMis ? 700 : 400,
+                  letterSpacing: autoMis ? '0.5px' : 'normal',
                   outline: 'none',
+                  cursor: autoMis ? 'not-allowed' : 'text',
                   transition: 'border-color 0.2s ease',
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))'}
+                onFocus={(e) => !autoMis && (e.target.style.borderColor = '#3b82f6')}
+                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
               />
+              {autoMis && (
+                <MdLock
+                  size={16}
+                  style={{ position: 'absolute', right: '14px', color: 'var(--text-muted)' }}
+                  title="Locked: auto-fetched from your college email"
+                />
+              )}
             </div>
+            {autoMis && (
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Auto-detected from <strong>{user?.email}</strong>. This field is verified and locked.
+              </span>
+            )}
           </div>
 
           {/* Personal Phone Input */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Your Phone Number
+              Your Phone Number *
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <MdPhone size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
@@ -226,16 +286,16 @@ export default function Onboarding() {
                   outline: 'none',
                   transition: 'border-color 0.2s ease',
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))'}
+                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
               />
             </div>
           </div>
 
-          {/* Parent Phone Input */}
+          {/* Parent Phone 1 Input */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Parent's Phone Number (for Home Visit Permission)
+              Parent Contact 1 (Father / Primary Phone) *
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <MdPeople size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
@@ -256,8 +316,38 @@ export default function Onboarding() {
                   outline: 'none',
                   transition: 'border-color 0.2s ease',
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))'}
+                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
+              />
+            </div>
+          </div>
+
+          {/* Parent Phone 2 Input */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Parent Contact 2 (Mother / Alternate Phone) *
+            </label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <MdPeople size={18} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />
+              <input
+                type="tel"
+                placeholder="e.g. +919877665544"
+                value={parentPhone2}
+                onChange={(e) => setParentPhone2(e.target.value)}
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px 14px 12px 42px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s ease',
+                }}
+                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
               />
             </div>
           </div>

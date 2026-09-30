@@ -21,6 +21,7 @@ const homeVisitLogSchema = new mongoose.Schema(
 
     // ── Parent contact snapshot (for warden call) ─────────────────────────────
     parent_phone: { type: String, default: null }, // E.164, e.g. +9198...
+    parent_phone_alt: { type: String, default: null }, // Second parent number
 
     // ── Warden call confirmation ──────────────────────────────────────────────
     parent_call_confirmed: { type: Boolean, default: false },

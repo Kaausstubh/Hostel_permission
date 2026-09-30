@@ -504,14 +504,14 @@ router.post('/validate-place', async (req, res) => {
 // Complete student profile onboarding (called once after first Google OAuth login)
 router.put('/onboard', async (req, res) => {
   try {
-    const { name, rollNo, phone, parentPhone, hostel } = req.body;
+    const { name, rollNo, phone, parentPhone, parentPhone2, hostel } = req.body;
     const user = req.user;
 
     // Validate presence
-    if (!name || !rollNo || !phone || !parentPhone || !hostel) {
+    if (!name || !rollNo || !phone || !parentPhone || !parentPhone2 || !hostel) {
       return res.status(400).json({
         success: false,
-        message: 'Name, Roll/MIS number, phone, parent phone, and hostel selection are required.',
+        message: 'Name, Roll/MIS number, phone, both parent phone numbers, and hostel selection are required.',
       });
     }
 
@@ -533,6 +533,16 @@ router.put('/onboard', async (req, res) => {
       });
     }
 
+    // Ensure Roll/MIS matches student's college email if present
+    const emailLocalPart = (user.email ? user.email.split('@')[0] : '').trim();
+    const emailMisMatch = emailLocalPart.match(/\d+/);
+    if (emailMisMatch && normalizedRollNo !== emailMisMatch[0].toUpperCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `Roll/MIS must match your registered college email (${emailMisMatch[0]}).`,
+      });
+    }
+
     // Check duplicate rollNo
     const existingRoll = await User.findOne({ rollNo: normalizedRollNo, _id: { $ne: user._id } }).lean();
     if (existingRoll) {
@@ -545,11 +555,19 @@ router.put('/onboard', async (req, res) => {
     // Validate phone numbers
     const normalizedPhone = normalizeToE164(phone);
     const normalizedParentPhone = normalizeToE164(parentPhone);
+    const normalizedParentPhone2 = normalizeToE164(parentPhone2);
 
-    if (!normalizedPhone || !normalizedParentPhone) {
+    if (!normalizedPhone || !normalizedParentPhone || !normalizedParentPhone2) {
       return res.status(400).json({
         success: false,
         message: 'Please enter valid phone numbers (with country code, e.g. +91XXXXXXXXXX).',
+      });
+    }
+
+    if (normalizedParentPhone === normalizedParentPhone2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parent Phone 1 and Parent Phone 2 must be different numbers.',
       });
     }
 
@@ -572,6 +590,7 @@ router.put('/onboard', async (req, res) => {
           rollNo: normalizedRollNo,
           phone: normalizedPhone,
           parentPhone: normalizedParentPhone,
+          parentPhone2: normalizedParentPhone2,
           hostel: normalizedHostel,
         },
       },
@@ -582,15 +601,16 @@ router.put('/onboard', async (req, res) => {
       success: true,
       message: 'Onboarding completed successfully!',
       user: {
-        id:          updatedUser._id,
-        name:        updatedUser.name,
-        email:       updatedUser.email,
-        role:        updatedUser.role,
-        picture:     updatedUser.picture || null,
-        hostel:      updatedUser.hostel || null,
-        rollNo:      updatedUser.rollNo || null,
-        phone:       updatedUser.phone || null,
-        parentPhone: updatedUser.parentPhone || null,
+        id:           updatedUser._id,
+        name:         updatedUser.name,
+        email:        updatedUser.email,
+        role:         updatedUser.role,
+        picture:      updatedUser.picture || null,
+        hostel:       updatedUser.hostel || null,
+        rollNo:       updatedUser.rollNo || null,
+        phone:        updatedUser.phone || null,
+        parentPhone:  updatedUser.parentPhone || null,
+        parentPhone2: updatedUser.parentPhone2 || null,
       },
     });
   } catch (err) {

@@ -118,6 +118,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       name: req.user.name,
       rollNo: req.user.rollNo || '',
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
+      parent_phone_alt: req.user.parentPhone2 ? normalizeToE164(req.user.parentPhone2) : null,
     });
 
     // In the "warden calls parent" workflow, we do not require parent WhatsApp approval.
@@ -316,7 +317,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .populate('student_id', 'name rollNo hostel parentPhone')
+        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
