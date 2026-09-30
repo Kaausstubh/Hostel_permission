@@ -125,7 +125,7 @@ export default function Onboarding() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px',
+        padding: '20px 16px',
         boxSizing: 'border-box',
       }}
     >
@@ -133,9 +133,9 @@ export default function Onboarding() {
       <div
         style={{
           position: 'fixed',
-          top: 14,
-          left: 16,
-          right: 16,
+          top: 16,
+          left: 18,
+          right: 18,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -151,13 +151,13 @@ export default function Onboarding() {
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            padding: '7px 14px',
+            padding: '8px 16px',
             borderRadius: 9999,
             border: '1px solid var(--border-color)',
             background: 'var(--card-bg, rgba(255, 255, 255, 0.85))',
             backdropFilter: 'blur(12px)',
             color: 'var(--text-primary)',
-            fontSize: 12,
+            fontSize: 12.5,
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: 'var(--card-shadow, 0 4px 12px rgba(0,0,0,0.06))',
@@ -165,7 +165,7 @@ export default function Onboarding() {
           }}
           title="Return to the Three Portals Login Page"
         >
-          <MdArrowBack size={15} />
+          <MdArrowBack size={16} />
           <span>Back to Portals</span>
         </button>
 
@@ -173,13 +173,13 @@ export default function Onboarding() {
           type="button"
           className="login-theme-toggle"
           onClick={toggleTheme}
-          style={{ position: 'static', pointerEvents: 'auto', margin: 0, padding: '7px 14px' }}
+          style={{ position: 'static', pointerEvents: 'auto', margin: 0, padding: '8px 16px' }}
           aria-label={`Switch to ${theme === 'light' ? 'dark' : 'bright'} mode`}
         >
           <span className="login-theme-toggle-icon">
-            {theme === 'light' ? <MdDarkMode size={16} /> : <MdLightMode size={16} />}
+            {theme === 'light' ? <MdDarkMode size={17} /> : <MdLightMode size={17} />}
           </span>
-          <span style={{ fontSize: '12px' }}>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
+          <span style={{ fontSize: '12.5px' }}>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
         </button>
       </div>
 
@@ -193,10 +193,10 @@ export default function Onboarding() {
           width: '100%',
           maxWidth: '520px',
           margin: '0 auto',
-          padding: '22px 26px 18px',
+          padding: '28px 30px 22px',
           boxSizing: 'border-box',
-          gap: '11px',
-          borderRadius: '20px',
+          gap: '14px',
+          borderRadius: '24px',
         }}
       >
         {/* Header */}
@@ -205,9 +205,9 @@ export default function Onboarding() {
           <div
             className="login-mark"
             style={{
-              width: 48,
-              height: 48,
-              margin: '0 auto 6px',
+              width: 58,
+              height: 58,
+              margin: '0 auto 8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -224,37 +224,37 @@ export default function Onboarding() {
             className="login-eyebrow"
             style={{
               display: 'inline-block',
-              fontSize: '10px',
+              fontSize: '10.5px',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
-              padding: '2px 9px',
+              padding: '3px 11px',
               borderRadius: '9999px',
               background: 'rgba(99, 102, 241, 0.1)',
               color: 'var(--primary, #6366f1)',
               border: '1px solid rgba(99, 102, 241, 0.2)',
-              marginBottom: '4px',
+              marginBottom: '5px',
             }}
           >
             First-time Setup
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.3px', margin: '0 0 2px', color: 'var(--text-primary)' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.3px', margin: '0 0 4px', color: 'var(--text-primary)' }}>
             Complete Your Profile
           </h1>
-          <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>
+          <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.4, margin: 0 }}>
             Hi <strong>{user?.name || 'Student'}</strong>, please confirm your details once to access gate permissions.
           </p>
         </div>
 
         {/* Form Inputs Grid */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* Official Name Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Official Name (for college records)
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdPerson size={16} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+              <MdPerson size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 placeholder="Enter your full official name"
@@ -263,12 +263,12 @@ export default function Onboarding() {
                 required
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  borderRadius: '9px',
+                  padding: '10px 14px 10px 38px',
+                  borderRadius: '10px',
                   border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                   background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                   color: 'var(--text-primary)',
-                  fontSize: '13px',
+                  fontSize: '13.5px',
                   outline: 'none',
                   transition: 'border-color 0.2s ease',
                 }}
@@ -279,11 +279,11 @@ export default function Onboarding() {
           </div>
 
           {/* Roll / MIS (Locked) & Personal Phone in 2-Columns */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             {/* Roll / MIS Number */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                   MIS Number *
                 </label>
                 {autoMis && (
@@ -293,7 +293,7 @@ export default function Onboarding() {
                 )}
               </div>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <MdSchool size={15} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+                <MdSchool size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
                   placeholder="e.g. 112415098"
@@ -303,12 +303,12 @@ export default function Onboarding() {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 10px 8px 34px',
-                    borderRadius: '9px',
+                    padding: '10px 12px 10px 36px',
+                    borderRadius: '10px',
                     border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                     background: autoMis ? 'rgba(255, 255, 255, 0.03)' : 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                     color: autoMis ? 'var(--primary-light, #93c5fd)' : 'var(--text-primary)',
-                    fontSize: '13px',
+                    fontSize: '13.5px',
                     fontWeight: autoMis ? 700 : 400,
                     outline: 'none',
                     cursor: autoMis ? 'not-allowed' : 'text',
@@ -318,12 +318,12 @@ export default function Onboarding() {
             </div>
 
             {/* Personal Phone */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-              <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Your Phone *
               </label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <MdPhone size={15} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+                <MdPhone size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
                 <input
                   type="tel"
                   placeholder="e.g. +919876543210"
@@ -332,12 +332,12 @@ export default function Onboarding() {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 10px 8px 34px',
-                    borderRadius: '9px',
+                    padding: '10px 12px 10px 36px',
+                    borderRadius: '10px',
                     border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                     background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                     color: 'var(--text-primary)',
-                    fontSize: '13px',
+                    fontSize: '13.5px',
                     outline: 'none',
                   }}
                   onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
@@ -348,14 +348,14 @@ export default function Onboarding() {
           </div>
 
           {/* Parent Contact 1 & Parent Contact 2 in 2-Columns */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             {/* Parent Phone 1 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-              <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Parent 1 (Primary) *
               </label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <MdPeople size={15} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+                <MdPeople size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
                 <input
                   type="tel"
                   placeholder="+919988776655"
@@ -364,12 +364,12 @@ export default function Onboarding() {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 10px 8px 34px',
-                    borderRadius: '9px',
+                    padding: '10px 12px 10px 36px',
+                    borderRadius: '10px',
                     border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                     background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                     color: 'var(--text-primary)',
-                    fontSize: '13px',
+                    fontSize: '13.5px',
                     outline: 'none',
                   }}
                   onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
@@ -379,12 +379,12 @@ export default function Onboarding() {
             </div>
 
             {/* Parent Phone 2 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-              <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Parent 2 (Alternate) *
               </label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <MdPeople size={15} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+                <MdPeople size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
                 <input
                   type="tel"
                   placeholder="+919877665544"
@@ -393,12 +393,12 @@ export default function Onboarding() {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 10px 8px 34px',
-                    borderRadius: '9px',
+                    padding: '10px 12px 10px 36px',
+                    borderRadius: '10px',
                     border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                     background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                     color: 'var(--text-primary)',
-                    fontSize: '13px',
+                    fontSize: '13.5px',
                     outline: 'none',
                   }}
                   onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
@@ -409,24 +409,24 @@ export default function Onboarding() {
           </div>
 
           {/* Hostel Selection Dropdown */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Select Hostel Block *
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdHome size={16} style={{ position: 'absolute', left: '11px', color: 'var(--text-muted)' }} />
+              <MdHome size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
               <select
                 value={hostel}
                 onChange={(e) => setHostel(e.target.value)}
                 required
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  borderRadius: '9px',
+                  padding: '10px 14px 10px 38px',
+                  borderRadius: '10px',
                   border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                   background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
                   color: 'var(--text-primary)',
-                  fontSize: '13px',
+                  fontSize: '13.5px',
                   outline: 'none',
                   appearance: 'none',
                   cursor: 'pointer',
@@ -441,7 +441,7 @@ export default function Onboarding() {
               </select>
               <div style={{
                 position: 'absolute',
-                right: '14px',
+                right: '15px',
                 pointerEvents: 'none',
                 border: 'solid var(--text-muted)',
                 borderWidth: '0 2px 2px 0',
@@ -462,18 +462,18 @@ export default function Onboarding() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '11px 18px',
-            borderRadius: '10px',
+            padding: '13px 20px',
+            borderRadius: '12px',
             border: 'none',
             background: 'var(--primary, #3b82f6)',
             color: '#ffffff',
-            fontSize: '14px',
+            fontSize: '14.5px',
             fontWeight: 700,
             cursor: submitting ? 'not-allowed' : 'pointer',
             transition: 'all 0.2s ease',
             letterSpacing: '0.01em',
-            boxShadow: '0 4px 18px rgba(59, 130, 246, 0.35)',
-            marginTop: '2px',
+            boxShadow: '0 4px 20px rgba(59, 130, 246, 0.35)',
+            marginTop: '3px',
           }}
           onMouseEnter={(e) => {
             if (!submitting) {
@@ -492,7 +492,7 @@ export default function Onboarding() {
         </button>
 
         {/* Back to portal selection / Sign out link */}
-        <div style={{ textAlign: 'center', marginTop: 0 }}>
+        <div style={{ textAlign: 'center', marginTop: '2px' }}>
           <button
             type="button"
             onClick={handleBackToPortals}
@@ -500,19 +500,19 @@ export default function Onboarding() {
               background: 'none',
               border: 'none',
               color: 'var(--text-muted, #64748b)',
-              fontSize: '11px',
+              fontSize: '11.5px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
+              gap: '5px',
+              padding: '3px 8px',
               borderRadius: '6px',
               transition: 'color 0.2s ease',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary, #0f172a)')}
             onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #64748b)')}
           >
-            <MdLogout size={12} />
+            <MdLogout size={13} />
             <span>Wrong account or portal? Back to Three Portals</span>
           </button>
         </div>
