@@ -24,7 +24,7 @@ import {
 } from 'date-fns';
 import {
   MdSend, MdLogout, MdQrCode2, MdHome, MdReport,
-  MdDashboard, MdPerson, MdDownload, MdLightMode, MdDarkMode, MdDeleteOutline,
+  MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
   MdCalendarMonth, MdChevronRight,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
@@ -131,23 +131,31 @@ const getPassDisplay = (meta = {}) => {
       cardTitle: 'HEIMDALL',
       cardSubtitle: isReturn ? 'Home Visit — Return QR' : 'Home Visit — Departure QR',
       hint: dates
-        ? `${dates} · Show at gate for HOME OUT / HOME IN`
-        : 'Show at the hostel gate for HOME OUT or HOME IN scan',
-      downloadLabel: 'Download Home Visit QR',
+        ? `${dates} · Show to security at gate`
+        : 'Show to security at the hostel gate',
+      instruction: isReturn
+        ? '🏫 Use this QR to enter campus (Home Return)'
+        : '🏡 Use this QR to leave campus (Home Departure)',
+      instructionType: isReturn ? 'IN' : 'OUT',
       zoomTitle: 'Home Visit QR Code',
-      filename: isReturn ? 'home-visit-return-qr.png' : 'home-visit-departure-qr.png',
     };
   }
 
+  const isExit = scanType === 'OUT';
+  const isReturn = scanType === 'IN';
   const inOutLabel =
     scanType === 'IN' ? 'Return (IN)' : scanType === 'OUT' ? 'Exit (OUT)' : scanType || 'In/Out';
   return {
     cardTitle: 'HEIMDALL',
     cardSubtitle: `Daily In/Out · ${inOutLabel}${meta.place ? ` · ${meta.place}` : ''}`,
-    hint: 'Tap to zoom · Show to security at the gate',
-    downloadLabel: 'Download Gate Pass',
+    hint: 'Tap to zoom · Show to security at gate',
+    instruction: isExit
+      ? '🚪 Use this QR to go OUT of campus'
+      : isReturn
+      ? '🏫 Use this QR to go INSIDE campus'
+      : '🛡️ Show this QR to security at the gate',
+    instructionType: isExit ? 'OUT' : isReturn ? 'IN' : 'GENERAL',
     zoomTitle: 'Daily In/Out QR Code',
-    filename: 'daily-inout-qr.png',
   };
 };
 
@@ -1197,22 +1205,36 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Download button */}
-            <button onClick={() => downloadQR(m.meta.qrDataUrl, pass.filename)}
+            {/* Instructions at downside */}
+            <div
               style={{
-                width: '100%', padding: '11px 16px', border: 'none',
-                borderTop: '1px solid var(--glass-border)',
-                background: 'var(--glass)',
-                color: '#818cf8', fontSize: 13.5, fontWeight: 600,
-                cursor: 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: 6,
-                transition: 'background 0.15s',
+                width: '100%',
+                padding: '11px 14px',
+                borderTop: '1px solid var(--glass-border, rgba(255, 255, 255, 0.08))',
+                background: pass.instructionType === 'OUT'
+                  ? 'rgba(239, 68, 68, 0.08)'
+                  : pass.instructionType === 'IN'
+                  ? 'rgba(16, 185, 129, 0.08)'
+                  : 'rgba(99, 102, 241, 0.08)',
+                color: pass.instructionType === 'OUT'
+                  ? '#f87171'
+                  : pass.instructionType === 'IN'
+                  ? '#34d399'
+                  : 'var(--primary-light, #818cf8)',
+                fontSize: 12.5,
+                fontWeight: 700,
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                lineHeight: 1.35,
+                borderBottomLeftRadius: 16,
+                borderBottomRightRadius: 16,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'var(--glass)'}
             >
-              <MdDownload size={16} /> {pass.downloadLabel}
-            </button>
+              <span>{pass.instruction}</span>
+            </div>
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, paddingLeft: 4 }}>
             {m.time}
@@ -1750,31 +1772,56 @@ export default function StudentDashboard() {
               {zoomedQR.hint || 'Show to security at the gate'}
             </div>
 
-            <div style={{ display: 'flex', gap: 12, width: '100%' }}>
-              <button
-                onClick={() => downloadQR(zoomedQR.dataUrl || zoomedQR.qrDataUrl, zoomedQR.filename || 'gate-pass.png')}
-                style={{
-                  flex: 1, padding: '11px 0', borderRadius: 10,
-                  background: 'var(--primary)', border: 'none',
-                  color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                }}
-              >
-                <MdDownload size={16} /> Download
-              </button>
-              <button
-                onClick={() => setZoomedQR(null)}
-                style={{
-                  flex: 1, padding: '11px 0', borderRadius: 10,
-                  background: theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-                  border: 'none',
-                  color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                Close
-              </button>
+            {/* Directional instruction banner at downside */}
+            <div
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: zoomedQR.instructionType === 'OUT'
+                  ? 'rgba(239, 68, 68, 0.1)'
+                  : zoomedQR.instructionType === 'IN'
+                  ? 'rgba(16, 185, 129, 0.1)'
+                  : 'rgba(99, 102, 241, 0.1)',
+                color: zoomedQR.instructionType === 'OUT'
+                  ? '#f87171'
+                  : zoomedQR.instructionType === 'IN'
+                  ? '#34d399'
+                  : 'var(--primary-light, #818cf8)',
+                fontSize: 13.5,
+                fontWeight: 700,
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                border: zoomedQR.instructionType === 'OUT'
+                  ? '1px solid rgba(239, 68, 68, 0.25)'
+                  : zoomedQR.instructionType === 'IN'
+                  ? '1px solid rgba(16, 185, 129, 0.25)'
+                  : '1px solid rgba(99, 102, 241, 0.25)',
+              }}
+            >
+              <span>{zoomedQR.instruction || 'Show this QR to security at the gate'}</span>
             </div>
+
+            <button
+              onClick={() => setZoomedQR(null)}
+              style={{
+                width: '100%',
+                padding: '12px 0',
+                borderRadius: 10,
+                background: theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontSize: 14,
+                cursor: 'pointer',
+                fontWeight: 600,
+                transition: 'background 0.15s ease',
+              }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
