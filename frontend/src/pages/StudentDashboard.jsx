@@ -376,6 +376,60 @@ function ChatDatePicker({ label, min, max, disabled, onConfirm, isReturnStep = f
   );
 }
 
+/** Synthesized gentle confirmation chime for successful security gate scan */
+const playScanChime = () => {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const now = ctx.currentTime;
+
+    // Pitch 1: C5 (523.25 Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(523.25, now);
+    gain1.gain.setValueAtTime(0, now);
+    gain1.gain.linearRampToValueAtTime(0.25, now + 0.04);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.32);
+
+    // Pitch 2: G5 (783.99 Hz)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(783.99, now + 0.12);
+    gain2.gain.setValueAtTime(0, now + 0.12);
+    gain2.gain.linearRampToValueAtTime(0.3, now + 0.16);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.12);
+    osc2.stop(now + 0.55);
+
+    // Pitch 3: High C6 (1046.5 Hz)
+    const osc3 = ctx.createOscillator();
+    const gain3 = ctx.createGain();
+    osc3.type = 'sine';
+    osc3.frequency.setValueAtTime(1046.5, now + 0.24);
+    gain3.gain.setValueAtTime(0, now + 0.24);
+    gain3.gain.linearRampToValueAtTime(0.32, now + 0.28);
+    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.72);
+    osc3.connect(gain3);
+    gain3.connect(ctx.destination);
+    osc3.start(now + 0.24);
+    osc3.stop(now + 0.72);
+  } catch {
+    // Graceful fallback if audio context is blocked
+  }
+};
+
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -388,6 +442,10 @@ export default function StudentDashboard() {
   const [zoomedQR, setZoomedQR] = useState(null);
   const [activePasses, setActivePasses] = useState([]);
   const [qrQuickLoading, setQrQuickLoading] = useState(false);
+  const [scanAlertModal, setScanAlertModal] = useState(null);
+  const lastScanFingerprintRef = useRef(null);
+  const isInitialStatusLoadedRef = useRef(false);
+  const isPollingRef = useRef(false);
   const bottomRef = useRef(null);
   const menuTimerRef = useRef(null);
   const bootTimerRef = useRef(null);
@@ -940,20 +998,127 @@ export default function StudentDashboard() {
   }, [user]);
 
   const checkActivePassSilently = useCallback(async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       const res = await api.get('/student/status');
       const s = res.data?.status;
+      if (!s) return;
+
       const passes = parseActivePasses(s);
       setActivePasses(passes);
+
+      const latestLog = s.todayLogs?.[0];
+      const latestApprovedHv = s.approvedVisits?.[0];
+      const latestRecentHv = s.recentVisitHistory?.[0];
+
+      const logKey = latestLog
+        ? `${latestLog._id || ''}_${latestLog.status}_${latestLog.in_time || ''}_${latestLog.out_time || ''}`
+        : 'no_log';
+      const hvApprovedKey = latestApprovedHv
+        ? `${latestApprovedHv._id}_out:${latestApprovedHv.qr_used_out}_in:${latestApprovedHv.qr_used_in}`
+        : 'no_appr_hv';
+      const hvRecentKey = latestRecentHv
+        ? `${latestRecentHv._id}_${latestRecentHv.overall_status}_in:${latestRecentHv.qr_used_in}`
+        : 'no_rec_hv';
+      const currentFingerprint = `${logKey}__${hvApprovedKey}__${hvRecentKey}__${s.currentStatus || ''}`;
+
+      if (!isInitialStatusLoadedRef.current) {
+        lastScanFingerprintRef.current = currentFingerprint;
+        isInitialStatusLoadedRef.current = true;
+      } else if (lastScanFingerprintRef.current && lastScanFingerprintRef.current !== currentFingerprint) {
+        lastScanFingerprintRef.current = currentFingerprint;
+
+        let scanType = 'IN';
+        let title = 'Campus Entry Verified';
+        let subtitle = 'Security scanned your pass. Welcome back to campus!';
+        let destination = '';
+        let scanTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+        if (latestLog && (latestLog.status === 'IN' || latestLog.in_time)) {
+          scanType = 'IN';
+          title = 'Campus Entry Verified';
+          subtitle = 'Security scanned your QR code at the gate. Welcome back!';
+          destination = latestLog.place || 'Hostel Campus';
+          if (latestLog.in_time) {
+            scanTime = new Date(latestLog.in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+          }
+        } else if (latestLog && latestLog.status === 'OUT') {
+          scanType = 'OUT';
+          title = 'Campus Exit Verified';
+          subtitle = 'Security scanned your QR code at the gate. Have a safe journey!';
+          destination = latestLog.place || 'Out of Campus';
+          if (latestLog.out_time || latestLog.timestamp) {
+            scanTime = new Date(latestLog.out_time || latestLog.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+          }
+        } else if (latestApprovedHv?.qr_used_out && !latestApprovedHv?.qr_used_in) {
+          scanType = 'OUT';
+          title = 'Home Visit Departure Verified';
+          subtitle = 'Security scanned your Home Visit pass. Have a safe journey home!';
+          destination = 'Home';
+        } else if (latestRecentHv?.qr_used_in || latestApprovedHv?.qr_used_in) {
+          scanType = 'IN';
+          title = 'Home Visit Return Verified';
+          subtitle = 'Security scanned your Home Visit return pass. Welcome back!';
+          destination = 'Hostel Campus';
+        } else if (s.currentStatus === 'OUT') {
+          scanType = 'OUT';
+          title = 'Campus Exit Recorded';
+          subtitle = 'Security scanned your pass. You are marked OUT.';
+        } else {
+          scanType = 'IN';
+          title = 'Campus Entry Recorded';
+          subtitle = 'Security scanned your pass. You are marked IN.';
+        }
+
+        // Close zoomed QR so full screen modal takes over cleanly
+        setZoomedQR(null);
+
+        // Sound chime and haptic feedback
+        playScanChime();
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try {
+            navigator.vibrate([200, 100, 200]);
+          } catch {
+            // ignore
+          }
+        }
+
+        // Show full screen notification modal
+        setScanAlertModal({
+          scanType,
+          title,
+          subtitle,
+          destination,
+          scanTime,
+          studentName: user?.name || 'Student',
+          rollNo: user?.rollNo || '',
+          hostel: user?.hostel || '',
+        });
+
+        // Add confirmation to chat thread
+        botSay(
+          `🛡️ **Gate Scan Confirmed by Security!**\n\n` +
+          `✅ Movement: *${scanType === 'OUT' ? 'Campus Exit (OUT)' : 'Campus Entry (IN)'}*\n` +
+          `${destination ? `📍 Location: *${destination}*\n` : ''}` +
+          `⏰ Verified at: *${scanTime}*\n` +
+          `👮 Scanned at Main Campus Security Gate.`
+        );
+      }
     } catch {
       // background silent check
+    } finally {
+      isPollingRef.current = false;
     }
-  }, [parseActivePasses]);
+  }, [parseActivePasses, user, botSay]);
 
   useEffect(() => {
-    if (user) {
+    if (!user) return;
+    checkActivePassSilently();
+    const interval = setInterval(() => {
       checkActivePassSilently();
-    }
+    }, 2500);
+    return () => clearInterval(interval);
   }, [user, checkActivePassSilently]);
 
   const handleQuickViewQR = async () => {
@@ -1828,10 +1993,285 @@ export default function StudentDashboard() {
         </div>
       )}
 
+      {/* ── FULL SCREEN SCAN VERIFICATION MODAL ── */}
+      {scanAlertModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setScanAlertModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999999,
+            backgroundColor: 'rgba(8, 12, 22, 0.94)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            animation: 'fadeInModal 0.25s ease-out',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 480,
+              background: scanAlertModal.scanType === 'OUT'
+                ? 'linear-gradient(180deg, rgba(32, 16, 22, 0.97) 0%, rgba(18, 12, 16, 0.99) 100%)'
+                : 'linear-gradient(180deg, rgba(10, 32, 22, 0.97) 0%, rgba(10, 18, 16, 0.99) 100%)',
+              border: scanAlertModal.scanType === 'OUT'
+                ? '2px solid rgba(244, 63, 94, 0.55)'
+                : '2px solid rgba(16, 185, 129, 0.55)',
+              borderRadius: 28,
+              boxShadow: scanAlertModal.scanType === 'OUT'
+                ? '0 0 60px rgba(244, 63, 94, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)'
+                : '0 0 60px rgba(16, 185, 129, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              padding: '32px 24px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 20,
+              animation: 'scaleUpModal 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {/* College Logo & Security Pill */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img
+                src="/iiitpune-logo.png"
+                alt="IIIT Pune"
+                style={{
+                  width: 38,
+                  height: 38,
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))',
+                }}
+              />
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 12px',
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  background: scanAlertModal.scanType === 'OUT'
+                    ? 'rgba(244, 63, 94, 0.15)'
+                    : 'rgba(16, 185, 129, 0.15)',
+                  color: scanAlertModal.scanType === 'OUT' ? '#fda4af' : '#6ee7b7',
+                  border: scanAlertModal.scanType === 'OUT'
+                    ? '1px solid rgba(244, 63, 94, 0.35)'
+                    : '1px solid rgba(16, 185, 129, 0.35)',
+                }}
+              >
+                <span>🛡️ Gate Security Verified</span>
+              </span>
+            </div>
+
+            {/* Glowing Radar Pulse Icon */}
+            <div
+              style={{
+                position: 'relative',
+                width: 96,
+                height: 96,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 4,
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: -8,
+                  borderRadius: '50%',
+                  background: scanAlertModal.scanType === 'OUT'
+                    ? 'radial-gradient(circle, rgba(244, 63, 94, 0.45) 0%, rgba(244, 63, 94, 0) 70%)'
+                    : 'radial-gradient(circle, rgba(16, 185, 129, 0.45) 0%, rgba(16, 185, 129, 0) 70%)',
+                  animation: 'pulseRingModal 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite',
+                }}
+              />
+              <div
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: '50%',
+                  background: scanAlertModal.scanType === 'OUT'
+                    ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
+                    : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: scanAlertModal.scanType === 'OUT'
+                    ? '0 10px 25px rgba(225, 29, 72, 0.6)'
+                    : '0 10px 25px rgba(5, 150, 105, 0.6)',
+                  color: '#ffffff',
+                }}
+              >
+                {scanAlertModal.scanType === 'OUT' ? (
+                  <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                ) : (
+                  <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                )}
+              </div>
+            </div>
+
+            {/* Title & Subtitle */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 24,
+                  fontWeight: 900,
+                  letterSpacing: '-0.02em',
+                  color: '#ffffff',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {scanAlertModal.title}
+              </h2>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  color: 'rgba(255, 255, 255, 0.75)',
+                  lineHeight: 1.45,
+                }}
+              >
+                {scanAlertModal.subtitle}
+              </p>
+            </div>
+
+            {/* Verification Detail Card */}
+            <div
+              style={{
+                width: '100%',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: 18,
+                padding: '16px 18px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 12,
+                textAlign: 'left',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Student
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#ffffff', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {scanAlertModal.studentName}
+                </div>
+                {scanAlertModal.rollNo && (
+                  <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
+                    {scanAlertModal.rollNo}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Movement
+                </div>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 800,
+                    marginTop: 2,
+                    color: scanAlertModal.scanType === 'OUT' ? '#fb7185' : '#34d399',
+                  }}
+                >
+                  {scanAlertModal.scanType === 'OUT' ? '🚪 EXIT (OUT)' : '🏫 ENTRY (IN)'}
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
+                  Main Gate Security
+                </div>
+              </div>
+
+              {scanAlertModal.destination && (
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Destination / Location
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc', marginTop: 2 }}>
+                    📍 {scanAlertModal.destination}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <span style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.55)' }}>
+                  Logged at Gate
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#ffffff' }}>
+                  ⏱️ {scanAlertModal.scanTime}
+                </span>
+              </div>
+            </div>
+
+            {/* Acknowledge Button */}
+            <button
+              type="button"
+              onClick={() => setScanAlertModal(null)}
+              style={{
+                width: '100%',
+                padding: '14px 20px',
+                borderRadius: 14,
+                border: 'none',
+                background: scanAlertModal.scanType === 'OUT'
+                  ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
+                  : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                color: '#ffffff',
+                fontSize: 15,
+                fontWeight: 800,
+                letterSpacing: '0.02em',
+                cursor: 'pointer',
+                boxShadow: scanAlertModal.scanType === 'OUT'
+                  ? '0 4px 18px rgba(225, 29, 72, 0.45)'
+                  : '0 4px 18px rgba(5, 150, 105, 0.45)',
+                transition: 'transform 0.15s ease, filter 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'brightness(1)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+            >
+              Acknowledge & Continue
+            </button>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes bounce {
           0%, 80%, 100% { transform: translateY(0); }
           40% { transform: translateY(-6px); }
+        }
+        @keyframes fadeInModal {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleUpModal {
+          from { opacity: 0; transform: scale(0.92); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulseRingModal {
+          0% { transform: scale(0.95); opacity: 0.8; }
+          50% { transform: scale(1.2); opacity: 0.2; }
+          100% { transform: scale(0.95); opacity: 0.8; }
         }
       `}</style>
     </div>
