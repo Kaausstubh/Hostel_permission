@@ -166,7 +166,7 @@ export default function Onboarding() {
           title="Return to the Three Portals Login Page"
         >
           <MdArrowBack size={15} />
-          <span>← Back to Portals</span>
+          <span>Back to Portals</span>
         </button>
 
         <button
