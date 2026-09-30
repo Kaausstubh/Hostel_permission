@@ -5,7 +5,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -21,7 +20,6 @@ const extractMisFromEmail = (email = '') => {
 export default function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -98,14 +96,9 @@ export default function Register() {
   return (
     <div className="login-page">
       <div className="login-card fade-in" style={{ maxWidth: 480 }}>
-        <div className="login-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 20 }}>
-          <img
-            src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
-            alt="HEIMDALL Logo"
-            style={{ width: 58, height: 58, objectFit: 'contain', borderRadius: '50%', marginBottom: 4 }}
-          />
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '0.4px' }}>HEIMDALL</h1>
-          <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>Student Registration</p>
+        <div className="login-logo">
+          <h1>🏛️ HEIMDALL</h1>
+          <p>Student Registration</p>
         </div>
 
         <form onSubmit={handleSubmit}>

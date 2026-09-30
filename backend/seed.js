@@ -24,6 +24,8 @@ const User = require('./models/User');
 const InOutLog = require('./models/InOutLog');
 const HomeVisitLog = require('./models/HomeVisitLog');
 const Complaint = require('./models/Complaint');
+const AuditLog = require('./models/AuditLog');
+const ArchiveJob = require('./models/ArchiveJob');
 const connectDB = require('./config/db');
 
 // ── Staff accounts to pre-seed ────────────────────────────────────────────────
@@ -32,20 +34,20 @@ const connectDB = require('./config/db');
 const staffUsers = [
   // ─── Wardens ──────────────────────────────────────────────────────────────
   {
-    name:          'Dr. Mahesh Joshi',
-    email:         'kaaustubhkhandare@gmail.com',  // ← Replace with real Google email
+    name:          'Kaustubh Khandare',
+    email:         'kaaustubhkhandare@gmail.com',
     role:          'warden',
     oauthProvider: 'google',
-    oauthId:       'seeded-warden-placeholder', // ← Will be replaced on first real login
+    oauthId:       'seeded-warden-placeholder',
   },
 
   // ─── Security Staff ────────────────────────────────────────────────────────
   {
     name:          'MSF Guard',
-    email:         'security@campus.edu', // ← Replace with real Google email
+    email:         'security@campus.edu',
     role:          'security',
     oauthProvider: 'google',
-    oauthId:       'seeded-security-placeholder', // ← Will be replaced on first real login
+    oauthId:       'seeded-security-placeholder',
   },
 ];
 
@@ -63,6 +65,12 @@ const seed = async () => {
 
     await Complaint.deleteMany({});
     console.log('  🗑️  Cleared all student complaints');
+
+    await AuditLog.deleteMany({});
+    console.log('  🗑️  Cleared all audit logs');
+
+    await ArchiveJob.deleteMany({});
+    console.log('  🗑️  Cleared all archive jobs');
 
     await User.deleteMany({});
     console.log('  🗑️  Cleared all registered users');

@@ -5,7 +5,6 @@
  */
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import {
   MdDashboard, MdQrCodeScanner, MdHome, MdReport,
   MdPeople, MdLogout, MdWarning, MdHistory, MdClose,
@@ -32,7 +31,6 @@ const securityNav = [
 
 export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   const { user, logout } = useAuth();
-  const { theme } = useTheme();
   const navigate = useNavigate();
 
   const navItems = ['warden', 'admin'].includes(user?.role) ? wardenNav : securityNav;
@@ -52,16 +50,9 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           <MdClose size={20} />
         </button>
       </div>
-      <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <img
-          src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
-          alt="HEIMDALL Logo"
-          style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: '50%', flexShrink: 0 }}
-        />
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1.15rem', letterSpacing: '0.4px', lineHeight: 1.2 }}>HEIMDALL</h2>
-          <span style={{ fontSize: '0.72rem', opacity: 0.75, display: 'block' }}>Hostel Management</span>
-        </div>
+      <div className="sidebar-logo">
+        <h2>🏛️ HEIMDALL</h2>
+        <span>Hostel Management System</span>
       </div>
 
       <nav className="sidebar-nav">

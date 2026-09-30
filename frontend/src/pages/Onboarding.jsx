@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode, MdLock } from 'react-icons/md';
+import { MdPerson, MdSchool, MdPhone, MdPeople, MdHome, MdLightMode, MdDarkMode, MdLock, MdArrowBack, MdLogout } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 
 const extractMisFromEmail = (email = '') => {
@@ -23,9 +23,18 @@ const extractMisFromEmail = (email = '') => {
 };
 
 export default function Onboarding() {
-  const { user, loginWithOAuth } = useAuth();
+  const { user, loginWithOAuth, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+
+  const handleBackToPortals = async () => {
+    try {
+      await logout();
+    } catch (e) {
+      console.error(e);
+    }
+    navigate('/login');
+  };
 
   const autoMis = extractMisFromEmail(user?.email || '');
   const [name, setName] = useState(user?.name || '');
@@ -106,19 +115,70 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="login-page">
-      {/* Theme toggle */}
-      <button
-        type="button"
-        className="login-theme-toggle"
-        onClick={toggleTheme}
-        aria-label={`Switch to ${theme === 'light' ? 'dark' : 'bright'} mode`}
+    <div
+      className="login-page"
+      style={{
+        height: 'auto',
+        minHeight: '100vh',
+        maxHeight: 'none',
+        overflowY: 'auto',
+        padding: '80px 16px 48px',
+        alignItems: 'start',
+      }}
+    >
+      {/* Top action navigation bar */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 16,
+          left: 16,
+          right: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          zIndex: 100,
+          pointerEvents: 'none',
+        }}
       >
-        <span className="login-theme-toggle-icon">
-          {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
-        </span>
-        <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
-      </button>
+        <button
+          type="button"
+          onClick={handleBackToPortals}
+          style={{
+            pointerEvents: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 16px',
+            borderRadius: 9999,
+            border: '1px solid var(--border-color)',
+            background: 'var(--card-bg, rgba(255, 255, 255, 0.85))',
+            backdropFilter: 'blur(12px)',
+            color: 'var(--text-primary)',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: 'var(--card-shadow, 0 4px 12px rgba(0,0,0,0.06))',
+            transition: 'all 0.2s ease',
+          }}
+          title="Return to the Three Portals Login Page"
+        >
+          <MdArrowBack size={16} />
+          <span>← Back to Portals</span>
+        </button>
+
+        <button
+          type="button"
+          className="login-theme-toggle"
+          onClick={toggleTheme}
+          style={{ position: 'static', pointerEvents: 'auto', margin: 0 }}
+          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'bright'} mode`}
+        >
+          <span className="login-theme-toggle-icon">
+            {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
+          </span>
+          <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
+        </button>
+      </div>
 
       {/* Main glassmorphic onboarding card */}
       <form
@@ -127,12 +187,12 @@ export default function Onboarding() {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'space-between',
           width: '100%',
           maxWidth: '520px',
-          padding: '40px',
+          margin: '0 auto',
+          padding: '32px 28px',
           boxSizing: 'border-box',
-          gap: '24px',
+          gap: '20px',
         }}
       >
         {/* Header */}
@@ -409,33 +469,58 @@ export default function Onboarding() {
             justifyContent: 'center',
             padding: '14px 20px',
             borderRadius: '12px',
-            border: '2px solid rgba(59, 130, 246, 0.55)',
-            background: 'rgba(59, 130, 246, 0.08)',
-            color: '#fff',
+            border: 'none',
+            background: 'var(--primary, #3b82f6)',
+            color: '#ffffff',
             fontSize: '15px',
             fontWeight: 700,
-            cursor: 'pointer',
+            cursor: submitting ? 'not-allowed' : 'pointer',
             transition: 'all 0.25s ease',
             letterSpacing: '0.01em',
-            boxShadow: '0 4px 24px rgba(59, 130, 246, 0.2)',
+            boxShadow: '0 4px 24px rgba(59, 130, 246, 0.4)',
+            marginTop: '6px',
           }}
           onMouseEnter={(e) => {
             if (!submitting) {
-              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.18)';
-              e.currentTarget.style.borderColor = '#3b82f6';
+              e.currentTarget.style.filter = 'brightness(1.1)';
               e.currentTarget.style.transform = 'translateY(-2px)';
             }
           }}
           onMouseLeave={(e) => {
             if (!submitting) {
-              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
-              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.55)';
+              e.currentTarget.style.filter = 'none';
               e.currentTarget.style.transform = 'none';
             }
           }}
         >
-          {submitting ? 'Setting up Profile...' : 'Complete Registration'}
+          {submitting ? 'Setting up Profile...' : 'Complete Registration 🚀'}
         </button>
+
+        {/* Back to portal selection / Sign out link */}
+        <div style={{ textAlign: 'center', marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={handleBackToPortals}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-muted, #64748b)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              transition: 'color 0.2s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary, #0f172a)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #64748b)')}
+          >
+            <MdLogout size={15} />
+            <span>Wrong account or portal? Back to Three Portals</span>
+          </button>
+        </div>
       </form>
     </div>
   );

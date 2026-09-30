@@ -1386,22 +1386,9 @@ export default function StudentDashboard() {
         ...(isMobile ? { display: 'none' } : {}),
       }}>
         {/* Brand */}
-        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img
-            src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
-            alt="HEIMDALL Logo"
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              objectFit: 'cover',
-              boxShadow: theme === 'light' ? '0 2px 8px rgba(124,58,237,0.18)' : '0 0 12px rgba(139,92,246,0.4)',
-            }}
-          />
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.4px' }}>HEIMDALL</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Student Portal</div>
-          </div>
+        <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid var(--glass-border)' }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🛡️ HEIMDALL</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Student Portal</div>
         </div>
 
         {/* Nav */}
@@ -1470,12 +1457,11 @@ export default function StudentDashboard() {
           boxShadow: 'var(--shadow-sm)',
           flexWrap: isMobile ? 'wrap' : 'nowrap',
         }}>
-          <div className="chatbot-avatar" style={{ background: 'transparent', padding: 0 }}>
+          <div className="chatbot-avatar" style={{ background: BOT_LOGO_BG }}>
             <img
-              src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
+              src={BOT_LOGO_SRC}
               alt="HEIMDALL Bot"
               className="chatbot-avatar-img"
-              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
             />
           </div>
           <div>

@@ -123,24 +123,24 @@ export default function Login() {
           <div
             className="login-mark"
             style={{
-              width: 82,
-              height: 82,
-              margin: '0 auto 16px',
+              width: 76,
+              height: 76,
+              margin: '0 auto 20px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
             <img
-              src={theme === 'light' ? '/heimdall-logo-light.png' : '/heimdall-logo-dark.png'}
-              alt="HEIMDALL logo"
+              src={iiitLogo}
+              alt="IIIT Pune logo"
               style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
             />
           </div>
 
           {/* Title */}
-          <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '8px' }}>
-            HEIMDALL
+          <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '10px' }}>
+            IIIT Pune Campus
           </h1>
           <p className="login-subtitle" style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
             Sign in with your institutional account to access your portal.
