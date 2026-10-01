@@ -25,7 +25,7 @@ import {
 import {
   MdSend, MdLogout, MdQrCode2, MdHome, MdReport,
   MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
-  MdCalendarMonth, MdChevronRight,
+  MdCalendarMonth, MdChevronRight, MdExitToApp,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 
@@ -1934,35 +1934,88 @@ export default function StudentDashboard() {
             {activePasses.length > 1 && (
               <div style={{
                 display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
                 gap: 8,
-                flexWrap: 'wrap',
-                justifyContent: 'center',
                 width: '100%',
-                paddingBottom: 6,
+                paddingBottom: 12,
                 borderBottom: '1px solid var(--glass-border)',
               }}>
-                {activePasses.map((p, idx) => {
-                  const isSelected = (zoomedQR.qrDataUrl || zoomedQR.dataUrl) === p.qrDataUrl;
-                  return (
-                    <button
-                      key={p.id || idx}
-                      onClick={() => setZoomedQR({ dataUrl: p.qrDataUrl, ...p })}
-                      style={{
-                        padding: '4px 12px',
-                        borderRadius: 99,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        border: isSelected ? '1px solid var(--primary)' : '1px solid var(--glass-border)',
-                        background: isSelected ? 'var(--primary)' : 'rgba(255,255,255,0.06)',
-                        color: isSelected ? '#fff' : 'var(--text-muted)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {p.tabLabel || `Pass ${idx + 1}`}
-                    </button>
-                  );
-                })}
+                <div style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: theme === 'light' ? '#475569' : 'rgba(255, 255, 255, 0.7)',
+                }}>
+                  Select Active Pass to Present at Gate:
+                </div>
+                <div style={{
+                  display: 'inline-flex',
+                  gap: 6,
+                  padding: 4,
+                  borderRadius: 999,
+                  background: theme === 'light' ? '#e2e8f0' : 'rgba(255, 255, 255, 0.08)',
+                  border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.16)',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                  maxWidth: '100%',
+                }}>
+                  {activePasses.map((p, idx) => {
+                    const isSelected = (zoomedQR.qrDataUrl || zoomedQR.dataUrl) === p.qrDataUrl;
+                    const isHomeVisit = p.passKind === 'home_visit' || String(p.tabLabel).toLowerCase().includes('home');
+                    return (
+                      <button
+                        key={p.id || idx}
+                        onClick={() => setZoomedQR({ dataUrl: p.qrDataUrl, ...p })}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '7px 16px',
+                          borderRadius: 999,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                          border: isSelected
+                            ? '1.5px solid rgba(255, 255, 255, 0.4)'
+                            : theme === 'light'
+                              ? '1.5px solid #94a3b8'
+                              : '1.5px solid rgba(255, 255, 255, 0.22)',
+                          background: isSelected
+                            ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)'
+                            : theme === 'light'
+                              ? '#ffffff'
+                              : 'rgba(255, 255, 255, 0.1)',
+                          color: isSelected
+                            ? '#ffffff'
+                            : theme === 'light'
+                              ? '#0f172a'
+                              : '#f8fafc',
+                          boxShadow: isSelected
+                            ? '0 3px 12px rgba(99, 102, 241, 0.45)'
+                            : theme === 'light'
+                              ? '0 1px 3px rgba(0, 0, 0, 0.08)'
+                              : 'none',
+                        }}
+                      >
+                        {isHomeVisit ? <MdHome size={16} /> : <MdExitToApp size={16} />}
+                        <span>{p.tabLabel || `Pass ${idx + 1}`}</span>
+                        {isSelected && (
+                          <span style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            boxShadow: '0 0 6px #10b981',
+                            display: 'inline-block',
+                          }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
