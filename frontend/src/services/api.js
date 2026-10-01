@@ -17,7 +17,7 @@ if (import.meta.env.DEV) {
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000),
+  timeout: Number(import.meta.env.VITE_API_TIMEOUT_MS || 25000),
 });
 
 let prewarmPromise = null;

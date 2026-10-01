@@ -29,18 +29,32 @@ const StatCard = ({ icon, value, label, variant = '', onClick }) => (
 
 export default function WardenDashboard() {
   const navigate = useNavigate();
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('warden_summary_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(!summary);
+  const [slowServerWarning, setSlowServerWarning] = useState(false);
 
   const fetchSummary = async () => {
     try {
-      setLoading(true);
+      if (!summary) setLoading(true);
       const res = await api.get('/dashboard/summary');
-      setSummary(res.data.summary);
+      if (res.data?.summary) {
+        setSummary(res.data.summary);
+        try {
+          sessionStorage.setItem('warden_summary_cache', JSON.stringify(res.data.summary));
+        } catch {}
+      }
     } catch (err) {
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
+      setSlowServerWarning(false);
     }
   };
 
@@ -49,6 +63,14 @@ export default function WardenDashboard() {
     const interval = setInterval(fetchSummary, 30000); // Refresh every 30s
     return () => clearInterval(interval);
   }, []);
+
+  // Show friendly hint if backend cold start takes > 3.5s
+  useEffect(() => {
+    if (loading && !summary) {
+      const t = setTimeout(() => setSlowServerWarning(true), 3500);
+      return () => clearTimeout(t);
+    }
+  }, [loading, summary]);
 
   return (
     <div className="fade-in">
@@ -71,7 +93,9 @@ export default function WardenDashboard() {
         {loading && !summary ? (
           <div className="loading-page">
             <div className="loading-spinner" style={{ width: 40, height: 40 }} />
-            <span style={{ color: 'var(--text-muted)' }}>Loading dashboard...</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 13.5 }}>
+              {slowServerWarning ? 'Connecting to backend (waking up server instance)…' : 'Loading dashboard...'}
+            </span>
           </div>
         ) : (
           <>
