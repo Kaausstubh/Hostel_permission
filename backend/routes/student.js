@@ -236,7 +236,7 @@ router.post('/request-inout', async (req, res) => {
         rollNumber: user.rollNo || 'N/A',
         studentPhone: user.phone || '',
         parentPhone: user.parentPhone || '',
-        studentPhoto: user.picture || '',
+        studentPhoto: user.studentPhoto || user.picture || '',
         scanType,
         place: scanType === 'OUT' ? place : (existingOut?.place || place),
         reason: '',
@@ -345,7 +345,7 @@ router.post('/home-visit', async (req, res) => {
       student_id: user._id,
       name: user.name,
       rollNo: user.rollNo || '',
-      student_photo: user.picture || null,
+      student_photo: user.studentPhoto || user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       reason,
       leave_date,
@@ -367,13 +367,16 @@ router.post('/home-visit', async (req, res) => {
 // File a complaint
 router.post('/complaint', async (req, res) => {
   try {
-    const { hostel, complaint_text, complaint_type } = req.body;
+    const { hostel, complaint_text, complaint_type, photo } = req.body;
     const user = req.user;
 
-    if (!complaint_text) {
+    const trimmedText = typeof complaint_text === 'string' ? complaint_text.trim() : '';
+    const trimmedPhoto = typeof photo === 'string' && photo.trim() ? photo.trim() : null;
+
+    if (!trimmedText && !trimmedPhoto) {
       return res.status(400).json({
         success: false,
-        message: 'complaint_text is required',
+        message: 'Please provide either a complaint description or a photo.',
       });
     }
 
@@ -385,17 +388,23 @@ router.post('/complaint', async (req, res) => {
       });
     }
 
-    const allowedTypes = ['electricity', 'wifi', 'washing_machine', 'others'];
+    const allowedTypes = ['electricity', 'wifi', 'washing_machine', 'carpenter', 'plumber', 'others'];
     const normalizedType = allowedTypes.includes((complaint_type || '').toLowerCase())
       ? complaint_type.toLowerCase()
       : 'others';
+
+    const finalDescription = trimmedText
+      ? `[${normalizedType}] ${trimmedText}`
+      : `[${normalizedType}] Maintenance required. Photo evidence attached.`;
 
     const complaint = await Complaint.create({
       student_id: user._id,
       name: user.name,
       rollNo: user.rollNo || '',
       hostel: complaintHostel,
-      complaint_text: `[${normalizedType}] ${complaint_text}`,
+      complaint_type: normalizedType,
+      complaint_text: finalDescription,
+      photo: trimmedPhoto,
     });
 
     res.status(201).json({
@@ -625,6 +634,7 @@ router.put('/onboard', async (req, res) => {
           parentPhone2: normalizedParentPhone2,
           hostel: normalizedHostel,
           picture: photo.trim(),
+          studentPhoto: photo.trim(),
         },
       },
       { new: true }
@@ -638,7 +648,8 @@ router.put('/onboard', async (req, res) => {
         name:         updatedUser.name,
         email:        updatedUser.email,
         role:         updatedUser.role,
-        picture:      updatedUser.picture || null,
+        picture:      updatedUser.studentPhoto || updatedUser.picture || null,
+        studentPhoto: updatedUser.studentPhoto || null,
         hostel:       updatedUser.hostel || null,
         rollNo:       updatedUser.rollNo || null,
         phone:        updatedUser.phone || null,
@@ -648,6 +659,49 @@ router.put('/onboard', async (req, res) => {
     });
   } catch (err) {
     logger.error('[Student] Onboarding error', { error: err.message, userId: req.user._id });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── PUT /photo ───────────────────────────────────────────────────────────────
+// Update/re-upload verified student registration photo
+router.put('/photo', async (req, res) => {
+  try {
+    const { photo } = req.body;
+    if (!photo || typeof photo !== 'string' || !photo.trim()) {
+      return res.status(400).json({ success: false, message: 'Photo is required' });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $set: {
+          studentPhoto: photo.trim(),
+          picture: photo.trim(),
+        },
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Student registration photo updated successfully',
+      user: {
+        id:           updatedUser._id,
+        name:         updatedUser.name,
+        email:        updatedUser.email,
+        role:         updatedUser.role,
+        picture:      updatedUser.studentPhoto || updatedUser.picture || null,
+        studentPhoto: updatedUser.studentPhoto || null,
+        hostel:       updatedUser.hostel || null,
+        rollNo:       updatedUser.rollNo || null,
+        phone:        updatedUser.phone || null,
+        parentPhone:  updatedUser.parentPhone || null,
+        parentPhone2: updatedUser.parentPhone2 || null,
+      },
+    });
+  } catch (err) {
+    logger.error('[Student] Photo update error', { error: err.message, userId: req.user._id });
     res.status(500).json({ success: false, message: err.message });
   }
 });

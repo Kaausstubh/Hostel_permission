@@ -26,6 +26,7 @@ import {
   MdSend, MdLogout, MdQrCode2, MdHome, MdReport,
   MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
   MdCalendarMonth, MdChevronRight, MdExitToApp,
+  MdPhotoCamera, MdUpload, MdClose, MdCheckCircle,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 
@@ -64,9 +65,38 @@ const STEPS = {
   HV_RETURN:     'HV_RETURN',
   // Complaint
   CPL_TYPE:      'CPL_TYPE',
+  CPL_PHOTO:     'CPL_PHOTO',
   CPL_TEXT:      'CPL_TEXT',
   // Done
   DONE:          'DONE',
+};
+
+const compressImageForUpload = (file, maxWidth = 960, maxHeight = 960, quality = 0.8) => {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('No file provided'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('File read failed'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 };
 
 const formatLocalDate = (date) => {
@@ -431,7 +461,7 @@ const playScanChime = () => {
 };
 
 export default function StudentDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
@@ -455,6 +485,15 @@ export default function StudentDashboard() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const msgIdRef = useRef(0);
   const [avatarImgError, setAvatarImgError] = useState(false);
+
+  // Complaint photo and avatar states
+  const [complaintPhoto, setComplaintPhoto] = useState(null);
+  const [complaintNote, setComplaintNote] = useState('');
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const complaintCameraRef = useRef(null);
+  const complaintFileRef = useRef(null);
+  const avatarUploadRef = useRef(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -673,11 +712,13 @@ export default function StudentDashboard() {
         });
       } else if (id === '3') {
         setStep(STEPS.CPL_TYPE);
-        botSay('🧾 *File a Complaint*\n\nSelect complaint type:', 'buttons', {
+        botSay('🧾 *File a Complaint*\n\nSelect complaint category:', 'buttons', {
           buttons: [
             { id: 'electricity', label: '⚡ Electricity' },
             { id: 'wifi', label: '📶 WiFi' },
             { id: 'washing_machine', label: '🧺 Washing Machine' },
+            { id: 'carpenter', label: '🔨 Carpenter' },
+            { id: 'plumber', label: '🔧 Plumber' },
             { id: 'others', label: '🛠️ Others' },
             { id: 'flow_menu', label: '🏠 Main menu' },
           ],
@@ -694,15 +735,27 @@ export default function StudentDashboard() {
       const placeMap = { place_shop: 'Shop', place_talegaon: 'Talegaon' };
       await submitInOutRequest(placeMap[id] || label);
     } else if (step === STEPS.CPL_TYPE) {
-      setHvData((d) => ({ ...d, complaint_type: id }));
-      setStep(STEPS.CPL_TEXT);
       const typeLabelMap = {
-        electricity: 'Electricity',
-        wifi: 'WiFi',
-        washing_machine: 'Washing Machine',
-        others: 'Others',
+        electricity: 'Electricity ⚡',
+        wifi: 'WiFi 📶',
+        washing_machine: 'Washing Machine 🧺',
+        carpenter: 'Carpenter 🔨',
+        plumber: 'Plumber 🔧',
+        others: 'Others 🛠️',
       };
-      botSay(`📝 Got it — *${typeLabelMap[id] || 'Others'}*.\n\nPlease describe your complaint in detail:`);
+      const typeLabel = typeLabelMap[id] || 'Others 🛠️';
+      setHvData((d) => ({ ...d, complaint_type: id, complaint_type_label: typeLabel }));
+      setComplaintPhoto(null);
+      setComplaintNote('');
+      setStep(STEPS.CPL_PHOTO);
+      botSay(
+        `📸 *Snap or Upload Photo Evidence*\n\nCategory: *${typeLabel}*\n\nPlease take a photo with your camera or select an image of the issue so the warden and maintenance staff can inspect it:`,
+        'complaint_photo',
+        {
+          complaintType: id,
+          complaintTypeLabel: typeLabel,
+        }
+      );
     } else if (step === STEPS.HV_REASON) {
       if (id === 'hv_other') {
         setStep(STEPS.HV_REASON_OTHER);
@@ -782,15 +835,22 @@ export default function StudentDashboard() {
       }
     } else if (step === STEPS.HV_LEAVE || step === STEPS.HV_RETURN) {
       await processHomeVisitDate(text, step);
+    } else if (step === STEPS.CPL_PHOTO) {
+      if (complaintPhoto) {
+        await submitComplaintWithPhoto(complaintPhoto, text);
+      } else {
+        setComplaintNote(text);
+        botSay(`📝 Note recorded: "${text}". Please click *Take Photo (Camera)* or *Upload from Gallery* above to attach a photo, or click *Skip photo* to file without image.`);
+      }
     } else if (step === STEPS.CPL_TEXT) {
-      if (text.length < 10 || text.split(/\s+/).length < 2) {
-        botSay('❌ That description is too short. Please provide a genuine, detailed description of your complaint:');
+      if (text.length < 5) {
+        botSay('❌ Please provide a clear description of your complaint:');
         return;
       }
       await submitComplaint(text);
     } else if ([
       STEPS.HV_REASON, STEPS.HV_PLACE, STEPS.HV_LEAVE, STEPS.HV_RETURN,
-      STEPS.CPL_TEXT, STEPS.INOUT_OTHER
+      STEPS.CPL_PHOTO, STEPS.CPL_TEXT, STEPS.INOUT_OTHER
     ].includes(step)) {
       botSay('You\'re in the middle of a request. Type *menu* for main menu, or use *Restart home visit* if dates are wrong.');
     } else {
@@ -920,24 +980,128 @@ export default function StudentDashboard() {
     }
   }, [loading, hvData, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
 
+  const handleAvatarFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image (JPG or PNG)');
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = (evt) => {
+          const img = new Image();
+          img.onerror = reject;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 360;
+            canvas.height = 360;
+            const ctx = canvas.getContext('2d');
+            const size = Math.min(img.width, img.height);
+            const sx = (img.width - size) / 2;
+            const sy = (img.height - size) / 2;
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, 360, 360);
+            resolve(canvas.toDataURL('image/jpeg', 0.88));
+          };
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const res = await api.put('/student/photo', { photo: dataUrl });
+      if (res.data?.success) {
+        if (updateUser) {
+          updateUser({ studentPhoto: dataUrl, picture: dataUrl });
+        }
+        setAvatarImgError(false);
+        toast.success('Student face photo updated! ✓');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Failed to update photo');
+    } finally {
+      setAvatarUploading(false);
+      if (avatarUploadRef.current) avatarUploadRef.current.value = '';
+    }
+  };
+
+  const handleComplaintPhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file (JPG or PNG)');
+      return;
+    }
+    setIsCompressingPhoto(true);
+    try {
+      const dataUrl = await compressImageForUpload(file, 960, 960, 0.8);
+      setComplaintPhoto(dataUrl);
+      toast.success('Photo attached! 📸');
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not process photo. Please try again.');
+    } finally {
+      setIsCompressingPhoto(false);
+      if (complaintCameraRef.current) complaintCameraRef.current.value = '';
+      if (complaintFileRef.current) complaintFileRef.current.value = '';
+    }
+  };
+
+  const submitComplaintWithPhoto = async (photoData, noteText) => {
+    setLoading(true);
+    try {
+      const category = hvData.complaint_type || 'others';
+      const typeLabel = hvData.complaint_type_label || 'Others';
+      const desc = (noteText !== undefined ? noteText : complaintNote || '').trim();
+
+      await api.post('/student/complaint', {
+        hostel: user?.hostel,
+        complaint_type: category,
+        complaint_text: desc,
+        photo: photoData || complaintPhoto || null,
+      });
+
+      botSay(
+        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: ${photoData || complaintPhoto ? 'Evidence attached' : 'None'}\n🏢 Hostel: *${user?.hostel || 'N/A'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`
+      );
+      setComplaintPhoto(null);
+      setComplaintNote('');
+      setHvData({});
+      setStep(STEPS.DONE);
+      goToMainMenu();
+    } catch (err) {
+      botSay(`❌ ${err.response?.data?.message || 'Failed to file complaint. Try again.'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const submitComplaint = async (text) => {
     setLoading(true);
     try {
-      await api.post('/student/complaint', {
-        // Send hostel as well for backward compatibility with older backend route validation.
-        hostel: user?.hostel,
-        complaint_type: hvData.complaint_type || 'others',
-        complaint_text: text,
-      });
+      const category = hvData.complaint_type || 'others';
       const typeLabelMap = {
-        electricity: 'Electricity',
-        wifi: 'WiFi',
-        washing_machine: 'Washing Machine',
-        others: 'Others',
+        electricity: 'Electricity ⚡',
+        wifi: 'WiFi 📶',
+        washing_machine: 'Washing Machine 🧺',
+        carpenter: 'Carpenter 🔨',
+        plumber: 'Plumber 🔧',
+        others: 'Others 🛠️',
       };
+      await api.post('/student/complaint', {
+        hostel: user?.hostel,
+        complaint_type: category,
+        complaint_text: text,
+        photo: complaintPhoto || null,
+      });
       botSay(
-        `✅ *Complaint Filed!*\n\n🏷️ Type: ${typeLabelMap[hvData.complaint_type] || 'Others'}\n📝 "${text.substring(0, 60)}${text.length > 60 ? '…' : ''}"\n\nThe warden will review it shortly.`
+        `✅ *Complaint Filed with Warden!*\n\n🏷️ Category: *${typeLabelMap[category] || 'Others'}*\n📝 "${text.substring(0, 80)}${text.length > 80 ? '…' : ''}"\n\nThe warden will review it shortly.`
       );
+      setComplaintPhoto(null);
+      setComplaintNote('');
       setHvData({});
       goToMainMenu();
     } catch (err) {
@@ -1541,6 +1705,234 @@ export default function StudentDashboard() {
       );
     }
 
+    if (m.type === 'complaint_photo') {
+      const typeLabel = m.meta?.complaintTypeLabel || hvData.complaint_type_label || 'Maintenance Issue';
+      const isActive = step === STEPS.CPL_PHOTO;
+
+      return (
+        <div style={{
+          alignSelf: 'flex-start',
+          width: 'min(100%, 360px)',
+          opacity: isActive ? 1 : 0.65,
+          pointerEvents: isActive ? 'auto' : 'none',
+        }}>
+          {/* Bot prompt bubble */}
+          <div style={{
+            ...bubbleBase,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--glass-border)',
+            color: 'var(--text-primary)',
+            marginBottom: 10,
+          }}>
+            {m.content}
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
+              {m.time}
+            </div>
+          </div>
+
+          {/* Interactive photo capture card */}
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: 16,
+            padding: 16,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}>
+            {/* If photo is selected: preview */}
+            {complaintPhoto ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{
+                  position: 'relative',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  border: '1px solid var(--glass-border)',
+                  background: '#000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  maxHeight: 220,
+                }}>
+                  <img
+                    src={complaintPhoto}
+                    alt="Complaint preview"
+                    style={{ width: '100%', maxHeight: 220, objectFit: 'contain', display: 'block' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setComplaintPhoto(null)}
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.65)', color: '#fff',
+                      border: 'none', cursor: 'pointer', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                    title="Remove photo"
+                  >
+                    <MdClose size={16} />
+                  </button>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Add room number or details (Optional)"
+                    value={complaintNote}
+                    onChange={(e) => setComplaintNote(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 14px',
+                      borderRadius: 10,
+                      border: '1px solid var(--glass-border)',
+                      background: 'var(--bg-input)',
+                      color: 'var(--text-primary)',
+                      fontSize: 13,
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => submitComplaintWithPhoto(complaintPhoto, complaintNote)}
+                  disabled={loading}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '11px 16px',
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    border: 'none',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {loading ? (
+                    <span className="loading-spinner" style={{ width: 16, height: 16 }} />
+                  ) : (
+                    <>
+                      <MdSend size={16} /> Submit Complaint to Warden
+                    </>
+                  )}
+                </button>
+
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => complaintCameraRef.current?.click()}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--primary-light)',
+                      fontSize: 12, cursor: 'pointer', textDecoration: 'underline',
+                    }}
+                  >
+                    🔄 Retake Photo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Photo capture buttons */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {isCompressingPhoto ? (
+                  <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                    <div className="loading-spinner" style={{ width: 24, height: 24, margin: '0 auto 8px' }} />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Processing photo...</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => complaintCameraRef.current?.click()}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        padding: '11px 16px',
+                        borderRadius: 10,
+                        background: 'var(--primary)',
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: 13.5,
+                        border: 'none',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
+                      }}
+                    >
+                      <MdPhotoCamera size={18} /> Take Photo (Camera)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => complaintFileRef.current?.click()}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        padding: '10px 16px',
+                        borderRadius: 10,
+                        background: 'transparent',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--glass-border)',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <MdUpload size={18} /> Upload from Gallery / Files
+                    </button>
+                  </>
+                )}
+
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingTop: 8,
+                  borderTop: '1px solid var(--glass-border)',
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep(STEPS.CPL_TEXT);
+                      botSay('📝 Please type your detailed complaint description:');
+                    }}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--text-muted)',
+                      fontSize: 12, cursor: 'pointer', textDecoration: 'underline',
+                    }}
+                  >
+                    ⏩ Skip photo & type text
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={goToMainMenu}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--text-muted)',
+                      fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    🏠 Main menu
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // Plain text bubble
     return (
       <div style={{
@@ -1627,32 +2019,58 @@ export default function StudentDashboard() {
           padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            {(user?.picture || user?.photo) && !avatarImgError ? (
-              <img
-                src={user?.picture || user?.photo}
-                alt={user?.name || 'Student photo'}
-                onError={() => setAvatarImgError(true)}
+            <div
+              style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}
+              onClick={() => avatarUploadRef.current?.click()}
+              title="Click to update your verified student registration face photo"
+            >
+              {(user?.studentPhoto || user?.picture || user?.photo) && !avatarImgError ? (
+                <img
+                  src={user?.studentPhoto || user?.picture || user?.photo}
+                  alt={user?.name || 'Student photo'}
+                  onError={() => setAvatarImgError(true)}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    display: 'block',
+                    border: '2px solid rgba(99, 102, 241, 0.65)',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: 44, height: 44, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700, color: '#fff', fontSize: 16,
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                }}>
+                  {user?.name?.charAt(0).toUpperCase() || 'S'}
+                </div>
+              )}
+              <div
                 style={{
-                  width: 42,
-                  height: 42,
+                  position: 'absolute',
+                  bottom: -2,
+                  right: -2,
+                  width: 18,
+                  height: 18,
                   borderRadius: '50%',
-                  objectFit: 'cover',
-                  flexShrink: 0,
-                  border: '2px solid rgba(99, 102, 241, 0.55)',
-                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 10,
+                  border: '1.5px solid var(--bg-card)',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
                 }}
-              />
-            ) : (
-              <div style={{
-                width: 42, height: 42, borderRadius: '50%',
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, color: '#fff', fontSize: 16, flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-              }}>
-                {user?.name?.charAt(0).toUpperCase() || 'S'}
+              >
+                <MdPhotoCamera size={11} />
               </div>
-            )}
+            </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user?.name}
@@ -1660,6 +2078,18 @@ export default function StudentDashboard() {
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                 {user?.rollNo} · {user?.hostel}
               </div>
+              {avatarUploading ? (
+                <div style={{ fontSize: 10, color: 'var(--primary-light)', marginTop: 2 }}>
+                  Uploading photo...
+                </div>
+              ) : (
+                <div
+                  onClick={() => avatarUploadRef.current?.click()}
+                  style={{ fontSize: 10.5, color: 'var(--primary-light)', marginTop: 2, cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  {user?.studentPhoto ? 'Change Photo' : '📸 Set Student Photo'}
+                </div>
+              )}
             </div>
           </div>
           <button onClick={handleLogout}
@@ -1784,14 +2214,14 @@ export default function StudentDashboard() {
               border: '1px solid rgba(99,102,241,0.3)',
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              {isMobile && (user?.picture || user?.photo) && !avatarImgError && (
+              {isMobile && (user?.studentPhoto || user?.picture || user?.photo) && !avatarImgError && (
                 <img
-                  src={user?.picture || user?.photo}
+                  src={user?.studentPhoto || user?.picture || user?.photo}
                   alt=""
                   onError={() => setAvatarImgError(true)}
                   style={{
-                    width: 18,
-                    height: 18,
+                    width: 20,
+                    height: 20,
                     borderRadius: '50%',
                     objectFit: 'cover',
                   }}
@@ -1884,6 +2314,8 @@ export default function StudentDashboard() {
                     ? 'Type destination place, or menu to go back...' :
                   step === STEPS.INOUT_OTHER
                     ? 'Type destination, or menu to go back...' :
+                  step === STEPS.CPL_PHOTO
+                    ? 'Optional: type room number or notes for photo...' :
                   step === STEPS.CPL_TEXT   ? 'Describe complaint, or menu / cancel...' :
                   'Type a message...'
                 }
@@ -2388,6 +2820,32 @@ export default function StudentDashboard() {
           </div>
         </div>
       )}
+
+      {/* Hidden file inputs for complaint photo capture */}
+      <input
+        ref={complaintCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        onChange={handleComplaintPhotoChange}
+      />
+      <input
+        ref={complaintFileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleComplaintPhotoChange}
+      />
+
+      {/* Hidden file input for updating student registration face photo */}
+      <input
+        ref={avatarUploadRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleAvatarFileSelected}
+      />
 
       <style>{`
         @keyframes bounce {

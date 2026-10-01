@@ -20,20 +20,36 @@ const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
 // ─── File a Complaint ─────────────────────────────────────────────────────────
 router.post('/file', protect, authorize('student'), async (req, res) => {
   try {
-    const { hostel, complaint_text } = req.body;
+    const { hostel, complaint_text, complaint_type, photo } = req.body;
 
-    if (!hostel || !complaint_text) {
-      return res.status(400).json({ success: false, message: 'Hostel and complaint text are required' });
+    const trimmedText = typeof complaint_text === 'string' ? complaint_text.trim() : '';
+    const trimmedPhoto = typeof photo === 'string' && photo.trim() ? photo.trim() : null;
+
+    if (!trimmedText && !trimmedPhoto) {
+      return res.status(400).json({ success: false, message: 'Complaint description or photo is required' });
     }
 
     if (!['BH1', 'BH2', 'GH'].includes(hostel)) {
       return res.status(400).json({ success: false, message: 'Hostel must be BH1, BH2, or GH' });
     }
 
+    const allowedTypes = ['electricity', 'wifi', 'washing_machine', 'carpenter', 'plumber', 'others'];
+    const normalizedType = allowedTypes.includes((complaint_type || '').toLowerCase())
+      ? complaint_type.toLowerCase()
+      : 'others';
+
+    const finalDescription = trimmedText
+      ? `[${normalizedType}] ${trimmedText}`
+      : `[${normalizedType}] Maintenance required. Photo evidence attached.`;
+
     const complaint = await Complaint.create({
       student_id: req.user._id,
+      name: req.user.name,
+      rollNo: req.user.rollNo || '',
       hostel,
-      complaint_text,
+      complaint_type: normalizedType,
+      complaint_text: finalDescription,
+      photo: trimmedPhoto,
     });
 
     res.status(201).json({ success: true, message: 'Complaint filed successfully', complaint });
@@ -79,7 +95,7 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
 
     const [complaints, count] = await Promise.all([
       Complaint.find(filter)
-        .populate('student_id', 'name rollNo hostel phone')
+        .populate('student_id', 'name rollNo hostel phone picture studentPhoto')
         .populate('resolvedBy', 'name')
         .sort({ timestamp: -1 })
         .skip(skip)

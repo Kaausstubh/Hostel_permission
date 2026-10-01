@@ -44,6 +44,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    studentPhoto: {
+      // Verified student face photo taken during onboarding/registration
+      type: String,
+      default: null,
+    },
     lastLoginAt: {
       // Timestamp of most recent successful OAuth login
       type: Date,

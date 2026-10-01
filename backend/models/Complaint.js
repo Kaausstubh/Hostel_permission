@@ -25,11 +25,20 @@ const complaintSchema = new mongoose.Schema(
       enum: ['BH1', 'BH2', 'GH'],
       required: true,
     },
+    complaint_type: {
+      type: String,
+      enum: ['electricity', 'wifi', 'washing_machine', 'carpenter', 'plumber', 'others'],
+      default: 'others',
+    },
+    photo: {
+      type: String,
+      default: null,
+    },
     complaint_text: {
       type: String,
       required: true,
       trim: true,
-      minlength: 5,
+      minlength: 3,
     },
     status: {
       type: String,

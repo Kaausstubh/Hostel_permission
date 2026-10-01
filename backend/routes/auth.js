@@ -57,13 +57,15 @@ const signToken = (id) =>
 // Build the frontend redirect URL with token and user info encoded in query params.
 // Using a one-time URL is acceptable here; PKCE would be needed for mobile.
 const buildFrontendRedirect = (baseUrl, token, user) => {
+  const effectivePicture = user.studentPhoto || user.picture || null;
   const userPayload = Buffer.from(
     JSON.stringify({
       id:           user._id,
       name:         user.name,
       email:        user.email,
       role:         user.role,
-      picture:      user.picture || null,
+      picture:      effectivePicture,
+      studentPhoto: user.studentPhoto || null,
       hostel:       user.hostel || null,
       rollNo:       user.rollNo || null,
       phone:        user.phone || null,
@@ -223,18 +225,20 @@ router.get(
 // Used by AuthContext on mount to silently re-validate the stored token.
 router.get('/me', protect, (req, res) => {
   const u = req.user;
+  const effectivePicture = u.studentPhoto || u.picture || null;
   res.json({
     success: true,
     user: {
-      id:          u._id,
-      name:        u.name,
-      email:       u.email,
-      role:        u.role,
-      picture:     u.picture || null,
-      hostel:      u.hostel || null,
-      rollNo:      u.rollNo || null,
-      phone:       u.phone || null,
-      parentPhone: u.parentPhone || null,
+      id:           u._id,
+      name:         u.name,
+      email:        u.email,
+      role:         u.role,
+      picture:      effectivePicture,
+      studentPhoto: u.studentPhoto || null,
+      hostel:       u.hostel || null,
+      rollNo:       u.rollNo || null,
+      phone:        u.phone || null,
+      parentPhone:  u.parentPhone || null,
       parentPhone2: u.parentPhone2 || null,
     },
   });

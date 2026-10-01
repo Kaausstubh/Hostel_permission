@@ -119,11 +119,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── updateUser: update current user fields locally & in localStorage ──────────
+  const updateUser = useCallback((updatedFields) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...updatedFields };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   const isAuthenticated = Boolean(user && token);
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loginWithOAuth, initiateGoogleOAuth, logout, loading, isAuthenticated }}
+      value={{ user, token, loginWithOAuth, initiateGoogleOAuth, logout, loading, isAuthenticated, updateUser }}
     >
       {children}
     </AuthContext.Provider>

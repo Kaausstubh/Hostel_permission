@@ -55,8 +55,16 @@ const findOrCreateUser = async (profile, provider, role) => {
   let user = await User.findOne({ oauthId, oauthProvider: provider });
 
   if (user) {
-    // Update mutable fields on every login
-    user.picture      = picture;
+    // Update mutable fields on every login, preserving verified student photo
+    if (user.studentPhoto) {
+      // Keep verified face photo intact
+      user.picture = user.studentPhoto;
+    } else if (user.picture && user.picture.startsWith('data:')) {
+      // Migrate base64 onboarding photo to studentPhoto
+      user.studentPhoto = user.picture;
+    } else {
+      user.picture = picture;
+    }
     user.lastLoginAt  = new Date();
     user.name         = name; // Keep name fresh from provider
     await user.save();
@@ -70,7 +78,13 @@ const findOrCreateUser = async (profile, provider, role) => {
     // Link existing account to OAuth
     user.oauthId       = oauthId;
     user.oauthProvider = provider;
-    user.picture       = picture;
+    if (user.studentPhoto) {
+      user.picture = user.studentPhoto;
+    } else if (user.picture && user.picture.startsWith('data:')) {
+      user.studentPhoto = user.picture;
+    } else {
+      user.picture = picture;
+    }
     user.lastLoginAt   = new Date();
     await user.save();
     logger.info('[Passport] Linked existing account to OAuth', { email, provider });
