@@ -25,9 +25,11 @@ import {
   MdPhotoCamera,
   MdUpload,
   MdClose,
-  MdLogout,
+  MdCheckCircle,
+  MdErrorOutline,
 } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
+import { verifyHumanFace } from '../utils/faceDetector';
 
 const extractMisFromEmail = (email = '') => {
   if (!email || typeof email !== 'string') return '';
@@ -57,7 +59,12 @@ export default function Onboarding() {
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
   const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
-  const [photo, setPhoto] = useState(user?.picture || '');
+
+  // Face photo states: compulsory and human face only
+  const [photo, setPhoto] = useState('');
+  const [faceVerified, setFaceVerified] = useState(false);
+  const [verifyingFace, setVerifyingFace] = useState(false);
+  const [faceError, setFaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Live camera states
@@ -76,6 +83,40 @@ export default function Onboarding() {
     }
   }, [user?.email]);
 
+  // If the student already has an OAuth picture, test if it's a real human face.
+  // Google default initials avatars ('K' on colored circle) will fail and prompt for a real face photo.
+  useEffect(() => {
+    if (user?.picture && !photo) {
+      let active = true;
+      setVerifyingFace(true);
+      verifyHumanFace(user.picture)
+        .then((res) => {
+          if (!active) return;
+          if (res.ok) {
+            setPhoto(user.picture);
+            setFaceVerified(true);
+            setFaceError('');
+          } else {
+            setPhoto('');
+            setFaceVerified(false);
+            setFaceError('Google avatar is not an accepted face photo. Please upload or take a clear photo of your face.');
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setPhoto('');
+            setFaceVerified(false);
+          }
+        })
+        .finally(() => {
+          if (active) setVerifyingFace(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [user?.picture]);
+
   useEffect(() => {
     return () => {
       if (mediaStreamRef.current) {
@@ -85,6 +126,7 @@ export default function Onboarding() {
   }, []);
 
   const startCamera = async () => {
+    setFaceError('');
     setCameraLoading(true);
     setCameraOpen(true);
     try {
@@ -118,7 +160,7 @@ export default function Onboarding() {
     setCameraOpen(false);
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     const canvas = document.createElement('canvas');
@@ -129,10 +171,30 @@ export default function Onboarding() {
     const sx = ((video.videoWidth || 360) - size) / 2;
     const sy = ((video.videoHeight || 360) - size) / 2;
     ctx.drawImage(video, sx, sy, size, size, 0, 0, 360, 360);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setPhoto(dataUrl);
-    stopCamera();
-    toast.success('Face photo captured! ✓');
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+
+    setVerifyingFace(true);
+    setFaceError('');
+    try {
+      const verification = await verifyHumanFace(canvas);
+      if (!verification.ok) {
+        setFaceError(verification.message || 'No human face detected. Please face the camera directly in good lighting.');
+        toast.error(verification.message || 'No human face detected! Only real human face photos are accepted.');
+        setFaceVerified(false);
+        return;
+      }
+
+      setPhoto(dataUrl);
+      setFaceVerified(true);
+      setFaceError('');
+      stopCamera();
+      toast.success('Human face verified & captured! ✓');
+    } catch (err) {
+      console.error(err);
+      toast.error('Face verification failed. Please try again.');
+    } finally {
+      setVerifyingFace(false);
+    }
   };
 
   const handleFileUpload = (e) => {
@@ -141,10 +203,14 @@ export default function Onboarding() {
     if (!file.type.startsWith('image/')) {
       return toast.error('Please upload an image file (JPG or PNG).');
     }
+
+    setVerifyingFace(true);
+    setFaceError('');
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
         canvas.width = 360;
         canvas.height = 360;
@@ -153,9 +219,34 @@ export default function Onboarding() {
         const sx = (img.width - size) / 2;
         const sy = (img.height - size) / 2;
         ctx.drawImage(img, sx, sy, size, size, 0, 0, 360, 360);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setPhoto(dataUrl);
-        toast.success('Face photo recorded! ✓');
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+
+        try {
+          const verification = await verifyHumanFace(canvas);
+          if (!verification.ok) {
+            setPhoto('');
+            setFaceVerified(false);
+            setFaceError(verification.message || 'No human face detected! Only clear human face photos are accepted.');
+            toast.error(verification.message || 'No human face detected. Only genuine human face photos are accepted.');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+          }
+
+          setPhoto(dataUrl);
+          setFaceVerified(true);
+          setFaceError('');
+          toast.success('Human face verified & recorded! ✓');
+        } catch (err) {
+          console.error(err);
+          toast.error('Failed to verify face photo. Please try again.');
+        } finally {
+          setVerifyingFace(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+      };
+      img.onerror = () => {
+        setVerifyingFace(false);
+        toast.error('Invalid image file. Please upload a clear JPG/PNG photo.');
       };
       img.src = event.target.result;
     };
@@ -173,8 +264,8 @@ export default function Onboarding() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!photo) {
-      return toast.error('Student face photo is compulsory for gate security and hostel records. Please take or upload a photo.');
+    if (!photo || !faceVerified) {
+      return toast.error('Student face photo is compulsory! Only a verified human face is accepted for hostel & gate records.');
     }
     if (!isValidName(name)) {
       return toast.error('Please enter your official name (min 2 characters).');
@@ -191,14 +282,7 @@ export default function Onboarding() {
     if (!isValidPhone(parentPhone2)) {
       return toast.error('Please enter a valid Parent Contact 2 phone number.');
     }
-    const cleanStudentPhone = phone.replace(/\D/g, '');
-    const cleanParent1 = parentPhone.replace(/\D/g, '');
-    const cleanParent2 = parentPhone2.replace(/\D/g, '');
-
-    if (cleanStudentPhone === cleanParent1 || cleanStudentPhone === cleanParent2) {
-      return toast.error('Student phone number and guardian phone number must be different.');
-    }
-    if (cleanParent1 === cleanParent2) {
+    if (parentPhone.replace(/\D/g, '') === parentPhone2.replace(/\D/g, '')) {
       return toast.error('Parent Contact 1 and Parent Contact 2 must be different numbers.');
     }
     if (!hostel) {
@@ -251,28 +335,14 @@ export default function Onboarding() {
       >
         <button
           type="button"
+          className="login-back-btn"
           onClick={handleBackToPortals}
-          style={{
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '8px 16px',
-            borderRadius: 9999,
-            border: '1px solid var(--border-color)',
-            background: 'var(--card-bg, rgba(255, 255, 255, 0.85))',
-            backdropFilter: 'blur(12px)',
-            color: 'var(--text-primary)',
-            fontSize: 12.5,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: 'var(--card-shadow, 0 4px 12px rgba(0,0,0,0.06))',
-            transition: 'all 0.2s ease',
-          }}
-          title="Return to the Three Portals Login Page"
+          title="Return to Login Page"
         >
-          <MdArrowBack size={16} />
-          <span>Back to Portals</span>
+          <span className="login-back-btn-icon">
+            <MdArrowBack size={16} />
+          </span>
+          <span>Back to Login</span>
         </button>
 
         <button
@@ -315,21 +385,26 @@ export default function Onboarding() {
             </span>
           </div>
 
-          {/* Student Face Photo Capture Area (Compulsory) */}
+          {/* Student Face Photo Capture Area (Compulsory & Human Face Only) */}
           <div style={{ position: 'relative', margin: '2px auto 6px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div
               style={{
                 position: 'relative',
-                width: 72,
-                height: 72,
+                width: 76,
+                height: 76,
                 borderRadius: '50%',
                 padding: 3,
-                background: photo
+                background: verifyingFace
+                  ? 'linear-gradient(135deg, #6366f1, #06b6d4)'
+                  : photo && faceVerified
                   ? 'linear-gradient(135deg, #10b981, #059669)'
-                  : 'linear-gradient(135deg, #3b82f6, #6366f1)',
-                boxShadow: photo
-                  ? '0 0 16px rgba(16, 185, 129, 0.35)'
-                  : '0 0 16px rgba(59, 130, 246, 0.25)',
+                  : 'linear-gradient(135deg, #ef4444, #f59e0b)',
+                boxShadow: photo && faceVerified
+                  ? '0 0 18px rgba(16, 185, 129, 0.45)'
+                  : verifyingFace
+                  ? '0 0 18px rgba(99, 102, 241, 0.4)'
+                  : '0 0 16px rgba(239, 68, 68, 0.35)',
+                transition: 'all 0.3s ease',
               }}
             >
               {photo ? (
@@ -356,7 +431,7 @@ export default function Onboarding() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'var(--primary-light, #93c5fd)',
-                    border: '1.5px dashed rgba(59, 130, 246, 0.6)',
+                    border: '1.5px dashed rgba(239, 68, 68, 0.6)',
                   }}
                 >
                   <MdPhotoCamera size={26} />
@@ -372,7 +447,7 @@ export default function Onboarding() {
                   width: 22,
                   height: 22,
                   borderRadius: '50%',
-                  background: photo ? '#10b981' : '#f59e0b',
+                  background: verifyingFace ? '#6366f1' : photo && faceVerified ? '#10b981' : '#ef4444',
                   color: '#ffffff',
                   display: 'flex',
                   alignItems: 'center',
@@ -382,8 +457,9 @@ export default function Onboarding() {
                   border: '2px solid var(--card-bg, #13192c)',
                   boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
                 }}
+                title={photo && faceVerified ? 'Human Face Verified' : 'Face Photo Compulsory'}
               >
-                {photo ? '✓' : '*'}
+                {verifyingFace ? '…' : photo && faceVerified ? '✓' : '!'}
               </div>
             </div>
 
@@ -392,6 +468,7 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={startCamera}
+                disabled={verifyingFace}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -403,17 +480,18 @@ export default function Onboarding() {
                   color: 'var(--primary-light, #93c5fd)',
                   fontSize: 11,
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: verifyingFace ? 'not-allowed' : 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
                 <MdPhotoCamera size={13} />
-                <span>{photo ? 'Retake' : 'Live Camera *'}</span>
+                <span>{photo ? 'Retake Photo' : 'Live Camera *'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={verifyingFace}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -425,18 +503,18 @@ export default function Onboarding() {
                   color: 'var(--text-secondary)',
                   fontSize: 11,
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: verifyingFace ? 'not-allowed' : 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
                 <MdUpload size={13} />
-                <span>Upload</span>
+                <span>Upload Photo *</span>
               </button>
 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/jpg"
                 style={{ display: 'none' }}
                 onChange={handleFileUpload}
               />
@@ -446,11 +524,44 @@ export default function Onboarding() {
           <h1 style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.3px', margin: '2px 0 2px', color: 'var(--text-primary)' }}>
             Complete Your Profile
           </h1>
-          <p style={{ fontSize: '12px', color: photo ? '#10b981' : '#f59e0b', margin: 0, fontWeight: 600 }}>
-            {photo
-              ? '✓ Face photo recorded for gate verification & records'
-              : '⚠️ Face photo is compulsory for gate security records'}
+          <p
+            style={{
+              fontSize: '12px',
+              color: verifyingFace ? '#38bdf8' : photo && faceVerified ? '#10b981' : '#f87171',
+              margin: 0,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+            }}
+          >
+            {verifyingFace ? (
+              <span>🔍 Scanning & verifying human face...</span>
+            ) : photo && faceVerified ? (
+              <span>✓ Face photo recorded for gate verification & records</span>
+            ) : (
+              <span>⚠️ Upload face photo (Compulsory · Only human face accepted)</span>
+            )}
           </p>
+          {faceError && (
+            <div
+              style={{
+                fontSize: '11px',
+                color: '#f87171',
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: '6px',
+                padding: '3px 10px',
+                marginTop: '4px',
+                maxWidth: '420px',
+                textAlign: 'center',
+                lineHeight: 1.35,
+              }}
+            >
+              {faceError}
+            </div>
+          )}
         </div>
 
         {/* Form Inputs Grid */}
@@ -720,7 +831,7 @@ export default function Onboarding() {
             onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #64748b)')}
           >
             <MdLogout size={13} />
-            <span>Wrong account or portal? Back to Three Portals</span>
+            <span>Wrong account or portal? Back to Login</span>
           </button>
         </div>
       </form>
@@ -826,21 +937,44 @@ export default function Onboarding() {
               )}
             </div>
 
+            {faceError && (
+              <div
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  color: '#f87171',
+                  fontSize: 12,
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                }}
+              >
+                ⚠️ {faceError}
+              </div>
+            )}
+
             {/* Capture & Cancel Action Buttons */}
             <div style={{ display: 'flex', gap: 10, width: '100%' }}>
               <button
                 type="button"
                 onClick={capturePhoto}
+                disabled={verifyingFace || cameraLoading}
                 style={{
                   flex: 1,
                   padding: '12px 18px',
                   borderRadius: 12,
                   border: 'none',
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  background: verifyingFace
+                    ? 'linear-gradient(135deg, #6366f1, #3b82f6)'
+                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   color: '#fff',
                   fontWeight: 700,
                   fontSize: 14,
-                  cursor: 'pointer',
+                  cursor: verifyingFace || cameraLoading ? 'not-allowed' : 'pointer',
+                  opacity: cameraLoading ? 0.6 : 1,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -848,11 +982,12 @@ export default function Onboarding() {
                 }}
               >
                 <MdPhotoCamera size={18} />
-                <span>Snap Face Photo</span>
+                <span>{verifyingFace ? 'Verifying Human Face...' : 'Snap Face Photo'}</span>
               </button>
               <button
                 type="button"
                 onClick={stopCamera}
+                disabled={verifyingFace}
                 style={{
                   padding: '12px 18px',
                   borderRadius: 12,
@@ -861,7 +996,7 @@ export default function Onboarding() {
                   color: 'var(--text-secondary)',
                   fontWeight: 600,
                   fontSize: 14,
-                  cursor: 'pointer',
+                  cursor: verifyingFace ? 'not-allowed' : 'pointer',
                 }}
               >
                 Cancel
