@@ -43,7 +43,7 @@ const staffUsers = [
 
   // ─── Security Staff ────────────────────────────────────────────────────────
   {
-    name:          'MSF Guard',
+    name:          'Security Guard',
     email:         'security@campus.edu',
     role:          'security',
     oauthProvider: 'google',
