@@ -750,9 +750,9 @@ export default function Onboarding() {
                 onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
               >
                 <option value="" disabled style={{ background: 'var(--bg-card, #13192c)' }}>Choose Hostel</option>
-                <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Boys Hostel 1 (BH1)</option>
-                <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Boys Hostel 2 (BH2)</option>
-                <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Girls Hostel (GH)</option>
+                <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Brahmaputra (BH1)</option>
+                <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Krishna (BH2)</option>
+                <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Indrayani (GH)</option>
               </select>
               <div style={{
                 position: 'absolute',

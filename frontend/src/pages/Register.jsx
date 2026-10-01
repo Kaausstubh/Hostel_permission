@@ -196,9 +196,9 @@ export default function Register() {
             <select id="reg-hostel" className="form-input" value={form.hostel} onChange={set('hostel')}
               style={{ cursor: 'pointer' }}>
               <option value="">Select hostel...</option>
-              <option value="BH1">BH1 (Boys Hostel 1)</option>
-              <option value="BH2">BH2 (Boys Hostel 2)</option>
-              <option value="GH">GH (Girls Hostel)</option>
+              <option value="BH1">Brahmaputra (BH1)</option>
+              <option value="BH2">Krishna (BH2)</option>
+              <option value="GH">Indrayani (GH)</option>
             </select>
           </div>
 
