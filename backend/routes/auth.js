@@ -57,15 +57,19 @@ const signToken = (id) =>
 // Build the frontend redirect URL with token and user info encoded in query params.
 // Using a one-time URL is acceptable here; PKCE would be needed for mobile.
 const buildFrontendRedirect = (baseUrl, token, user) => {
-  const effectivePicture = user.studentPhoto || (user.picture && !user.picture.includes('googleusercontent.com') ? user.picture : null);
+  // Keep the OAuth callback URL lightweight (under 1KB) to avoid HTTP 414 / header overflow.
+  // The full user profile and studentPhoto are loaded cleanly by AuthContext via /api/auth/me on mount.
+  const shortPicture = user.picture && !user.picture.startsWith('data:') && !user.picture.includes('googleusercontent.com')
+    ? user.picture
+    : null;
+
   const userPayload = Buffer.from(
     JSON.stringify({
       id:           user._id,
       name:         user.name,
       email:        user.email,
       role:         user.role,
-      picture:      effectivePicture,
-      studentPhoto: user.studentPhoto || (user.picture && !user.picture.includes('googleusercontent.com') ? user.picture : null),
+      picture:      shortPicture,
       hostel:       user.hostel || null,
       rollNo:       user.rollNo || null,
       phone:        user.phone || null,

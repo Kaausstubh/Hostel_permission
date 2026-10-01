@@ -59,10 +59,10 @@ const findOrCreateUser = async (profile, provider, role) => {
     if (user.studentPhoto) {
       // Keep verified face photo intact
       user.picture = user.studentPhoto;
-    } else if (user.picture && user.picture.startsWith('data:')) {
-      // Migrate base64 onboarding photo to studentPhoto
+    } else if (user.picture && (user.picture.startsWith('data:') || !user.picture.includes('googleusercontent.com'))) {
+      // Migrate existing photo to studentPhoto
       user.studentPhoto = user.picture;
-    } else {
+    } else if (user.role !== 'student') {
       user.picture = picture;
     }
     user.lastLoginAt  = new Date();
@@ -80,9 +80,9 @@ const findOrCreateUser = async (profile, provider, role) => {
     user.oauthProvider = provider;
     if (user.studentPhoto) {
       user.picture = user.studentPhoto;
-    } else if (user.picture && user.picture.startsWith('data:')) {
+    } else if (user.picture && (user.picture.startsWith('data:') || !user.picture.includes('googleusercontent.com'))) {
       user.studentPhoto = user.picture;
-    } else {
+    } else if (user.role !== 'student') {
       user.picture = picture;
     }
     user.lastLoginAt   = new Date();

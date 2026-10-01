@@ -65,13 +65,9 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     );
   }
 
-  // Student onboarding redirection guard — ensures verified registration face photo is recorded
+  // Student onboarding redirection guard — triggers ONLY ONCE at initial registration
   if (user.role === 'student') {
-    const hasPhoto = Boolean(
-      user.studentPhoto ||
-      (user.picture && !user.picture.includes('googleusercontent.com') && (user.picture.startsWith('data:image') || user.picture.length > 500))
-    );
-    const needsOnboard = !user.rollNo || !user.hostel || !user.phone || !user.parentPhone || !hasPhoto;
+    const needsOnboard = !user.rollNo || !user.hostel || !user.phone || !user.parentPhone;
     const isCurrentlyOnboarding = window.location.pathname === '/onboarding';
 
     if (needsOnboard && !isCurrentlyOnboarding) {
