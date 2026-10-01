@@ -85,7 +85,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       try {
         const res = await api.get(`/archive/export-data?${params.toString()}`);
         if (res.data?.records && res.data.records.length > 0) {
-          downloadGateRecordsPDF(res.data);
+          await downloadGateRecordsPDF(res.data);
           exportedFromServer = true;
         }
       } catch (err) {
@@ -93,12 +93,12 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       }
 
       if (!exportedFromServer) {
-        generatePDFFromLocalLogs({
+        await generatePDFFromLocalLogs({
           gateLogs: activeTab === 'gate' ? logs : [],
           homeLogs: activeTab === 'home' ? homeLogs : [],
           user,
           period: dateFilter || `${activeTab === 'gate' ? 'Gate Scan Logs' : 'Home Visit Records'} (${new Date().toLocaleDateString('en-IN')})`,
-          customFileName: `HEIMDALL_${activeTab === 'gate' ? 'Gate_Scan' : 'Home_Visit'}_Logs_${dateFilter || 'Export'}.pdf`,
+          customFileName: `IIITP_HEIMDALL_${activeTab === 'gate' ? 'Gate_Scan' : 'Home_Visit'}_Logs_${dateFilter || 'Export'}.pdf`,
         });
       }
 

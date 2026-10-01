@@ -97,7 +97,7 @@ export default function ArchivedRecords() {
       try {
         const res = await api.get(`/archive/export-data?${params.toString()}`);
         if (res.data?.success && res.data?.records && res.data.records.length > 0) {
-          downloadGateRecordsPDF(res.data);
+          await downloadGateRecordsPDF(res.data);
           toast.success(`PDF downloaded successfully! (${res.data.records.length} records)`, { id: toastId });
           return;
         }
@@ -130,7 +130,7 @@ export default function ArchivedRecords() {
         return;
       }
 
-      generatePDFFromLocalLogs({
+      await generatePDFFromLocalLogs({
         gateLogs: exportType === 'home' ? [] : rawGate,
         homeLogs: exportType === 'gate' ? [] : rawHome,
         user,
@@ -178,7 +178,11 @@ export default function ArchivedRecords() {
         fetchStorageStats();
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Purge authorization failed.', { id: toastId });
+      if (err.response?.status === 404) {
+        toast.error('The backend server needs to be redeployed with the latest updates to enable secure purge.', { id: toastId, duration: 6000 });
+      } else {
+        toast.error(err.response?.data?.message || 'Purge authorization failed.', { id: toastId });
+      }
     } finally {
       setPurging(false);
     }
@@ -609,10 +613,27 @@ export default function ArchivedRecords() {
               <div style={{ fontWeight: 800, fontSize: 18 }}>Authorize Historical Record Purge</div>
             </div>
 
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
               You are about to permanently delete older historical records from MongoDB to reclaim database capacity.
               Only perform this step after downloading and verifying the PDF archive.
             </p>
+
+            {/* Safety Guarantee Notice */}
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: 8,
+              padding: '9px 12px',
+              marginBottom: 16,
+              fontSize: 12,
+              color: '#10b981',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <MdCheckCircle size={18} style={{ flexShrink: 0 }} />
+              <span><strong>Safety Guarantee:</strong> Only historical In/Out scan logs and Home Visit movement records are purged. User accounts, student profiles, and warden credentials are <strong>never</strong> deleted.</span>
+            </div>
 
             <form onSubmit={handleSecurePurge}>
               {/* Cutoff Date */}
