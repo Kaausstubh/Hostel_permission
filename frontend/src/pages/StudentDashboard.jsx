@@ -2025,131 +2025,164 @@ export default function StudentDashboard() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{
-          padding: isMobile ? '10px 12px' : '14px 24px',
-          background: 'var(--bg-card)',
-          borderBottom: '1px solid var(--glass-border)',
-          display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14,
-          boxShadow: 'var(--shadow-sm)',
-          flexWrap: isMobile ? 'wrap' : 'nowrap',
-        }}>
-          <div
-            className="chatbot-avatar"
-            style={{
-              background: theme === 'light' ? '#ffffff' : '#0c0b2f',
-              border: theme === 'light' ? '1.5px solid rgba(99, 102, 241, 0.25)' : '1.5px solid rgba(139, 92, 246, 0.45)',
-              boxShadow: theme === 'light' ? '0 2px 10px rgba(0,0,0,0.06)' : '0 0 16px rgba(99, 102, 241, 0.35)',
-              width: 44,
-              height: 44,
-              borderRadius: '50%',
+        {isMobile ? (
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--bg-card)',
+            borderBottom: '1px solid var(--glass-border)',
+            boxShadow: 'var(--shadow-sm)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            {/* Mobile Row 1: Bot info (left) & Show QR Pass + Theme Toggle (right) */}
+            <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              flexShrink: 0,
-            }}
-          >
-            <img
-              src={theme === 'light' ? BOT_LOGO_LIGHT : BOT_LOGO_DARK}
-              alt="HEIMDALL Bot"
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-              }}
-            />
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
-              HEIMDALL Bot
-            </div>
-            <div style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
-              Online
-            </div>
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {/* View Status / Active QR Pass Button */}
-            <button
-              onClick={handleQuickViewQR}
-              disabled={qrQuickLoading}
-              title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
-              aria-label="View Active QR Pass"
-              className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
-            >
-              <MdQrCode2
-                size={22}
-                style={{
-                  animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
-                {activePasses.length > 0 ? 'Show QR Pass' : 'Gate Pass QR'}
-              </span>
-              {activePasses.length > 0 && (
-                <span
+              justifyContent: 'space-between',
+              gap: 8,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <div
+                  className="chatbot-avatar"
                   style={{
-                    width: 8,
-                    height: 8,
+                    background: theme === 'light' ? '#ffffff' : '#0c0b2f',
+                    border: theme === 'light' ? '1.5px solid rgba(99, 102, 241, 0.25)' : '1.5px solid rgba(139, 92, 246, 0.45)',
+                    boxShadow: theme === 'light' ? '0 2px 8px rgba(0,0,0,0.06)' : '0 0 12px rgba(99, 102, 241, 0.35)',
+                    width: 36,
+                    height: 36,
                     borderRadius: '50%',
-                    background: '#ffffff',
-                    boxShadow: '0 0 8px #ffffff',
-                    display: 'inline-block',
-                    marginLeft: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    flexShrink: 0,
                   }}
-                />
-              )}
-            </button>
+                >
+                  <img
+                    src={theme === 'light' ? BOT_LOGO_LIGHT : BOT_LOGO_DARK}
+                    alt="HEIMDALL Bot"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14.5, color: 'var(--text-primary)', letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    HEIMDALL Bot
+                  </div>
+                  <div style={{ fontSize: 11, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 5px #10b981' }} />
+                    Online
+                  </div>
+                </div>
+              </div>
 
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              style={{
-                background: 'var(--bg-input, rgba(255, 255, 255, 0.05))',
-                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
-                color: 'var(--text-secondary, #cbd5e1)',
-                cursor: 'pointer',
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {/* View Status / Active QR Pass Button */}
+                <button
+                  onClick={handleQuickViewQR}
+                  disabled={qrQuickLoading}
+                  title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
+                  aria-label="View Active QR Pass"
+                  className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
+                  style={{ padding: '6px 12px', fontSize: 12, gap: 5 }}
+                >
+                  <MdQrCode2
+                    size={18}
+                    style={{
+                      animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
+                    {activePasses.length > 0 ? 'Show QR Pass' : 'Gate Pass QR'}
+                  </span>
+                  {activePasses.length > 0 && (
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#ffffff',
+                        boxShadow: '0 0 6px #ffffff',
+                        display: 'inline-block',
+                        marginLeft: 2,
+                      }}
+                    />
+                  )}
+                </button>
+
+                {/* Theme Toggle */}
+                <button
+                  onClick={toggleTheme}
+                  style={{
+                    background: 'var(--bg-input, rgba(255, 255, 255, 0.05))',
+                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+                    color: 'var(--text-secondary, #cbd5e1)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    transition: 'all 0.2s ease',
+                    flexShrink: 0,
+                  }}
+                  aria-label="Toggle theme"
+                  title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+                >
+                  {theme === 'light' ? <MdDarkMode size={16} /> : <MdLightMode size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile Row 2: Student part (left) & Logout button (right) */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              paddingTop: 6,
+              borderTop: '1px solid var(--glass-border)',
+            }}>
+              <div style={{
+                padding: '4px 10px',
+                borderRadius: 99,
+                fontSize: 11.5,
+                fontWeight: 700,
+                background: 'rgba(99,102,241,0.12)',
+                color: 'var(--primary-light)',
+                border: '1px solid rgba(99,102,241,0.25)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: '8px',
-                borderRadius: '50%',
-                transition: 'all 0.2s ease',
-              }}
-              aria-label="Toggle theme"
-              title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-            >
-              {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
-            </button>
-            <div style={{
-              padding: '6px 14px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
-              background: 'rgba(99,102,241,0.15)', color: 'var(--primary-light)',
-              border: '1px solid rgba(99,102,241,0.3)',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              {isMobile && (user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com')) || user?.photo) && !avatarImgError && (
-                <img
-                  src={user?.studentPhoto || (!user?.picture?.includes('googleusercontent.com') ? user?.picture : null) || user?.photo}
-                  alt=""
-                  onError={() => setAvatarImgError(true)}
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    objectFit: 'cover',
-                  }}
-                />
-              )}
-              🎓 Student
-            </div>
-            {isMobile && (
+                gap: 6,
+                minWidth: 0,
+              }}>
+                {(user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com')) || user?.photo) && !avatarImgError && (
+                  <img
+                    src={user?.studentPhoto || (!user?.picture?.includes('googleusercontent.com') ? user?.picture : null) || user?.photo}
+                    alt=""
+                    onError={() => setAvatarImgError(true)}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  🎓 {user?.name ? `${user.name.split(' ')[0]} (Student)` : 'Student'}
+                </span>
+              </div>
+
               <button
                 onClick={handleLogout}
                 style={{
                   padding: '5px 12px',
                   borderRadius: 99,
-                  fontSize: 11,
+                  fontSize: 11.5,
                   fontWeight: 700,
                   border: '1px solid rgba(239,68,68,0.35)',
                   background: 'rgba(239,68,68,0.08)',
@@ -2157,14 +2190,123 @@ export default function StudentDashboard() {
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4
+                  gap: 4,
+                  flexShrink: 0,
                 }}
               >
-                <MdLogout size={12} /> Logout
+                <MdLogout size={13} /> Logout
               </button>
-            )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={{
+            padding: '14px 24px',
+            background: 'var(--bg-card)',
+            borderBottom: '1px solid var(--glass-border)',
+            display: 'flex', alignItems: 'center', gap: 14,
+            boxShadow: 'var(--shadow-sm)',
+          }}>
+            <div
+              className="chatbot-avatar"
+              style={{
+                background: theme === 'light' ? '#ffffff' : '#0c0b2f',
+                border: theme === 'light' ? '1.5px solid rgba(99, 102, 241, 0.25)' : '1.5px solid rgba(139, 92, 246, 0.45)',
+                boxShadow: theme === 'light' ? '0 2px 10px rgba(0,0,0,0.06)' : '0 0 16px rgba(99, 102, 241, 0.35)',
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                flexShrink: 0,
+              }}
+            >
+              <img
+                src={theme === 'light' ? BOT_LOGO_LIGHT : BOT_LOGO_DARK}
+                alt="HEIMDALL Bot"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                }}
+              />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
+                HEIMDALL Bot
+              </div>
+              <div style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
+                Online
+              </div>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+              {/* View Status / Active QR Pass Button */}
+              <button
+                onClick={handleQuickViewQR}
+                disabled={qrQuickLoading}
+                title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
+                aria-label="View Active QR Pass"
+                className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
+              >
+                <MdQrCode2
+                  size={22}
+                  style={{
+                    animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
+                  {activePasses.length > 0 ? 'Show QR Pass' : 'Gate Pass QR'}
+                </span>
+                {activePasses.length > 0 && (
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: '#ffffff',
+                      boxShadow: '0 0 8px #ffffff',
+                      display: 'inline-block',
+                      marginLeft: 2,
+                    }}
+                  />
+                )}
+              </button>
+
+              {/* Theme Toggle */}
+              <button
+                onClick={toggleTheme}
+                style={{
+                  background: 'var(--bg-input, rgba(255, 255, 255, 0.05))',
+                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+                  color: 'var(--text-secondary, #cbd5e1)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px',
+                  borderRadius: '50%',
+                  transition: 'all 0.2s ease',
+                }}
+                aria-label="Toggle theme"
+                title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              >
+                {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
+              </button>
+
+              <div style={{
+                padding: '6px 14px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
+                background: 'rgba(99,102,241,0.15)', color: 'var(--primary-light)',
+                border: '1px solid rgba(99,102,241,0.3)',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                🎓 Student
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div style={{
