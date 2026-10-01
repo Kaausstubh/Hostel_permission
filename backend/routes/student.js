@@ -380,7 +380,7 @@ router.post('/complaint', async (req, res) => {
       });
     }
 
-    const complaintHostel = (hostel || user.hostel || '').toUpperCase();
+    const complaintHostel = (hostel || user.hostel || 'BH1').toUpperCase();
     if (!['BH1', 'BH2', 'GH'].includes(complaintHostel)) {
       return res.status(400).json({
         success: false,

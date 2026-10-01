@@ -986,36 +986,30 @@ export default function StudentDashboard() {
       return;
     }
     setIsCompressingPhoto(true);
+    setLoading(true);
+    const toastId = toast.loading('Uploading photo & sending complaint to warden...');
     try {
       const dataUrl = await compressImageForUpload(file, 960, 960, 0.8);
       setComplaintPhoto(dataUrl);
-      toast.success('Photo attached! 📸');
-    } catch (err) {
-      console.error(err);
-      toast.error('Could not process photo. Please try again.');
-    } finally {
-      setIsCompressingPhoto(false);
-      if (complaintCameraRef.current) complaintCameraRef.current.value = '';
-      if (complaintFileRef.current) complaintFileRef.current.value = '';
-    }
-  };
 
-  const submitComplaintWithPhoto = async (photoData, noteText) => {
-    setLoading(true);
-    try {
       const category = hvData.complaint_type || 'others';
-      const typeLabel = hvData.complaint_type_label || 'Others';
-      const desc = (noteText !== undefined ? noteText : complaintNote || '').trim();
+      const typeLabel = hvData.complaint_type_label || 'Maintenance Issue';
+      const desc = (complaintNote || '').trim();
+
+      userSay(`📸 [Uploaded Photo for ${typeLabel}]${desc ? `: "${desc}"` : ''}`);
 
       await api.post('/student/complaint', {
-        hostel: user?.hostel,
+        hostel: user?.hostel || 'BH1',
         complaint_type: category,
-        complaint_text: desc,
-        photo: photoData || complaintPhoto || null,
+        complaint_text: desc || `[${typeLabel}] Maintenance required. Photo evidence attached.`,
+        photo: dataUrl,
       });
 
+      toast.success('Complaint submitted to warden! ✓', { id: toastId });
       botSay(
-        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: ${photoData || complaintPhoto ? 'Evidence attached' : 'None'}\n🏢 Hostel: *${user?.hostel || 'N/A'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`
+        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: *Evidence attached & received*\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`,
+        'text',
+        { photo: dataUrl }
       );
       setComplaintPhoto(null);
       setComplaintNote('');
@@ -1023,6 +1017,47 @@ export default function StudentDashboard() {
       setStep(STEPS.DONE);
       goToMainMenu();
     } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Could not upload photo. Please try again.', { id: toastId });
+      botSay(`❌ ${err.response?.data?.message || 'Failed to submit complaint. Try again.'}`);
+    } finally {
+      setIsCompressingPhoto(false);
+      setLoading(false);
+      if (complaintCameraRef.current) complaintCameraRef.current.value = '';
+      if (complaintFileRef.current) complaintFileRef.current.value = '';
+    }
+  };
+
+  const submitComplaintWithPhoto = async (photoData, noteText) => {
+    setLoading(true);
+    const toastId = toast.loading('Submitting complaint to warden...');
+    try {
+      const category = hvData.complaint_type || 'others';
+      const typeLabel = hvData.complaint_type_label || 'Others';
+      const desc = (noteText !== undefined ? noteText : complaintNote || '').trim();
+      const finalPhoto = photoData || complaintPhoto || null;
+
+      await api.post('/student/complaint', {
+        hostel: user?.hostel || 'BH1',
+        complaint_type: category,
+        complaint_text: desc || `[${typeLabel}] Maintenance required. Photo evidence attached.`,
+        photo: finalPhoto,
+      });
+
+      toast.success('Complaint submitted to warden! ✓', { id: toastId });
+      botSay(
+        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: ${finalPhoto ? '*Evidence attached & received*' : 'None'}\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`,
+        'text',
+        { photo: finalPhoto }
+      );
+      setComplaintPhoto(null);
+      setComplaintNote('');
+      setHvData({});
+      setStep(STEPS.DONE);
+      goToMainMenu();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Failed to file complaint.', { id: toastId });
       botSay(`❌ ${err.response?.data?.message || 'Failed to file complaint. Try again.'}`);
     } finally {
       setLoading(false);
@@ -1792,13 +1827,33 @@ export default function StudentDashboard() {
             ) : (
               /* Photo capture buttons */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {isCompressingPhoto ? (
+                {isCompressingPhoto || loading ? (
                   <div style={{ textAlign: 'center', padding: '16px 0' }}>
                     <div className="loading-spinner" style={{ width: 24, height: 24, margin: '0 auto 8px' }} />
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Processing photo...</span>
+                    <span style={{ fontSize: 13, color: 'var(--primary-light)', fontWeight: 600 }}>
+                      Uploading photo & sending complaint to warden...
+                    </span>
                   </div>
                 ) : (
                   <>
+                    <input
+                      type="text"
+                      placeholder="Add room no. or issue details (Optional)"
+                      value={complaintNote}
+                      onChange={(e) => setComplaintNote(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 14px',
+                        borderRadius: 10,
+                        border: '1px solid var(--glass-border)',
+                        background: 'var(--bg-input)',
+                        color: 'var(--text-primary)',
+                        fontSize: 13,
+                        boxSizing: 'border-box',
+                        outline: 'none',
+                      }}
+                    />
+
                     <button
                       type="button"
                       onClick={() => complaintCameraRef.current?.click()}
@@ -1818,7 +1873,7 @@ export default function StudentDashboard() {
                         boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
                       }}
                     >
-                      <MdPhotoCamera size={18} /> Take Photo (Camera)
+                      <MdPhotoCamera size={18} /> 📸 Click Photo & Send to Warden
                     </button>
 
                     <button
@@ -1839,7 +1894,7 @@ export default function StudentDashboard() {
                         cursor: 'pointer',
                       }}
                     >
-                      <MdUpload size={18} /> Upload from Gallery / Files
+                      <MdUpload size={18} /> 📁 Upload Photo & Send to Warden
                     </button>
                   </>
                 )}
@@ -1893,6 +1948,30 @@ export default function StudentDashboard() {
         color: isUser ? '#fff' : 'var(--text-primary)',
       }}>
         {m.content}
+        {m.meta?.photo && (
+          <div style={{
+            marginTop: 8,
+            borderRadius: 10,
+            overflow: 'hidden',
+            border: '1px solid var(--glass-border)',
+            background: 'rgba(0, 0, 0, 0.25)',
+            maxHeight: 220,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <img
+              src={m.meta.photo}
+              alt="Complaint evidence"
+              style={{
+                width: '100%',
+                maxHeight: 220,
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          </div>
+        )}
         <div style={{
           fontSize: 10, marginTop: 4, textAlign: 'right',
           color: isUser ? 'rgba(255,255,255,0.6)' : 'var(--text-muted)',
