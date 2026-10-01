@@ -159,8 +159,8 @@ const getPassDisplay = (meta = {}) => {
   };
 };
 
-const BOT_LOGO_SRC = '/heimdall-bot-logo.png';
-const BOT_LOGO_BG = '#4a5568';
+const BOT_LOGO_DARK = '/heimdall-avatar-dark.png';
+const BOT_LOGO_LIGHT = '/heimdall-avatar-light.png';
 
 const INOUT_LOCATIONS = [
   { id: 'place_shop', label: '🛒 Shop' },
@@ -454,6 +454,7 @@ export default function StudentDashboard() {
   // Safe initial mobile check — avoids SSR/layout-shift issues
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const msgIdRef = useRef(0);
+  const [avatarImgError, setAvatarImgError] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -1574,9 +1575,33 @@ export default function StudentDashboard() {
         ...(isMobile ? { display: 'none' } : {}),
       }}>
         {/* Brand */}
-        <div style={{ padding: '24px 20px 16px', borderBottom: '1px solid var(--glass-border)' }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>🛡️ HEIMDALL</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Student Portal</div>
+        <div style={{
+          padding: '20px 20px 16px',
+          borderBottom: '1px solid var(--glass-border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <img
+            src={theme === 'light' ? BOT_LOGO_LIGHT : BOT_LOGO_DARK}
+            alt="HEIMDALL"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              border: theme === 'light' ? '1.5px solid rgba(99, 102, 241, 0.25)' : '1.5px solid rgba(139, 92, 246, 0.45)',
+              boxShadow: theme === 'light' ? '0 2px 8px rgba(0,0,0,0.06)' : '0 2px 10px rgba(99,102,241,0.3)',
+            }}
+          />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
+              HEIMDALL
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+              Student Portal
+            </div>
+          </div>
         </div>
 
         {/* Nav */}
@@ -1601,20 +1626,38 @@ export default function StudentDashboard() {
         <div style={{
           padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: '50%',
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 700, color: '#fff', fontSize: 15, flexShrink: 0,
-            }}>
-              {user?.name?.charAt(0).toUpperCase()}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            {(user?.picture || user?.photo) && !avatarImgError ? (
+              <img
+                src={user?.picture || user?.photo}
+                alt={user?.name || 'Student photo'}
+                onError={() => setAvatarImgError(true)}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  flexShrink: 0,
+                  border: '2px solid rgba(99, 102, 241, 0.55)',
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+                }}
+              />
+            ) : (
+              <div style={{
+                width: 42, height: 42, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, color: '#fff', fontSize: 16, flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+              }}>
+                {user?.name?.charAt(0).toUpperCase() || 'S'}
+              </div>
+            )}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user?.name}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                 {user?.rollNo} · {user?.hostel}
               </div>
             </div>
@@ -1627,6 +1670,7 @@ export default function StudentDashboard() {
               color: '#f87171', fontSize: 13, fontWeight: 600,
               cursor: 'pointer', display: 'flex', alignItems: 'center',
               justifyContent: 'center', gap: 6,
+              transition: 'all 0.15s ease',
             }}>
             <MdLogout size={15} /> Logout
           </button>
@@ -1645,66 +1689,70 @@ export default function StudentDashboard() {
           boxShadow: 'var(--shadow-sm)',
           flexWrap: isMobile ? 'wrap' : 'nowrap',
         }}>
-          <div className="chatbot-avatar" style={{ background: BOT_LOGO_BG }}>
+          <div
+            className="chatbot-avatar"
+            style={{
+              background: theme === 'light' ? '#ffffff' : '#0c0b2f',
+              border: theme === 'light' ? '1.5px solid rgba(99, 102, 241, 0.25)' : '1.5px solid rgba(139, 92, 246, 0.45)',
+              boxShadow: theme === 'light' ? '0 2px 10px rgba(0,0,0,0.06)' : '0 0 16px rgba(99, 102, 241, 0.35)',
+              width: 44,
+              height: 44,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              flexShrink: 0,
+            }}
+          >
             <img
-              src={BOT_LOGO_SRC}
+              src={theme === 'light' ? BOT_LOGO_LIGHT : BOT_LOGO_DARK}
               alt="HEIMDALL Bot"
-              className="chatbot-avatar-img"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
             />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
               HEIMDALL Bot
             </div>
-            <div style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+            <div style={{ fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
               Online
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* View Status / Active QR Pass Button */}
             <button
               onClick={handleQuickViewQR}
               disabled={qrQuickLoading}
-              title="View Active QR Pass / Status"
+              title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
               aria-label="View Active QR Pass"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: activePasses.length > 0 ? '#10b981' : 'var(--text-muted)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '4px',
-                position: 'relative',
-                borderRadius: '8px',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = activePasses.length > 0 ? '#10b981' : 'var(--text-primary)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = activePasses.length > 0 ? '#10b981' : 'var(--text-muted)';
-              }}
+              className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
             >
               <MdQrCode2
-                size={20}
+                size={22}
                 style={{
                   animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
+                  flexShrink: 0,
                 }}
               />
+              <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
+                {activePasses.length > 0 ? 'Show QR Pass' : 'Gate Pass QR'}
+              </span>
               {activePasses.length > 0 && (
                 <span
                   style={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 2,
-                    width: 7,
-                    height: 7,
+                    width: 8,
+                    height: 8,
                     borderRadius: '50%',
-                    background: '#10b981',
-                    boxShadow: '0 0 6px #10b981',
+                    background: '#ffffff',
+                    boxShadow: '0 0 8px #ffffff',
+                    display: 'inline-block',
+                    marginLeft: 2,
                   }}
                 />
               )}
@@ -1714,37 +1762,54 @@ export default function StudentDashboard() {
             <button
               onClick={toggleTheme}
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted)',
+                background: 'var(--bg-input, rgba(255, 255, 255, 0.05))',
+                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+                color: 'var(--text-secondary, #cbd5e1)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '4px',
+                padding: '8px',
+                borderRadius: '50%',
+                transition: 'all 0.2s ease',
               }}
               aria-label="Toggle theme"
+              title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
             >
               {theme === 'light' ? <MdDarkMode size={18} /> : <MdLightMode size={18} />}
             </button>
             <div style={{
-              padding: '4px 12px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+              padding: '6px 14px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
               background: 'rgba(99,102,241,0.15)', color: 'var(--primary-light)',
               border: '1px solid rgba(99,102,241,0.3)',
+              display: 'flex', alignItems: 'center', gap: 6,
             }}>
+              {isMobile && (user?.picture || user?.photo) && !avatarImgError && (
+                <img
+                  src={user?.picture || user?.photo}
+                  alt=""
+                  onError={() => setAvatarImgError(true)}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                  }}
+                />
+              )}
               🎓 Student
             </div>
             {isMobile && (
               <button
                 onClick={handleLogout}
                 style={{
-                  padding: '4px 12px',
+                  padding: '5px 12px',
                   borderRadius: 99,
                   fontSize: 11,
                   fontWeight: 700,
                   border: '1px solid rgba(239,68,68,0.35)',
-                  background: 'transparent',
-                  color: '#fca5a5',
+                  background: 'rgba(239,68,68,0.08)',
+                  color: '#f87171',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
