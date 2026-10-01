@@ -29,6 +29,7 @@ import {
   MdPhotoCamera, MdUpload, MdClose, MdCheckCircle,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
+import iiitLogo from '../assets/iiitpune-logo.png';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
@@ -1587,30 +1588,16 @@ export default function StudentDashboard() {
               const isQrBtn = btn.id?.startsWith('qr_');
               const canClick = isLatestButtons || isFlowBtn || isQrBtn;
               return (
-              <button key={btn.id} id={`btn-${btn.id}`}
-                onClick={() => canClick && handleButton(btn.id, btn.label)}
-                disabled={loading || !canClick}
-                style={{
-                  padding: '8px 16px', borderRadius: 999,
-                  border: '1px solid var(--primary)',
-                  background: 'transparent',
-                  color: 'var(--primary-light)',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  opacity: loading ? 0.5 : 1,
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'var(--primary)';
-                  e.currentTarget.style.color = '#fff';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--primary-light)';
-                }}
-              >
-                {btn.label}
-              </button>
-            );
+                <button
+                  key={btn.id}
+                  id={`btn-${btn.id}`}
+                  className="chat-quick-reply-btn"
+                  onClick={() => canClick && handleButton(btn.id, btn.label)}
+                  disabled={loading || !canClick}
+                >
+                  {btn.label}
+                </button>
+              );
             })}
           </div>
         </div>
@@ -1667,19 +1654,10 @@ export default function StudentDashboard() {
                 <button
                   key={btn.id}
                   type="button"
+                  className="chat-quick-reply-btn"
                   disabled={loading}
                   onClick={() => handleButton(btn.id, btn.label)}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: 999,
-                    border: '1px solid var(--primary)',
-                    background: 'transparent',
-                    color: 'var(--primary-light)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    opacity: loading ? 0.5 : 1,
-                  }}
+                  style={{ padding: '6px 12px', fontSize: 12 }}
                 >
                   {btn.label}
                 </button>
@@ -2727,8 +2705,9 @@ export default function StudentDashboard() {
             {/* College Logo & Security Pill */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <img
-                src="/iiitpune-logo.png"
+                src={iiitLogo}
                 alt="IIIT Pune"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
                 style={{
                   width: 38,
                   height: 38,
