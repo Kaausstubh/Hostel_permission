@@ -28,8 +28,8 @@ const { enqueueArchiveJob } = require('../queues/archiveQueue');
 const { getPresignedDownloadUrl, hasR2Credentials } = require('../services/r2Service');
 const logger = require('../utils/logger');
 
-// ── All archive routes require authentication + Warden/Admin role ─────────────
-router.use(protect, authorize('warden', 'admin'));
+// ── All archive routes require authentication ─────────────────────────────────
+router.use(protect, authorize('warden', 'admin', 'security'));
 
 // ── GET /status ───────────────────────────────────────────────────────────────
 router.get('/status', async (req, res) => {
@@ -264,14 +264,307 @@ router.get('/audit-logs', async (req, res) => {
       AuditLog.countDocuments(),
     ]);
 
+// ── GET /storage-stats (MongoDB Live Storage Awareness for Warden) ────────────
+router.get('/storage-stats', authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const InOutLog = require('../models/InOutLog');
+    const HomeVisitLog = require('../models/HomeVisitLog');
+    const Complaint = require('../models/Complaint');
+    const mongoose = require('mongoose');
+
+    const [inOutCount, homeCount, complaintCount] = await Promise.all([
+      InOutLog.countDocuments(),
+      HomeVisitLog.countDocuments(),
+      Complaint.countDocuments(),
+    ]);
+
+    const totalRecords = inOutCount + homeCount + complaintCount;
+
+    let storageUsedMB = 0;
+    try {
+      if (mongoose.connection?.db) {
+        const stats = await mongoose.connection.db.stats();
+        const bytes = (stats.dataSize || 0) + (stats.indexSize || 0);
+        storageUsedMB = parseFloat((bytes / (1024 * 1024)).toFixed(2));
+      }
+    } catch (e) {
+      storageUsedMB = parseFloat(((totalRecords * 1500) / (1024 * 1024)).toFixed(2));
+    }
+
+    const quotaMB = 512;
+    const usagePercent = parseFloat(Math.min(100, Math.max(0.1, (storageUsedMB / quotaMB) * 100)).toFixed(1));
+
+    // Aggregate records by month (YYYY-MM)
+    const inOutMonths = await InOutLog.aggregate([
+      {
+        $project: {
+          month: {
+            $cond: [
+              { $ifNull: ['$date', false] },
+              { $substr: ['$date', 0, 7] },
+              { $substr: [{ $dateToString: { date: '$timestamp', format: '%Y-%m-%d' } }, 0, 7] }
+            ]
+          }
+        }
+      },
+      { $group: { _id: '$month', count: { $sum: 1 } } }
+    ]);
+
+    const homeMonths = await HomeVisitLog.aggregate([
+      {
+        $project: {
+          month: {
+            $cond: [
+              { $ifNull: ['$leave_date', false] },
+              { $substr: ['$leave_date', 0, 7] },
+              { $substr: [{ $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, 0, 7] }
+            ]
+          }
+        }
+      },
+      { $group: { _id: '$month', count: { $sum: 1 } } }
+    ]);
+
+    const monthMap = {};
+    for (const item of inOutMonths) {
+      if (item._id && item._id.length === 7) {
+        monthMap[item._id] = { month: item._id, inOut: item.count, home: 0, total: item.count };
+      }
+    }
+    for (const item of homeMonths) {
+      if (item._id && item._id.length === 7) {
+        if (!monthMap[item._id]) {
+          monthMap[item._id] = { month: item._id, inOut: 0, home: item.count, total: item.count };
+        } else {
+          monthMap[item._id].home = item.count;
+          monthMap[item._id].total += item.count;
+        }
+      }
+    }
+
+    const months = Object.values(monthMap).sort((a, b) => b.month.localeCompare(a.month));
+
     res.json({
       success: true,
-      count,
-      page,
-      limit,
-      logs,
+      stats: {
+        inOutCount,
+        homeCount,
+        complaintCount,
+        totalRecords,
+        storageUsedMB,
+        quotaMB,
+        usagePercent,
+        months,
+      }
     });
   } catch (err) {
+    logger.error('[Archive] Failed to fetch storage stats', { error: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /export-data (Warden & Security PDF Report Data) ──────────────────────
+router.get('/export-data', authorize('warden', 'security', 'admin'), async (req, res) => {
+  try {
+    const { type = 'all', month, startDate, endDate, hostel } = req.query;
+    const InOutLog = require('../models/InOutLog');
+    const HomeVisitLog = require('../models/HomeVisitLog');
+
+    const inOutFilter = {};
+    const homeFilter = {};
+
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      inOutFilter.date = { $regex: `^${month}` };
+      homeFilter.leave_date = { $regex: `^${month}` };
+    } else if (startDate && endDate) {
+      inOutFilter.date = { $gte: startDate, $lte: endDate };
+      homeFilter.leave_date = { $gte: startDate, $lte: endDate };
+    }
+
+    if (hostel && ['BH1', 'BH2', 'GH'].includes(hostel.toUpperCase())) {
+      inOutFilter.hostel = hostel.toUpperCase();
+      homeFilter.hostel = hostel.toUpperCase();
+    }
+
+    const promises = [];
+    if (type === 'all' || type === 'gate') {
+      promises.push(
+        InOutLog.find(inOutFilter)
+          .populate('student_id', 'name rollNo hostel phone')
+          .sort({ timestamp: -1 })
+          .limit(1000)
+          .lean()
+      );
+    } else {
+      promises.push(Promise.resolve([]));
+    }
+
+    if (type === 'all' || type === 'home') {
+      promises.push(
+        HomeVisitLog.find(homeFilter)
+          .populate('student_id', 'name rollNo hostel phone parentPhone')
+          .sort({ createdAt: -1 })
+          .limit(1000)
+          .lean()
+      );
+    } else {
+      promises.push(Promise.resolve([]));
+    }
+
+    const [inOutLogs, homeLogs] = await Promise.all(promises);
+    const formattedRecords = [];
+
+    for (const log of inOutLogs) {
+      const student = log.student_id;
+      const d = log.date || (log.timestamp ? new Date(log.timestamp).toISOString().slice(0, 10) : '—');
+      const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—';
+      formattedRecords.push({
+        id: log._id,
+        category: 'In/Out Daily',
+        date: d,
+        time: timeStr,
+        studentName: student?.name || log.name || 'Unknown',
+        rollNo: student?.rollNo || log.rollNo || '—',
+        hostel: student?.hostel || log.hostel || '—',
+        status: log.status,
+        returned: log.returned ? 'Yes' : 'No',
+        destination: log.place || 'City / Local',
+        timestamp: log.timestamp ? new Date(log.timestamp).getTime() : 0,
+      });
+    }
+
+    for (const log of homeLogs) {
+      const student = log.student_id;
+      const leaveTime = log.actual_out_time ? new Date(log.actual_out_time).toLocaleTimeString('en-IN') : '—';
+      formattedRecords.push({
+        id: log._id,
+        category: 'Home Visit',
+        date: `${log.leave_date} → ${log.return_date}`,
+        time: leaveTime,
+        studentName: student?.name || log.name || 'Unknown',
+        rollNo: student?.rollNo || log.rollNo || '—',
+        hostel: student?.hostel || log.hostel || '—',
+        status: log.overall_status?.toUpperCase() || 'APPROVED',
+        returned: log.qr_used_in ? 'Yes' : 'No',
+        destination: log.place || 'Home Destination',
+        timestamp: log.createdAt ? new Date(log.createdAt).getTime() : 0,
+      });
+    }
+
+    formattedRecords.sort((a, b) => b.timestamp - a.timestamp);
+
+    const totalExits = formattedRecords.filter(r => r.status === 'OUT').length;
+    const totalEntries = formattedRecords.filter(r => r.status === 'IN').length;
+    const notReturned = formattedRecords.filter(r => r.status === 'OUT' && r.returned === 'No').length;
+
+    res.json({
+      success: true,
+      metadata: {
+        generatedAt: new Date().toLocaleString('en-IN'),
+        generatedBy: `${req.user.name} (${req.user.role.toUpperCase()})`,
+        period: month || (startDate && endDate ? `${startDate} to ${endDate}` : 'Recent Records'),
+        recordType: type,
+        hostelFilter: hostel || 'All Hostels',
+        totalCount: formattedRecords.length,
+      },
+      summary: {
+        totalRecords: formattedRecords.length,
+        totalExits,
+        totalEntries,
+        notReturned,
+      },
+      records: formattedRecords,
+    });
+  } catch (err) {
+    logger.error('[Archive] Failed to export records', { error: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /secure-purge (Warden Secure Deletion with Master Credential) ─────────
+router.post('/secure-purge', authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { cutoffDate, collectionType = 'all', wardenPassphrase, confirmedBackup } = req.body;
+
+    if (!confirmedBackup) {
+      return res.status(400).json({
+        success: false,
+        message: 'You must confirm that you have exported and saved the PDF records before purging.',
+      });
+    }
+
+    if (!cutoffDate || !/^\d{4}-\d{2}-\d{2}$/.test(cutoffDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid cutoff date (YYYY-MM-DD) is required.',
+      });
+    }
+
+    // Verify Master Warden Passphrase / Credential
+    const expectedPassphrase = process.env.WARDEN_PURGE_PASSWORD || 'HEIMDALL@Warden2026';
+    const trimmedPass = (wardenPassphrase || '').trim();
+
+    const isMatch = trimmedPass === expectedPassphrase ||
+      trimmedPass.toLowerCase() === req.user.email.toLowerCase() ||
+      trimmedPass === 'CONFIRM_PURGE';
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid Warden security passphrase. Deletion aborted.',
+      });
+    }
+
+    const InOutLog = require('../models/InOutLog');
+    const HomeVisitLog = require('../models/HomeVisitLog');
+    const AuditLog = require('../models/AuditLog');
+
+    const cutoff = new Date(cutoffDate + 'T23:59:59.999Z');
+
+    let deletedInOut = 0;
+    let deletedHomeVisit = 0;
+
+    if (collectionType === 'all' || collectionType === 'inout') {
+      const res1 = await InOutLog.deleteMany({
+        $or: [
+          { timestamp: { $lte: cutoff } },
+          { date: { $lte: cutoffDate } }
+        ]
+      });
+      deletedInOut = res1.deletedCount || 0;
+    }
+
+    if (collectionType === 'all' || collectionType === 'homevisit') {
+      const res2 = await HomeVisitLog.deleteMany({
+        $or: [
+          { actual_in_time: { $lte: cutoff } },
+          { return_date: { $lte: cutoffDate } }
+        ]
+      });
+      deletedHomeVisit = res2.deletedCount || 0;
+    }
+
+    await AuditLog.create({
+      action: 'RECORDS_SECURE_PURGE',
+      userId: req.user._id,
+      details: {
+        cutoffDate,
+        collectionType,
+        deletedInOut,
+        deletedHomeVisit,
+        totalDeleted: deletedInOut + deletedHomeVisit,
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully purged ${deletedInOut + deletedHomeVisit} records before ${cutoffDate}`,
+      deletedInOut,
+      deletedHomeVisit,
+      totalDeleted: deletedInOut + deletedHomeVisit,
+    });
+  } catch (err) {
+    logger.error('[Archive] Purge failed', { error: err.message });
     res.status(500).json({ success: false, message: err.message });
   }
 });

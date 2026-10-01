@@ -226,12 +226,39 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
 router.get('/not-returned', protect, authorize('warden', 'security'), async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req.query, 50, 200);
+    const today = todayStr();
+
+    // 1. Strictly exclude any students who are currently on an approved / active Home Visit!
+    // Home visits are multi-day leaves with parent consent; they must NEVER be treated as daily curfew breaches.
+    const HomeVisitLog = require('../models/HomeVisitLog');
+    const activeHomeVisits = await HomeVisitLog.find({
+      overall_status: { $in: ['approved', 'completed'] },
+      leave_date: { $lte: today },
+      return_date: { $gte: today },
+    }).distinct('student_id');
+
     const filter = {
       status: 'OUT',
       returned: false,
-      date: todayStr(),
+      date: today,
     };
-    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel picture' : 'name rollNo hostel phone parentPhone picture';
+
+    if (activeHomeVisits && activeHomeVisits.length > 0) {
+      filter.student_id = { $nin: activeHomeVisits };
+    }
+
+    // 2. Curfew threshold: 8:00 PM (20:00 local IST)
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const currentHour = istDate.getUTCHours();
+    const currentMinute = istDate.getUTCMinutes();
+    const isPastCurfew = currentHour > 20 || (currentHour === 20 && currentMinute >= 0);
+
+    const studentSelect = req.user.role === 'security'
+      ? 'name rollNo hostel picture studentPhoto'
+      : 'name rollNo hostel phone parentPhone picture studentPhoto';
+
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
         .populate('student_id', studentSelect)
@@ -242,7 +269,16 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
       InOutLog.countDocuments(filter),
     ]);
 
-    res.json({ success: true, count, page, limit, students: logs });
+    res.json({
+      success: true,
+      count,
+      page,
+      limit,
+      curfewTime: '8:00 PM',
+      isPastCurfew,
+      curfewHour: 20,
+      students: logs,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

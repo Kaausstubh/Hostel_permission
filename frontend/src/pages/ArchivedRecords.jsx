@@ -1,342 +1,498 @@
 /**
- * Archived Records — Admin Dashboard & Historical Cloudflare R2 Store
- * Displays archive job manifests, storage metrics, signed download links,
- * and historical record search directly from R2 archives.
+ * Records Archive & PDF Management Page
+ *
+ * Provides:
+ * 1. MongoDB Storage Awareness Widget (storage usage %, total records, capacity gauge)
+ * 2. Official PDF Export Manager (Download gate scan & home visit reports organized by date & month)
+ * 3. Monthly Archive Index (1-click PDF download for each month)
+ * 4. Secure Purge / Reclamation (Warden credential authentication required to delete old records after PDF backup)
  */
 
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import { downloadGateRecordsPDF } from '../utils/pdfReportGenerator';
 import {
-  MdCloudDownload,
-  MdRefresh,
-  MdSearch,
+  MdPictureAsPdf,
   MdStorage,
+  MdRefresh,
+  MdDeleteForever,
+  MdLock,
   MdCheckCircle,
   MdWarning,
-  MdPlayArrow,
+  MdDateRange,
   MdHistory,
-  MdClose,
-  MdInventory2,
+  MdFileDownload,
+  MdCloudDone,
+  MdInfo,
+  MdShield,
 } from 'react-icons/md';
 
 export default function ArchivedRecords() {
-  const [statusData, setStatusData] = useState(null);
-  const [jobs, setJobs] = useState([]);
+  const { user } = useAuth();
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [triggerLoading, setTriggerLoading] = useState(false);
 
-  // Manual Trigger Modal State
-  const [showTriggerModal, setShowTriggerModal] = useState(false);
-  const [triggerCollection, setTriggerCollection] = useState('InOutLog');
-  const [triggerYearMonth, setTriggerYearMonth] = useState('');
+  // PDF Export Filter Form States
+  const [exportType, setExportType] = useState('all'); // 'all' | 'gate' | 'home'
+  const [exportMonth, setExportMonth] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [hostelFilter, setHostelFilter] = useState('all');
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
 
-  // Historical Search Modal State
-  const [showSearchModal, setShowSearchModal] = useState(false);
-  const [searchJob, setSearchJob] = useState(null);
-  const [searchTarget, setSearchTarget] = useState('');
-  const [searchResults, setSearchResults] = useState(null);
-  const [searchLoading, setSearchLoading] = useState(false);
+  // Secure Purge Modal / Form States
+  const [showPurgeModal, setShowPurgeModal] = useState(false);
+  const [purgeCutoffDate, setPurgeCutoffDate] = useState('');
+  const [purgeCollectionType, setPurgeCollectionType] = useState('all');
+  const [wardenPassphrase, setWardenPassphrase] = useState('');
+  const [confirmedBackup, setConfirmedBackup] = useState(false);
+  const [purging, setPurging] = useState(false);
 
-  // Audit Logs Modal State
-  const [showAuditModal, setShowAuditModal] = useState(false);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [auditLoading, setAuditLoading] = useState(false);
-
-  const fetchArchiveStatusAndJobs = async () => {
+  const fetchStorageStats = async () => {
     try {
       setLoading(true);
-      const [statusRes, jobsRes] = await Promise.all([
-        api.get('/archive/status'),
-        api.get('/archive/jobs?limit=50'),
-      ]);
-      setStatusData(statusRes.data);
-      setJobs(jobsRes.data.jobs || []);
+      const res = await api.get('/archive/storage-stats');
+      if (res.data?.success) {
+        setStats(res.data.stats);
+        if (res.data.stats?.months?.length > 0 && !exportMonth) {
+          setExportMonth(res.data.stats.months[0].month);
+        }
+      }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load archive data');
+      toast.error('Failed to load database storage metrics');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchArchiveStatusAndJobs();
+    fetchStorageStats();
   }, []);
 
-  const handleManualTrigger = async (e) => {
-    e.preventDefault();
-    if (!triggerYearMonth || !/^\d{4}-\d{2}$/.test(triggerYearMonth)) {
-      return toast.error('Enter valid YYYY-MM month (e.g. 2026-01)');
-    }
-
+  // ── Handle PDF Download ───────────────────────────────────────────────────
+  const handleDownloadPDF = async (customParams = null) => {
+    setDownloadingPDF(true);
+    const toastId = toast.loading('Compiling records and preparing PDF report...');
     try {
-      setTriggerLoading(true);
-      const res = await api.post('/archive/trigger', {
-        collectionName: triggerCollection,
-        yearMonthStr: triggerYearMonth,
-        synchronous: true,
-      });
-      toast.success(res.data.message || 'Archival job processed');
-      setShowTriggerModal(false);
-      fetchArchiveStatusAndJobs();
+      const params = new URLSearchParams();
+      if (customParams) {
+        Object.entries(customParams).forEach(([k, v]) => {
+          if (v) params.append(k, v);
+        });
+      } else {
+        if (exportType) params.append('type', exportType);
+        if (exportMonth) params.append('month', exportMonth);
+        if (startDate && endDate) {
+          params.append('startDate', startDate);
+          params.append('endDate', endDate);
+        }
+        if (hostelFilter && hostelFilter !== 'all') {
+          params.append('hostel', hostelFilter);
+        }
+      }
+
+      const res = await api.get(`/archive/export-data?${params.toString()}`);
+      if (!res.data?.success || !res.data?.records || res.data.records.length === 0) {
+        toast.error('No scan records found matching the selected filters.', { id: toastId });
+        return;
+      }
+
+      downloadGateRecordsPDF(res.data);
+      toast.success(`PDF downloaded successfully! (${res.data.records.length} records)`, { id: toastId });
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to trigger archive job');
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Failed to generate PDF report', { id: toastId });
     } finally {
-      setTriggerLoading(false);
+      setDownloadingPDF(false);
     }
   };
 
-  const handleOpenSearchModal = (job) => {
-    setSearchJob(job);
-    setSearchTarget('');
-    setSearchResults(null);
-    setShowSearchModal(true);
-  };
-
-  const handleSearchSubmit = async (e) => {
+  // ── Handle Secure Purge ───────────────────────────────────────────────────
+  const handleSecurePurge = async (e) => {
     e.preventDefault();
-    if (!searchJob) return;
-
-    try {
-      setSearchLoading(true);
-      const [year, month] = new Date(searchJob.periodStart).toISOString().slice(0, 7).split('-');
-      const yearMonthStr = `${year}-${month}`;
-
-      const res = await api.post('/archive/retrieve', {
-        yearMonthStr,
-        collectionName: searchJob.collectionName,
-        searchTarget,
-      });
-      setSearchResults(res.data);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Search failed');
-    } finally {
-      setSearchLoading(false);
+    if (!confirmedBackup) {
+      return toast.error('Please confirm that you have downloaded the PDF archive first.');
     }
-  };
+    if (!purgeCutoffDate) {
+      return toast.error('Please specify a cutoff date.');
+    }
+    if (!wardenPassphrase.trim()) {
+      return toast.error('Warden security passphrase is required to authorize deletion.');
+    }
 
-  const handleDownloadSignedUrl = async (jobId) => {
+    setPurging(true);
+    const toastId = toast.loading('Verifying authorization and purging records...');
     try {
-      const res = await api.get(`/archive/download-url/${jobId}`);
-      if (res.data?.downloadUrl) {
-        window.open(res.data.downloadUrl, '_blank');
-        toast.success('Download link generated (valid 15m)');
+      const res = await api.post('/archive/secure-purge', {
+        cutoffDate: purgeCutoffDate,
+        collectionType: purgeCollectionType,
+        wardenPassphrase: wardenPassphrase.trim(),
+        confirmedBackup: true,
+      });
+
+      if (res.data?.success) {
+        toast.success(res.data.message || 'Records purged successfully!', { id: toastId });
+        setShowPurgeModal(false);
+        setWardenPassphrase('');
+        setConfirmedBackup(false);
+        fetchStorageStats();
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to generate download URL');
-    }
-  };
-
-  const handleFetchAuditLogs = async () => {
-    try {
-      setAuditLoading(true);
-      setShowAuditModal(true);
-      const res = await api.get('/archive/audit-logs?limit=50');
-      setAuditLogs(res.data.logs || []);
-    } catch (err) {
-      toast.error('Failed to load audit logs');
+      toast.error(err.response?.data?.message || 'Purge authorization failed.', { id: toastId });
     } finally {
-      setAuditLoading(false);
+      setPurging(false);
     }
   };
 
-  const formatBytes = (bytes) => {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
-
-  const formatMonthTitle = (isoStart) => {
-    if (!isoStart) return '—';
-    const date = new Date(isoStart);
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  };
+  const usagePercent = stats?.usagePercent || 0;
+  const isStorageCritical = usagePercent >= 80;
+  const isStorageWarning = usagePercent >= 60 && usagePercent < 80;
 
   return (
     <div className="fade-in">
-      <Navbar title="Archived Records" />
+      <Navbar title="Archived Records & PDF Manager" />
       <div className="page-area">
-        {/* Header section */}
-        <div className="section-header">
+
+        {/* ── Page Header ── */}
+        <div className="section-header" style={{ marginBottom: 20 }}>
           <div>
-            <div className="section-title">
-              <MdInventory2 /> Historical Archived Records
+            <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <MdPictureAsPdf color="#4f46e5" size={24} />
+              Records Archive & PDF Manager
             </div>
             <div className="section-subtitle">
-              Cloudflare R2 long-term storage manifests, metrics, signed downloads & search
+              Export official gate scan logs as PDF, monitor MongoDB storage, and safely purge archived history.
             </div>
           </div>
           <div className="section-actions">
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={handleFetchAuditLogs}
-            >
-              <MdHistory size={16} /> Audit Trail
+            <button className="btn btn-ghost btn-sm" onClick={fetchStorageStats} disabled={loading}>
+              <MdRefresh size={16} /> Refresh
             </button>
             <button
               className="btn btn-primary btn-sm"
-              onClick={() => setShowTriggerModal(true)}
+              onClick={() => handleDownloadPDF()}
+              disabled={downloadingPDF}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              <MdPlayArrow size={16} /> Run Manual Archive
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={fetchArchiveStatusAndJobs}
-              disabled={loading}
-            >
-              <MdRefresh size={16} /> Refresh
+              <MdFileDownload size={16} /> Download Selected PDF
             </button>
           </div>
         </div>
 
-        {/* Top metrics summary grid */}
-        {statusData && (
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-edge-glow" />
-              <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
-                <MdCheckCircle />
+        {/* ── 1. MongoDB Live Storage Awareness Widget ── */}
+        <div style={{
+          background: 'var(--bg-card)',
+          border: `1.5px solid ${isStorageCritical ? '#ef4444' : isStorageWarning ? '#f59e0b' : 'var(--glass-border)'}`,
+          borderRadius: 16,
+          padding: 24,
+          marginBottom: 24,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10,
+                background: 'rgba(99, 102, 241, 0.12)', color: 'var(--primary-light)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <MdStorage size={22} />
               </div>
-              <div className="stat-value">
-                {statusData.summary.totalRecordsArchived.toLocaleString()}
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
+                  MongoDB Storage Capacity & Health
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                  Live database footprint across In/Out passes, Home Visits, and Complaints
+                </div>
               </div>
-              <div className="stat-label">Total Archived Records</div>
             </div>
 
-            <div className="stat-card">
-              <div className="stat-edge-glow" />
-              <div className="stat-icon" style={{ background: 'rgba(34,211,238,0.15)', color: '#22d3ee' }}>
-                <MdStorage />
-              </div>
-              <div className="stat-value">
-                {statusData.summary.totalCompressedSizeMB} MB
-              </div>
-              <div className="stat-label">R2 Storage Used (gzip)</div>
-            </div>
-
-            <div className="stat-card">
-              <div className="stat-edge-glow" />
-              <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--primary-light)' }}>
-                📅
-              </div>
-              <div className="stat-value">
-                {statusData.retentionMonths} Months
-              </div>
-              <div className="stat-label">Retention Threshold</div>
-            </div>
-
-            <div className="stat-card">
-              <div className="stat-edge-glow" />
-              <div className="stat-icon" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
-                ⚡
-              </div>
-              <div className="stat-value" style={{ fontSize: 18 }}>
-                {statusData.summary.lastSuccessfulArchive
-                  ? statusData.summary.lastSuccessfulArchive.archiveId
-                  : 'None'}
-              </div>
-              <div className="stat-label">Last Successful Archive</div>
-            </div>
-          </div>
-        )}
-
-        {/* Archive Jobs List */}
-        <div className="card" style={{ marginTop: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>📦 Cloudflare R2 Archive Manifests ({jobs.length})</span>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
-              Bucket: <code>{statusData?.hasR2Credentials ? process.env.R2_BUCKET_NAME || 'heimdall-archives' : 'Local Fallback (Dev)'}</code>
+            <span className={`badge ${isStorageCritical ? 'badge-rejected' : isStorageWarning ? 'badge-out' : 'badge-approved'}`} style={{ fontSize: 12.5, padding: '6px 14px' }}>
+              {isStorageCritical ? '⚠️ High Storage Warning' : isStorageWarning ? 'Notice: Moderate Usage' : '🟢 Storage Healthy'}
             </span>
           </div>
 
-          {loading ? (
-            <div className="loading-page" style={{ padding: 48 }}>
-              <div className="loading-spinner" />
+          {/* Progress bar */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+              <span style={{ color: 'var(--text-primary)' }}>
+                {stats?.storageUsedMB || 0} MB Used of {stats?.quotaMB || 512} MB Free Tier Quota
+              </span>
+              <span style={{ color: isStorageCritical ? '#ef4444' : isStorageWarning ? '#f59e0b' : '#10b981' }}>
+                {usagePercent}% Allocated
+              </span>
             </div>
-          ) : jobs.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 40, marginBottom: 10 }}>📭</div>
-              <div>No archive manifests found yet.</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>
-                The automated scheduler runs monthly, or click <strong>Run Manual Archive</strong> above.
+            <div style={{
+              width: '100%', height: 12, borderRadius: 99,
+              background: 'rgba(255, 255, 255, 0.08)',
+              overflow: 'hidden', border: '1px solid var(--glass-border)'
+            }}>
+              <div style={{
+                width: `${Math.min(100, Math.max(2, usagePercent))}%`,
+                height: '100%',
+                borderRadius: 99,
+                background: isStorageCritical
+                  ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+                  : isStorageWarning
+                  ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                  : 'linear-gradient(90deg, #10b981, #059669)',
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+          </div>
+
+          {/* Stat Pills Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+            paddingTop: 12,
+            borderTop: '1px solid var(--glass-border)',
+          }}>
+            <div style={{ background: 'var(--bg-input)', padding: '12px 16px', borderRadius: 10 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Gate Scan (In/Out)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
+                {stats?.inOutCount?.toLocaleString() || 0}
               </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-input)', padding: '12px 16px', borderRadius: 10 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Home Visit Records</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
+                {stats?.homeCount?.toLocaleString() || 0}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-input)', padding: '12px 16px', borderRadius: 10 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Hostel Complaints</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
+                {stats?.complaintCount?.toLocaleString() || 0}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-input)', padding: '12px 16px', borderRadius: 10 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Total Database Records</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--primary-light)', marginTop: 2 }}>
+                {stats?.totalRecords?.toLocaleString() || 0}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 2. Official PDF Export Controls (Warden & Security) ── */}
+        <div style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 16,
+          padding: 24,
+          marginBottom: 24,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <MdDateRange size={22} color="var(--primary-light)" />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
+                Download Gate Scan & Hostel Report (PDF)
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Configure parameters to generate and download an official formatted report with timestamps, names, and roll numbers.
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 16,
+            marginBottom: 20,
+          }}>
+            {/* Record Type */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Record Category
+              </label>
+              <select
+                className="form-input"
+                value={exportType}
+                onChange={(e) => setExportType(e.target.value)}
+              >
+                <option value="all">All Gate & Hostel Records</option>
+                <option value="gate">Daily In/Out Gate Scans</option>
+                <option value="home">Home Visit Leave Records</option>
+              </select>
+            </div>
+
+            {/* Month Filter */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Select Month
+              </label>
+              <select
+                className="form-input"
+                value={exportMonth}
+                onChange={(e) => {
+                  setExportMonth(e.target.value);
+                  setStartDate('');
+                  setEndDate('');
+                }}
+              >
+                <option value="">Choose Specific Month...</option>
+                {stats?.months?.map((m) => (
+                  <option key={m.month} value={m.month}>
+                    {m.month} ({m.total} records)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Custom Date Range */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                From Date (Optional)
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setExportMonth('');
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                To Date (Optional)
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setExportMonth('');
+                }}
+              />
+            </div>
+
+            {/* Hostel Filter */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Hostel
+              </label>
+              <select
+                className="form-input"
+                value={hostelFilter}
+                onChange={(e) => setHostelFilter(e.target.value)}
+              >
+                <option value="all">All Hostels (BH1, BH2, GH)</option>
+                <option value="BH1">BH1 Boys Hostel</option>
+                <option value="BH2">BH2 Boys Hostel</option>
+                <option value="GH">GH Girls Hostel</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => handleDownloadPDF()}
+              disabled={downloadingPDF}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px' }}
+            >
+              {downloadingPDF ? (
+                <>
+                  <span className="loading-spinner" style={{ width: 16, height: 16 }} /> Generating PDF...
+                </>
+              ) : (
+                <>
+                  <MdPictureAsPdf size={18} /> Download Official PDF Report
+                </>
+              )}
+            </button>
+            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+              Generates a landscape, high-resolution printable PDF with summary metrics and full tabular logs.
+            </span>
+          </div>
+        </div>
+
+        {/* ── 3. Monthly Archive Index & Quick PDF Downloads ── */}
+        <div style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--glass-border)',
+          borderRadius: 16,
+          padding: 24,
+          marginBottom: 24,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
+                Monthly Historical Records Archive
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Download complete monthly reports with 1 click to maintain offline administrative archives.
+              </div>
+            </div>
+          </div>
+
+          {stats?.months?.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>
+              No monthly record history found in the database.
             </div>
           ) : (
             <div className="table-wrapper">
               <table>
                 <thead>
                   <tr>
-                    <th>Month / Year</th>
-                    <th>Collection</th>
-                    <th>Archive ID</th>
-                    <th>Records</th>
-                    <th>Compressed Size</th>
-                    <th>Status</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
+                    <th>Month</th>
+                    <th>In/Out Passes</th>
+                    <th>Home Visits</th>
+                    <th>Total Records</th>
+                    <th>Export PDF</th>
+                    {['warden', 'admin'].includes(user?.role) && <th>Storage Maintenance</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.map((job) => (
-                    <tr key={job._id}>
-                      <td style={{ fontWeight: 700 }}>
-                        {formatMonthTitle(job.periodStart)}
+                  {stats?.months?.map((m) => (
+                    <tr key={m.month}>
+                      <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                        📅 {m.month}
                       </td>
+                      <td>{m.inOut} logs</td>
+                      <td>{m.home} visits</td>
+                      <td style={{ fontWeight: 700 }}>{m.total} total</td>
                       <td>
-                        <span className="badge badge-progress" style={{ textTransform: 'none' }}>
-                          {job.collectionName}
-                        </span>
-                      </td>
-                      <td>
-                        <code style={{ fontSize: 12, color: 'var(--primary-light)' }}>
-                          {job.archiveId}
-                        </code>
-                      </td>
-                      <td style={{ fontWeight: 600 }}>
-                        {job.recordCount?.toLocaleString() || 0}
-                      </td>
-                      <td>{formatBytes(job.compressedSize)}</td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            job.status === 'COMPLETED' || job.status === 'VERIFIED'
-                              ? 'badge-approved'
-                              : job.status === 'FAILED'
-                                ? 'badge-rejected'
-                                : 'badge-pending'
-                          }`}
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleDownloadPDF({ month: m.month, type: 'all' })}
+                          disabled={downloadingPDF}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--primary-light)' }}
                         >
-                          {job.status}
-                        </span>
+                          <MdFileDownload size={15} /> Download {m.month}.pdf
+                        </button>
                       </td>
-                      <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {new Date(job.createdAt).toLocaleDateString()}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                      {['warden', 'admin'].includes(user?.role) && (
+                        <td>
                           <button
                             type="button"
                             className="btn btn-ghost btn-sm"
-                            title="Search inside this archive"
-                            onClick={() => handleOpenSearchModal(job)}
+                            onClick={() => {
+                              // Pre-fill last day of that month as cutoff
+                              const [y, mm] = m.month.split('-');
+                              const lastDay = new Date(parseInt(y), parseInt(mm), 0).getDate();
+                              setPurgeCutoffDate(`${m.month}-${String(lastDay).padStart(2, '0')}`);
+                              setShowPurgeModal(true);
+                            }}
+                            style={{ color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                           >
-                            <MdSearch size={14} /> Search
+                            <MdDeleteForever size={15} /> Purge Records...
                           </button>
-                          {(job.status === 'COMPLETED' || job.status === 'VERIFIED') && (
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              title="Download compressed gzip from R2"
-                              onClick={() => handleDownloadSignedUrl(job._id)}
-                            >
-                              <MdCloudDownload size={14} /> Download
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -344,62 +500,200 @@ export default function ArchivedRecords() {
             </div>
           )}
         </div>
+
+        {/* ── 4. Secure Purge / Storage Reclamation Section (Warden Only) ── */}
+        {['warden', 'admin'].includes(user?.role) && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.04)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            borderRadius: 16,
+            padding: 24,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+              }}>
+                <MdShield size={24} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#ef4444' }}>
+                  Warden Storage Maintenance & Secure Purge
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+                  To prevent MongoDB storage from exceeding quota, authorized wardens can purge older records from the database.
+                  <strong> Ensure you download and archive the PDF report before deleting</strong>, as deleted database records cannot be restored.
+                  Deletion requires entering your Warden Security Credentials.
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => {
+                      // Default cutoff: 1 month ago
+                      const d = new Date();
+                      d.setMonth(d.getMonth() - 1);
+                      setPurgeCutoffDate(d.toISOString().slice(0, 10));
+                      setShowPurgeModal(true);
+                    }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <MdDeleteForever size={16} /> Open Secure Purge Dialog
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
 
-      {/* ── Manual Trigger Modal ── */}
-      {showTriggerModal && (
-        <div className="calendar-modal-backdrop" onClick={() => setShowTriggerModal(false)}>
-          <div className="calendar-modal-card" onClick={(e) => e.stopPropagation()} style={{ width: 440 }}>
-            <div className="calendar-modal-header">
-              <div>
-                <div className="calendar-modal-eyebrow">Manual trigger</div>
-                <div className="calendar-modal-title">Run Archival Job</div>
-              </div>
-              <button type="button" className="calendar-nav-btn" onClick={() => setShowTriggerModal(false)}>
-                <MdClose size={16} />
-              </button>
+      {/* ── Secure Purge Confirmation Modal ── */}
+      {showPurgeModal && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: 16,
+        }}>
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1.5px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: 16,
+            padding: 24,
+            width: '100%',
+            maxWidth: 520,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#ef4444', marginBottom: 12 }}>
+              <MdShield size={26} />
+              <div style={{ fontWeight: 800, fontSize: 18 }}>Authorize Historical Record Purge</div>
             </div>
 
-            <form onSubmit={handleManualTrigger} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Target Collection</label>
-                <select
-                  className="form-select"
-                  value={triggerCollection}
-                  onChange={(e) => setTriggerCollection(e.target.value)}
-                >
-                  <option value="InOutLog">InOutLog (Daily Entry/Exit)</option>
-                  <option value="HomeVisitLog">HomeVisitLog (Home Passes)</option>
-                  <option value="Complaint">Complaint (Hostel Complaints)</option>
-                </select>
-              </div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
+              You are about to permanently delete older historical records from MongoDB to reclaim database capacity.
+              Only perform this step after downloading and verifying the PDF archive.
+            </p>
 
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Target Month (YYYY-MM)</label>
+            <form onSubmit={handleSecurePurge}>
+              {/* Cutoff Date */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 5 }}>
+                  Purge Records Older Than (Cutoff Date)
+                </label>
                 <input
-                  type="text"
+                  type="date"
                   className="form-input"
-                  placeholder="e.g. 2026-01"
-                  value={triggerYearMonth}
-                  onChange={(e) => setTriggerYearMonth(e.target.value)}
+                  required
+                  value={purgeCutoffDate}
+                  onChange={(e) => setPurgeCutoffDate(e.target.value)}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={triggerLoading}
+              {/* Record Type to Purge */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 5 }}>
+                  Records to Purge
+                </label>
+                <select
+                  className="form-input"
+                  value={purgeCollectionType}
+                  onChange={(e) => setPurgeCollectionType(e.target.value)}
                 >
-                  {triggerLoading ? 'Processing...' : 'Start Archival Workflow'}
+                  <option value="all">All Logs (In/Out & Home Visits)</option>
+                  <option value="inout">Gate In/Out Scan Logs Only</option>
+                  <option value="homevisit">Home Visit Logs Only</option>
+                </select>
+              </div>
+
+              {/* Download Backup Reminder */}
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.08)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: 10,
+                padding: '10px 14px',
+                marginBottom: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>
+                  Have you saved the PDF for records before {purgeCutoffDate || 'cutoff'}?
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => handleDownloadPDF({ endDate: purgeCutoffDate, type: purgeCollectionType })}
+                  disabled={downloadingPDF}
+                  style={{ color: 'var(--primary-light)', fontSize: 12, whiteSpace: 'nowrap' }}
+                >
+                  📥 Download PDF Now
                 </button>
+              </div>
+
+              {/* Mandatory Backup Confirmation Checkbox */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmedBackup}
+                    onChange={(e) => setConfirmedBackup(e.target.checked)}
+                    required
+                  />
+                  <span>I confirm I have downloaded and saved the offline PDF backup for this period.</span>
+                </label>
+              </div>
+
+              {/* Warden Security Passphrase */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 5 }}>
+                  Warden Security Passphrase / Credential
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="password"
+                    className="form-input"
+                    placeholder="Enter Warden Passphrase or Warden Email"
+                    required
+                    value={wardenPassphrase}
+                    onChange={(e) => setWardenPassphrase(e.target.value)}
+                    style={{ paddingLeft: 34 }}
+                  />
+                  <MdLock size={16} style={{ position: 'absolute', left: 10, top: 12, color: 'var(--text-muted)' }} />
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  Enter the Warden master passphrase (or your registered warden account email).
+                </span>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  onClick={() => setShowTriggerModal(false)}
+                  onClick={() => setShowPurgeModal(false)}
+                  disabled={purging}
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-danger"
+                  disabled={purging || !confirmedBackup || !wardenPassphrase}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  {purging ? (
+                    <>
+                      <span className="loading-spinner" style={{ width: 14, height: 14 }} /> Purging...
+                    </>
+                  ) : (
+                    <>
+                      <MdDeleteForever size={16} /> Confirm & Permanently Delete
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -407,131 +701,6 @@ export default function ArchivedRecords() {
         </div>
       )}
 
-      {/* ── Search Historical Records Modal ── */}
-      {showSearchModal && searchJob && (
-        <div className="calendar-modal-backdrop" onClick={() => setShowSearchModal(false)}>
-          <div className="calendar-modal-card" onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: '94vw' }}>
-            <div className="calendar-modal-header">
-              <div>
-                <div className="calendar-modal-eyebrow">R2 Historical Search</div>
-                <div className="calendar-modal-title">
-                  Search {searchJob.collectionName} ({formatMonthTitle(searchJob.periodStart)})
-                </div>
-              </div>
-              <button type="button" className="calendar-nav-btn" onClick={() => setShowSearchModal(false)}>
-                <MdClose size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search by student name, roll no, phone, place..."
-                value={searchTarget}
-                onChange={(e) => setSearchTarget(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button type="submit" className="btn btn-primary" disabled={searchLoading}>
-                {searchLoading ? 'Searching...' : 'Search'}
-              </button>
-            </form>
-
-            {searchResults && (
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                  Found <strong>{searchResults.matchedRecordsCount}</strong> match(es) out of {searchResults.totalRecordsInArchive} records in R2 archive.
-                </div>
-
-                <div className="table-wrapper" style={{ maxHeight: 360, overflowY: 'auto' }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Student Name</th>
-                        <th>Roll No</th>
-                        <th>Details / Place</th>
-                        <th>Reason / Note</th>
-                        <th>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {searchResults.records.map((r, i) => (
-                        <tr key={r._id || i}>
-                          <td style={{ fontWeight: 600 }}>{r.name || '—'}</td>
-                          <td>{r.rollNo || '—'}</td>
-                          <td>{r.place || r.hostel || '—'}</td>
-                          <td style={{ fontSize: 12 }}>{r.reason || r.complaint_text || '—'}</td>
-                          <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                            {r.date || (r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '—')}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Audit Logs Modal ── */}
-      {showAuditModal && (
-        <div className="calendar-modal-backdrop" onClick={() => setShowAuditModal(false)}>
-          <div className="calendar-modal-card" onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '94vw' }}>
-            <div className="calendar-modal-header">
-              <div>
-                <div className="calendar-modal-eyebrow">Security audit</div>
-                <div className="calendar-modal-title">Archive Operation Trail</div>
-              </div>
-              <button type="button" className="calendar-nav-btn" onClick={() => setShowAuditModal(false)}>
-                <MdClose size={16} />
-              </button>
-            </div>
-
-            {auditLoading ? (
-              <div className="loading-page" style={{ padding: 36 }}>
-                <div className="loading-spinner" />
-              </div>
-            ) : (
-              <div className="table-wrapper" style={{ maxHeight: 420, overflowY: 'auto' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Archive ID</th>
-                      <th>Records</th>
-                      <th>Result</th>
-                      <th>User</th>
-                      <th>Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditLogs.map((log) => (
-                      <tr key={log._id}>
-                        <td>
-                          <code style={{ fontSize: 11, color: 'var(--primary-light)' }}>{log.event}</code>
-                        </td>
-                        <td>{log.archiveId || '—'}</td>
-                        <td>{log.recordCount || 0}</td>
-                        <td>
-                          <span className={`badge ${log.result === 'FAILED' ? 'badge-rejected' : 'badge-approved'}`}>
-                            {log.result}
-                          </span>
-                        </td>
-                        <td>{log.userId?.name || 'System Scheduler'}</td>
-                        <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {new Date(log.timestamp).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,24 +1,24 @@
-/**
- * Not Returned Page
- * Shows students who scanned OUT but haven't returned — highlighted in RED
- * Allows manual cron trigger in dev mode
- */
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdWarning, MdRefresh } from 'react-icons/md';
+import { MdWarning, MdRefresh, MdPhone, MdAccessTime, MdInfoOutline } from 'react-icons/md';
 
 export default function NotReturned() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [curfewInfo, setCurfewInfo] = useState({ curfewTime: '8:00 PM', isPastCurfew: false });
 
   const fetchNotReturned = async () => {
     try {
       setLoading(true);
       const res = await api.get('/inout/not-returned');
-      setStudents(res.data.students);
+      setStudents(res.data.students || []);
+      setCurfewInfo({
+        curfewTime: res.data.curfewTime || '8:00 PM',
+        isPastCurfew: Boolean(res.data.isPastCurfew),
+      });
     } catch (err) {
       toast.error('Failed to fetch data');
     } finally {
@@ -30,7 +30,7 @@ export default function NotReturned() {
     setTriggering(true);
     try {
       const res = await api.post('/dev/trigger-alert');
-      toast.success(`Alert sent to ${res.data.result.processed} student(s)`);
+      toast.success(`Alert sent to ${res.data.result?.processed || 0} student(s)`);
       fetchNotReturned();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Trigger failed');
@@ -50,26 +50,47 @@ export default function NotReturned() {
       <Navbar title="Not Returned Students" />
       <div className="page-area">
 
+        {/* Scope Note Banner */}
+        <div style={{
+          background: 'rgba(99, 102, 241, 0.08)',
+          border: '1px solid rgba(99, 102, 241, 0.25)',
+          borderRadius: 'var(--radius-md)',
+          padding: '10px 16px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          fontSize: 13,
+          color: 'var(--text-secondary)',
+        }}>
+          <MdInfoOutline size={20} color="var(--primary-light)" style={{ flexShrink: 0 }} />
+          <div>
+            <strong>In/Out Daily Pass Curfew: 8:00 PM</strong> — This list tracks students who scanned OUT on daily passes and have not returned to campus. Approved multi-day Home Visit passes are excluded.
+          </div>
+        </div>
+
         {/* Alert Banner */}
         {students.length > 0 && (
           <div style={{
-            background: 'rgba(239,68,68,0.12)',
-            border: '1px solid rgba(239,68,68,0.5)',
+            background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+            border: `1px solid ${curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.5)' : 'rgba(245,158,11,0.5)'}`,
             borderRadius: 'var(--radius-lg)',
             padding: '16px 20px',
             marginBottom: 20,
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
-            animation: 'pulse-red 2s ease-in-out infinite',
+            gap: 14,
+            animation: curfewInfo.isPastCurfew ? 'pulse-red 2s ease-in-out infinite' : 'none',
           }}>
-            <MdWarning size={28} color="#ef4444" />
+            <MdWarning size={30} color={curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b'} style={{ flexShrink: 0 }} />
             <div>
-              <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 16 }}>
-                🚨 {students.length} Student{students.length > 1 ? 's' : ''} Have Not Returned Today
+              <div style={{ color: curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b', fontWeight: 800, fontSize: 16 }}>
+                {curfewInfo.isPastCurfew ? '🚨 8:00 PM Curfew Breached' : '⏰ In/Out Return Pending'} — {students.length} Student{students.length > 1 ? 's' : ''} Not Returned Today
               </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>
-                These students scanned OUT but have not come back. Alerts will be sent at 11:59 PM.
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 3 }}>
+                {curfewInfo.isPastCurfew
+                  ? 'These students have not returned to the hostel before the 8:00 PM curfew. Automated WhatsApp return alerts will be dispatched.'
+                  : 'Students are currently out on daily pass. Campus curfew is strictly 8:00 PM.'}
               </div>
             </div>
           </div>
@@ -79,7 +100,7 @@ export default function NotReturned() {
           <div>
             <div className="section-title"><MdWarning color="#ef4444" /> Students Not Returned</div>
             <div className="section-subtitle">
-              {loading ? 'Loading...' : `${students.length} student(s) still outside`}
+              {loading ? 'Loading...' : `${students.length} student(s) currently unaccounted for (Curfew: 8:00 PM)`}
             </div>
           </div>
           <div className="section-actions">
@@ -105,45 +126,94 @@ export default function NotReturned() {
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 12, color: '#10b981' }}>
               All Students Have Returned!
             </div>
-            <p>No students are currently unaccounted for today.</p>
+            <p>No students on daily in/out passes are currently outside past curfew.</p>
           </div>
         ) : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>Student Name</th>
+                  <th>Student</th>
                   <th>Roll Number</th>
                   <th>Hostel</th>
                   <th>Exit Time</th>
+                  <th>Curfew</th>
                   <th>Status</th>
+                  <th>Parent / Contact</th>
                 </tr>
               </thead>
               <tbody>
-                {students.map((log) => (
-                  <tr key={log._id} style={{
-                    background: 'rgba(239,68,68,0.05)',
-                    borderLeft: '3px solid #ef4444',
-                  }}>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
-                    </td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {log.student_id?.rollNo || '—'}
-                    </td>
-                    <td>
-                      <span className="badge badge-out">{log.student_id?.hostel || '—'}</span>
-                    </td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#ef4444' }}>
-                      {new Date(log.timestamp).toLocaleTimeString('en-IN')}
-                    </td>
-                    <td>
-                      <span className="badge badge-rejected">
-                        🔴 Not Returned
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {students.map((log) => {
+                  const student = log.student_id;
+                  const photoSrc = student?.studentPhoto || (!student?.picture?.includes('googleusercontent.com') ? student?.picture : null);
+                  return (
+                    <tr key={log._id} style={{
+                      background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.05)' : 'rgba(245,158,11,0.04)',
+                      borderLeft: `3px solid ${curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b'}`,
+                    }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {photoSrc ? (
+                            <img
+                              src={photoSrc}
+                              alt=""
+                              style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: 32, height: 32, borderRadius: '50%',
+                              background: 'var(--primary)', color: '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontWeight: 700, fontSize: 13,
+                            }}>
+                              {student?.name?.charAt(0).toUpperCase() || 'S'}
+                            </div>
+                          )}
+                          <div style={{ fontWeight: 600 }}>{student?.name || 'Unknown'}</div>
+                        </div>
+                      </td>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                        {student?.rollNo || '—'}
+                      </td>
+                      <td>
+                        <span className="badge badge-out">{student?.hostel || '—'}</span>
+                      </td>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#ef4444' }}>
+                        {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—'}
+                      </td>
+                      <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <MdAccessTime size={14} /> 8:00 PM
+                        </span>
+                      </td>
+                      <td>
+                        {curfewInfo.isPastCurfew ? (
+                          <span className="badge badge-rejected" style={{ animation: 'pulse-red 2s infinite' }}>
+                            🔴 Curfew Breached
+                          </span>
+                        ) : (
+                          <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                            ⏳ Out (Pending 8 PM)
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+                          {student?.phone && (
+                            <a href={`tel:${student.phone}`} style={{ color: 'var(--primary-light)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <MdPhone size={13} /> {student.phone}
+                            </a>
+                          )}
+                          {student?.parentPhone && (
+                            <a href={`tel:${student.parentPhone}`} style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              👨‍👩‍👧 {student.parentPhone}
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

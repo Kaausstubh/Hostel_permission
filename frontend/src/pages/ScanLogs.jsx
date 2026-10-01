@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHistory, MdRefresh } from 'react-icons/md';
+import { MdHistory, MdRefresh, MdPictureAsPdf } from 'react-icons/md';
+import { downloadGateRecordsPDF } from '../utils/pdfReportGenerator';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
   const [logs, setLogs] = useState([]);
@@ -57,7 +58,33 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+
   useEffect(() => { fetchLogs(); }, [dateFilter, statusFilter]);
+
+  const handleExportPDF = async () => {
+    try {
+      setExportingPdf(true);
+      const params = new URLSearchParams({
+        category: activeTab === 'gate' ? 'gate' : 'home',
+      });
+      if (dateFilter) {
+        params.append('startDate', dateFilter);
+        params.append('endDate', dateFilter);
+      }
+      const res = await api.get(`/archive/export-data?${params.toString()}`);
+      if (!res.data.records || res.data.records.length === 0) {
+        toast.error('No records available for the selected filters to generate PDF');
+        return;
+      }
+      downloadGateRecordsPDF(res.data);
+      toast.success('PDF report downloaded successfully');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to generate PDF report');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   return (
     <div className="fade-in">
@@ -71,9 +98,20 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               {activeTab === 'gate' ? logs.length : homeLogs.length} record(s)
             </div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchLogs} disabled={loading}>
-            <MdRefresh size={16} /> Refresh
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-outline btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#cbd5e1' }}
+              onClick={handleExportPDF}
+              disabled={exportingPdf || loading}
+            >
+              <MdPictureAsPdf size={16} color="#ef4444" />
+              {exportingPdf ? 'Exporting...' : 'Export PDF'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={fetchLogs} disabled={loading}>
+              <MdRefresh size={16} /> Refresh
+            </button>
+          </div>
         </div>
 
         <div className="tabs" style={{ marginBottom: 16 }}>
