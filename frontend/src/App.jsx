@@ -192,7 +192,7 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
         <Route path="/archived-records" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+          <ProtectedRoute allowedRoles={['warden', 'admin', 'security']}>
             <AppLayout><ArchivedRecords /></AppLayout>
           </ProtectedRoute>
         } />

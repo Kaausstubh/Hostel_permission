@@ -664,8 +664,8 @@ export default function ArchivedRecords() {
                   />
                   <MdLock size={16} style={{ position: 'absolute', left: 10, top: 12, color: 'var(--text-muted)' }} />
                 </div>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                  Enter the Warden master passphrase (or your registered warden account email).
+                <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5, display: 'block' }}>
+                  Enter Master Passphrase (<code style={{ color: 'var(--primary-light)', fontWeight: 700 }}>HEIMDALL@Warden2026</code>) or your logged-in Warden email address.
                 </span>
               </div>
 

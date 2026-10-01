@@ -25,8 +25,9 @@ const wardenNav = [
 ];
 
 const securityNav = [
-  { to: '/scanner', icon: <MdQrCodeScanner />, label: 'QR Scanner' },
-  { to: '/logs',    icon: <MdHistory />,       label: 'Scan Logs' },
+  { to: '/scanner',          icon: <MdQrCodeScanner />, label: 'QR Scanner' },
+  { to: '/logs',             icon: <MdHistory />,       label: 'Scan Logs' },
+  { to: '/archived-records', icon: <MdInventory2 />,    label: 'Archived Records' },
 ];
 
 export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {

@@ -264,8 +264,20 @@ router.get('/audit-logs', async (req, res) => {
       AuditLog.countDocuments(),
     ]);
 
-// ── GET /storage-stats (MongoDB Live Storage Awareness for Warden) ────────────
-router.get('/storage-stats', authorize('warden', 'admin'), async (req, res) => {
+    res.json({
+      success: true,
+      count,
+      page,
+      limit,
+      logs,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /storage-stats (MongoDB Live Storage Awareness for Warden & Security) ──
+router.get('/storage-stats', authorize('warden', 'security', 'admin'), async (req, res) => {
   try {
     const InOutLog = require('../models/InOutLog');
     const HomeVisitLog = require('../models/HomeVisitLog');
