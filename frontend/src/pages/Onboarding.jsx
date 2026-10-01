@@ -25,6 +25,7 @@ import {
   MdPhotoCamera,
   MdUpload,
   MdClose,
+  MdLogout,
 } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 
@@ -190,7 +191,14 @@ export default function Onboarding() {
     if (!isValidPhone(parentPhone2)) {
       return toast.error('Please enter a valid Parent Contact 2 phone number.');
     }
-    if (parentPhone.replace(/\D/g, '') === parentPhone2.replace(/\D/g, '')) {
+    const cleanStudentPhone = phone.replace(/\D/g, '');
+    const cleanParent1 = parentPhone.replace(/\D/g, '');
+    const cleanParent2 = parentPhone2.replace(/\D/g, '');
+
+    if (cleanStudentPhone === cleanParent1 || cleanStudentPhone === cleanParent2) {
+      return toast.error('Student phone number and guardian phone number must be different.');
+    }
+    if (cleanParent1 === cleanParent2) {
       return toast.error('Parent Contact 1 and Parent Contact 2 must be different numbers.');
     }
     if (!hostel) {
