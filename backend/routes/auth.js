@@ -57,7 +57,7 @@ const signToken = (id) =>
 // Build the frontend redirect URL with token and user info encoded in query params.
 // Using a one-time URL is acceptable here; PKCE would be needed for mobile.
 const buildFrontendRedirect = (baseUrl, token, user) => {
-  const effectivePicture = user.studentPhoto || user.picture || null;
+  const effectivePicture = user.studentPhoto || (user.picture && !user.picture.includes('googleusercontent.com') ? user.picture : null);
   const userPayload = Buffer.from(
     JSON.stringify({
       id:           user._id,
@@ -65,7 +65,7 @@ const buildFrontendRedirect = (baseUrl, token, user) => {
       email:        user.email,
       role:         user.role,
       picture:      effectivePicture,
-      studentPhoto: user.studentPhoto || null,
+      studentPhoto: user.studentPhoto || (user.picture && !user.picture.includes('googleusercontent.com') ? user.picture : null),
       hostel:       user.hostel || null,
       rollNo:       user.rollNo || null,
       phone:        user.phone || null,
@@ -223,9 +223,37 @@ router.get(
 
 // ── Get current user ──────────────────────────────────────────────────────────
 // Used by AuthContext on mount to silently re-validate the stored token.
-router.get('/me', protect, (req, res) => {
-  const u = req.user;
-  const effectivePicture = u.studentPhoto || u.picture || null;
+router.get('/me', protect, async (req, res) => {
+  let u = req.user;
+
+  // Auto-recovery: If student has no studentPhoto or if picture is Google's letter avatar,
+  // attempt to recover their verified face photo from past HomeVisitLog or InOutLog
+  if (u.role === 'student' && (!u.studentPhoto || u.studentPhoto.includes('googleusercontent.com'))) {
+    try {
+      const HomeVisitLog = require('../models/HomeVisitLog');
+      const InOutLog = require('../models/InOutLog');
+      const pastVisit = await HomeVisitLog.findOne({
+        student_id: u._id,
+        student_photo: { $regex: '^data:image' },
+      }).sort({ createdAt: -1 });
+
+      const pastInOut = !pastVisit && await InOutLog.findOne({
+        student_id: u._id,
+        student_photo: { $regex: '^data:image' },
+      }).sort({ createdAt: -1 });
+
+      const recovered = pastVisit?.student_photo || pastInOut?.student_photo;
+      if (recovered) {
+        await User.updateOne({ _id: u._id }, { $set: { studentPhoto: recovered, picture: recovered } });
+        u.studentPhoto = recovered;
+        u.picture = recovered;
+      }
+    } catch (recoveryErr) {
+      // Non-blocking recovery
+    }
+  }
+
+  const effectivePicture = u.studentPhoto || (u.picture && !u.picture.includes('googleusercontent.com') ? u.picture : null);
   res.json({
     success: true,
     user: {
@@ -234,7 +262,7 @@ router.get('/me', protect, (req, res) => {
       email:        u.email,
       role:         u.role,
       picture:      effectivePicture,
-      studentPhoto: u.studentPhoto || null,
+      studentPhoto: u.studentPhoto || (u.picture && !u.picture.includes('googleusercontent.com') ? u.picture : null),
       hostel:       u.hostel || null,
       rollNo:       u.rollNo || null,
       phone:        u.phone || null,

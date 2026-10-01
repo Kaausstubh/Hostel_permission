@@ -486,14 +486,12 @@ export default function StudentDashboard() {
   const msgIdRef = useRef(0);
   const [avatarImgError, setAvatarImgError] = useState(false);
 
-  // Complaint photo and avatar states
+  // Complaint photo states
   const [complaintPhoto, setComplaintPhoto] = useState(null);
   const [complaintNote, setComplaintNote] = useState('');
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
   const complaintCameraRef = useRef(null);
   const complaintFileRef = useRef(null);
-  const avatarUploadRef = useRef(null);
-  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -979,54 +977,6 @@ export default function StudentDashboard() {
       await submitHomeVisit({ ...hvData, return_date: returnDate });
     }
   }, [loading, hvData, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
-
-  const handleAvatarFileSelected = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please upload an image (JPG or PNG)');
-      return;
-    }
-    setAvatarUploading(true);
-    try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = reject;
-        reader.onload = (evt) => {
-          const img = new Image();
-          img.onerror = reject;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 360;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            const size = Math.min(img.width, img.height);
-            const sx = (img.width - size) / 2;
-            const sy = (img.height - size) / 2;
-            ctx.drawImage(img, sx, sy, size, size, 0, 0, 360, 360);
-            resolve(canvas.toDataURL('image/jpeg', 0.88));
-          };
-          img.src = evt.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-
-      const res = await api.put('/student/photo', { photo: dataUrl });
-      if (res.data?.success) {
-        if (updateUser) {
-          updateUser({ studentPhoto: dataUrl, picture: dataUrl });
-        }
-        setAvatarImgError(false);
-        toast.success('Student face photo updated! ✓');
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error(err.response?.data?.message || 'Failed to update photo');
-    } finally {
-      setAvatarUploading(false);
-      if (avatarUploadRef.current) avatarUploadRef.current.value = '';
-    }
-  };
 
   const handleComplaintPhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -2019,14 +1969,10 @@ export default function StudentDashboard() {
           padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div
-              style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}
-              onClick={() => avatarUploadRef.current?.click()}
-              title="Click to update your verified student registration face photo"
-            >
-              {(user?.studentPhoto || user?.picture || user?.photo) && !avatarImgError ? (
+            <div style={{ flexShrink: 0 }}>
+              {(user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com'))) && !avatarImgError ? (
                 <img
-                  src={user?.studentPhoto || user?.picture || user?.photo}
+                  src={user?.studentPhoto || user?.picture}
                   alt={user?.name || 'Student photo'}
                   onError={() => setAvatarImgError(true)}
                   style={{
@@ -2050,26 +1996,6 @@ export default function StudentDashboard() {
                   {user?.name?.charAt(0).toUpperCase() || 'S'}
                 </div>
               )}
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: -2,
-                  right: -2,
-                  width: 18,
-                  height: 18,
-                  borderRadius: '50%',
-                  background: 'var(--primary)',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 10,
-                  border: '1.5px solid var(--bg-card)',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                }}
-              >
-                <MdPhotoCamera size={11} />
-              </div>
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2078,18 +2004,6 @@ export default function StudentDashboard() {
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                 {user?.rollNo} · {user?.hostel}
               </div>
-              {avatarUploading ? (
-                <div style={{ fontSize: 10, color: 'var(--primary-light)', marginTop: 2 }}>
-                  Uploading photo...
-                </div>
-              ) : (
-                <div
-                  onClick={() => avatarUploadRef.current?.click()}
-                  style={{ fontSize: 10.5, color: 'var(--primary-light)', marginTop: 2, cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  {user?.studentPhoto ? 'Change Photo' : '📸 Set Student Photo'}
-                </div>
-              )}
             </div>
           </div>
           <button onClick={handleLogout}
@@ -2214,9 +2128,9 @@ export default function StudentDashboard() {
               border: '1px solid rgba(99,102,241,0.3)',
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              {isMobile && (user?.studentPhoto || user?.picture || user?.photo) && !avatarImgError && (
+              {isMobile && (user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com')) || user?.photo) && !avatarImgError && (
                 <img
-                  src={user?.studentPhoto || user?.picture || user?.photo}
+                  src={user?.studentPhoto || (!user?.picture?.includes('googleusercontent.com') ? user?.picture : null) || user?.photo}
                   alt=""
                   onError={() => setAvatarImgError(true)}
                   style={{
@@ -2836,15 +2750,6 @@ export default function StudentDashboard() {
         accept="image/*"
         style={{ display: 'none' }}
         onChange={handleComplaintPhotoChange}
-      />
-
-      {/* Hidden file input for updating student registration face photo */}
-      <input
-        ref={avatarUploadRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={handleAvatarFileSelected}
       />
 
       <style>{`
