@@ -30,6 +30,7 @@ import {
   MdLogout,
 } from 'react-icons/md';
 import { verifyHumanFace } from '../utils/faceDetector';
+import { validateIndianPhone } from '../utils/phone';
 
 const extractMisFromEmail = (email = '') => {
   if (!email || typeof email !== 'string') return '';
@@ -239,18 +240,33 @@ export default function Onboarding() {
     if (!isValidRoll(rollNo)) {
       return toast.error('Please enter a valid Roll/MIS number.');
     }
-    if (!isValidPhone(phone)) {
-      return toast.error('Please enter a valid personal phone number (e.g. +919876543210).');
+    // Validate all three phone numbers individually
+    const phoneCheck = validateIndianPhone(phone, 'Your Phone Number');
+    if (!phoneCheck.valid) {
+      return toast.error(phoneCheck.error);
     }
-    if (!isValidPhone(parentPhone)) {
-      return toast.error('Please enter a valid Parent Contact 1 phone number.');
+
+    const parentCheck = validateIndianPhone(parentPhone, 'Parent Contact 1');
+    if (!parentCheck.valid) {
+      return toast.error(parentCheck.error);
     }
-    if (!isValidPhone(parentPhone2)) {
-      return toast.error('Please enter a valid Parent Contact 2 phone number.');
+
+    const parent2Check = validateIndianPhone(parentPhone2, 'Parent Contact 2');
+    if (!parent2Check.valid) {
+      return toast.error(parent2Check.error);
     }
-    if (parentPhone.replace(/\D/g, '') === parentPhone2.replace(/\D/g, '')) {
-      return toast.error('Parent Contact 1 and Parent Contact 2 must be different numbers.');
+
+    // All three phone numbers student enters should be different
+    if (phoneCheck.digits10 === parentCheck.digits10) {
+      return toast.error('Your Phone Number cannot be the same as Parent Contact 1. All 3 phone numbers must be unique.');
     }
+    if (phoneCheck.digits10 === parent2Check.digits10) {
+      return toast.error('Your Phone Number cannot be the same as Parent Contact 2. All 3 phone numbers must be unique.');
+    }
+    if (parentCheck.digits10 === parent2Check.digits10) {
+      return toast.error('Parent Contact 1 and Parent Contact 2 cannot be the same number. All 3 phone numbers must be unique.');
+    }
+
     if (!hostel) {
       return toast.error('Please select your hostel.');
     }
@@ -260,9 +276,9 @@ export default function Onboarding() {
       const res = await api.put('/student/onboard', {
         name: name.trim(),
         rollNo: rollNo.trim().toUpperCase(),
-        phone: phone.trim(),
-        parentPhone: parentPhone.trim(),
-        parentPhone2: parentPhone2.trim(),
+        phone: phoneCheck.e164,
+        parentPhone: parentCheck.e164,
+        parentPhone2: parent2Check.e164,
         hostel,
         photo,
       });
@@ -690,6 +706,21 @@ export default function Onboarding() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Phone requirements reminder */}
+          <div
+            style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: '8px',
+              padding: '8px 12px',
+              lineHeight: 1.45,
+            }}
+          >
+            📌 <strong>Rule:</strong> All 3 phone numbers must be unique, valid 10-digit Indian numbers (Accepted: <code>9876543210</code>, <code>+919876543210</code>, or <code>+91 9876543210</code>).
           </div>
 
           {/* Hostel Selection Dropdown */}

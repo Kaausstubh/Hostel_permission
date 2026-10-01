@@ -7,6 +7,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { validateIndianPhone } from '../utils/phone';
 
 const COLLEGE_DOMAIN = 'iiitpune.ac.in';
 
@@ -60,8 +61,29 @@ export default function Register() {
     if (form.password.length < 6) {
       return toast.error('Password must be at least 6 characters');
     }
-    if (form.parentPhone && form.parentPhone2 && form.parentPhone.replace(/\D/g, '') === form.parentPhone2.replace(/\D/g, '')) {
-      return toast.error('Parent phone 1 and parent phone 2 must be different numbers');
+    const phoneCheck = validateIndianPhone(form.phone, 'Your Phone Number');
+    if (!phoneCheck.valid) {
+      return toast.error(phoneCheck.error);
+    }
+
+    const parentCheck = validateIndianPhone(form.parentPhone, 'Parent Contact 1');
+    if (!parentCheck.valid) {
+      return toast.error(parentCheck.error);
+    }
+
+    const parent2Check = validateIndianPhone(form.parentPhone2, 'Parent Contact 2');
+    if (!parent2Check.valid) {
+      return toast.error(parent2Check.error);
+    }
+
+    if (phoneCheck.digits10 === parentCheck.digits10) {
+      return toast.error('Your Phone Number cannot be the same as Parent Contact 1. All 3 phone numbers must be unique.');
+    }
+    if (phoneCheck.digits10 === parent2Check.digits10) {
+      return toast.error('Your Phone Number cannot be the same as Parent Contact 2. All 3 phone numbers must be unique.');
+    }
+    if (parentCheck.digits10 === parent2Check.digits10) {
+      return toast.error('Parent Contact 1 and Parent Contact 2 cannot be the same number. All 3 phone numbers must be unique.');
     }
 
     setLoading(true);

@@ -1,27 +1,27 @@
 /**
- * Phone utilities
+ * Frontend Phone utilities & validation
  * Normalizes and validates Indian mobile numbers.
  *
- * Accepts:
- * - "9876543210" (10 digits)
- * - "+919876543210" (+91 and number)
- * - "+91 9876543210" (+91 then single space then number)
- * - "09876543210"
- * - "919876543210"
+ * Accepted formats:
+ * - 10 digits: "9876543210"
+ * - +91 and 10 digits: "+919876543210"
+ * - +91 then single space then 10 digits: "+91 9876543210"
+ * - Leading 0 (11 digits): "09876543210"
+ * - 91 without plus (12 digits): "919876543210"
  */
 
-function validateIndianPhone(input, label = 'Phone number') {
+export function validateIndianPhone(input, label = 'Phone number') {
   if (!input || !String(input).trim()) {
     return { valid: false, error: `${label} is required.` };
   }
 
   const raw = String(input).trim();
 
-  // Check for invalid characters (only digits, +, and space)
+  // Check for invalid characters (only digits, +, and space allowed)
   if (/[^\d+\s]/.test(raw)) {
     return {
       valid: false,
-      error: `${label} contains invalid characters. Allowed: 10 digits, +91XXXXXXXXXX, or +91 XXXXXXXXXX.`,
+      error: `${label} contains invalid characters. Allowed formats: 10 digits, +91XXXXXXXXXX, or +91 XXXXXXXXXX.`,
     };
   }
 
@@ -31,7 +31,7 @@ function validateIndianPhone(input, label = 'Phone number') {
     if (!raw.startsWith('+91')) {
       return {
         valid: false,
-        error: `${label} must start with +91 (e.g. +91 9876543210 or +919876543210).`,
+        error: `${label} must use India country code +91 (e.g. +91 9876543210 or +919876543210).`,
       };
     }
 
@@ -40,7 +40,7 @@ function validateIndianPhone(input, label = 'Phone number') {
     if (!/^\s?\d+$/.test(rest)) {
       return {
         valid: false,
-        error: `${label} format is invalid. Allowed: "+91" directly followed by number, or "+91 " with a single space.`,
+        error: `${label} format is invalid. Allowed: "+91" directly followed by 10 digits, or "+91 " with a single space.`,
       };
     }
 
@@ -48,7 +48,7 @@ function validateIndianPhone(input, label = 'Phone number') {
     if (cleanedRest.length < 10) {
       return {
         valid: false,
-        error: `${label} is too short (${cleanedRest.length}/10 digits). Must be a 10-digit number.`,
+        error: `${label} is too short (${cleanedRest.length}/10 digits). Must be a 10-digit mobile number.`,
       };
     }
     if (cleanedRest.length > 10) {
@@ -111,17 +111,3 @@ function validateIndianPhone(input, label = 'Phone number') {
     e164: `+91${digits10}`,
   };
 }
-
-function normalizeToE164(input, { defaultCountryCode = '+91' } = {}) {
-  const result = validateIndianPhone(input);
-  if (result.valid) return result.e164;
-
-  if (!input) return input;
-  const raw = String(input).trim();
-  const digits = raw.replace(/[^\d]/g, '');
-  if (digits.length === 10) return `${defaultCountryCode}${digits}`;
-  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
-  return raw;
-}
-
-module.exports = { validateIndianPhone, normalizeToE164 };

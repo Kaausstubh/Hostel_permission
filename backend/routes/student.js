@@ -30,7 +30,7 @@ const {
   issueHomeVisitGatePass,
   isLegacyHomeJwtToken,
 } = require('../services/homeVisitQrService');
-const { normalizeToE164 } = require('../utils/phone');
+const { normalizeToE164, validateIndianPhone } = require('../utils/phone');
 
 const { validatePlaceGeo } = require('../utils/placeValidator');
 
@@ -561,24 +561,47 @@ router.put('/onboard', async (req, res) => {
       });
     }
 
-    // Validate phone numbers
-    const normalizedPhone = normalizeToE164(phone);
-    const normalizedParentPhone = normalizeToE164(parentPhone);
-    const normalizedParentPhone2 = normalizeToE164(parentPhone2);
+    // Validate phone numbers (Must be 10 digits, +91<10 digits>, or +91 <10 digits>)
+    const phoneCheck = validateIndianPhone(phone, 'Your Phone Number');
+    if (!phoneCheck.valid) {
+      return res.status(400).json({ success: false, message: phoneCheck.error });
+    }
 
-    if (!normalizedPhone || !normalizedParentPhone || !normalizedParentPhone2) {
+    const parentCheck = validateIndianPhone(parentPhone, 'Parent Phone 1');
+    if (!parentCheck.valid) {
+      return res.status(400).json({ success: false, message: parentCheck.error });
+    }
+
+    const parent2Check = validateIndianPhone(parentPhone2, 'Parent Phone 2');
+    if (!parent2Check.valid) {
+      return res.status(400).json({ success: false, message: parent2Check.error });
+    }
+
+    // All three phone numbers student enters should be different
+    if (phoneCheck.digits10 === parentCheck.digits10) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter valid phone numbers (with country code, e.g. +91XXXXXXXXXX).',
+        message: 'Your Phone Number cannot be the same as Parent Phone 1. All three phone numbers must be unique.',
       });
     }
 
-    if (normalizedParentPhone === normalizedParentPhone2) {
+    if (phoneCheck.digits10 === parent2Check.digits10) {
       return res.status(400).json({
         success: false,
-        message: 'Parent Phone 1 and Parent Phone 2 must be different numbers.',
+        message: 'Your Phone Number cannot be the same as Parent Phone 2. All three phone numbers must be unique.',
       });
     }
+
+    if (parentCheck.digits10 === parent2Check.digits10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parent Phone 1 and Parent Phone 2 cannot be the same number. All three phone numbers must be unique.',
+      });
+    }
+
+    const normalizedPhone = phoneCheck.e164;
+    const normalizedParentPhone = parentCheck.e164;
+    const normalizedParentPhone2 = parent2Check.e164;
 
     // Validate hostel selection
     const allowedHostels = ['BH1', 'BH2', 'GH'];
