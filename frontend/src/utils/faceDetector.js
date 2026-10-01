@@ -96,9 +96,21 @@ export function loadImageElement(source) {
 
     if (typeof source === 'string') {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (!source.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => resolve(img);
-      img.onerror = reject;
+      img.onerror = (err) => {
+        // Fallback without crossOrigin if external URL CORS blocked
+        if (img.crossOrigin) {
+          const retryImg = new Image();
+          retryImg.onload = () => resolve(retryImg);
+          retryImg.onerror = reject;
+          retryImg.src = source;
+        } else {
+          reject(err);
+        }
+      };
       img.src = source;
       return;
     }

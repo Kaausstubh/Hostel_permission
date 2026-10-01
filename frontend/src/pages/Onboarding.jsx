@@ -84,40 +84,6 @@ export default function Onboarding() {
     }
   }, [user?.email]);
 
-  // If the student already has an OAuth picture, test if it's a real human face.
-  // Google default initials avatars ('K' on colored circle) will fail and prompt for a real face photo.
-  useEffect(() => {
-    if (user?.picture && !photo) {
-      let active = true;
-      setVerifyingFace(true);
-      verifyHumanFace(user.picture)
-        .then((res) => {
-          if (!active) return;
-          if (res.ok) {
-            setPhoto(user.picture);
-            setFaceVerified(true);
-            setFaceError('');
-          } else {
-            setPhoto('');
-            setFaceVerified(false);
-            setFaceError('Google avatar is not an accepted face photo. Please upload or take a clear photo of your face.');
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setPhoto('');
-            setFaceVerified(false);
-          }
-        })
-        .finally(() => {
-          if (active) setVerifyingFace(false);
-        });
-      return () => {
-        active = false;
-      };
-    }
-  }, [user?.picture]);
-
   useEffect(() => {
     return () => {
       if (mediaStreamRef.current) {
