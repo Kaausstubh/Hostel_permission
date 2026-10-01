@@ -27,6 +27,7 @@ import {
   MdClose,
   MdCheckCircle,
   MdErrorOutline,
+  MdLogout,
 } from 'react-icons/md';
 import iiitLogo from '../assets/iiitpune-logo.png';
 import { verifyHumanFace } from '../utils/faceDetector';

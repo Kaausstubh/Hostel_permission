@@ -87,7 +87,13 @@ export default class ErrorBoundary extends Component {
             Try Again
           </button>
           <button
-            onClick={() => (window.location.href = '/login')}
+            onClick={() => {
+              try {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+              } catch (_) {}
+              window.location.href = '/login';
+            }}
             style={{
               background: 'transparent',
               border: '1px solid rgba(255,255,255,0.15)',
