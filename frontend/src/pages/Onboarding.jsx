@@ -29,7 +29,6 @@ import {
   MdErrorOutline,
   MdLogout,
 } from 'react-icons/md';
-import iiitLogo from '../assets/iiitpune-logo.png';
 import { verifyHumanFace } from '../utils/faceDetector';
 
 const extractMisFromEmail = (email = '') => {
@@ -345,8 +344,7 @@ export default function Onboarding() {
       >
         {/* Header */}
         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <img src={iiitLogo} alt="IIIT Pune" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
             <span className="login-eyebrow" style={{ margin: 0, fontSize: 11, letterSpacing: '0.06em' }}>
               IIIT Pune · Student Registration
             </span>
@@ -440,15 +438,16 @@ export default function Onboarding() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 4,
-                  padding: '4px 10px',
+                  padding: '5px 12px',
                   borderRadius: 9999,
-                  border: '1px solid rgba(59, 130, 246, 0.35)',
-                  background: 'rgba(59, 130, 246, 0.12)',
-                  color: 'var(--primary-light, #93c5fd)',
-                  fontSize: 11,
+                  border: theme === 'light' ? '1px solid rgba(37, 99, 235, 0.4)' : '1px solid rgba(59, 130, 246, 0.4)',
+                  background: theme === 'light' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(59, 130, 246, 0.18)',
+                  color: theme === 'light' ? '#1d4ed8' : '#93c5fd',
+                  fontSize: 11.5,
                   fontWeight: 700,
                   cursor: verifyingFace ? 'not-allowed' : 'pointer',
                   transition: 'all 0.15s ease',
+                  boxShadow: theme === 'light' ? '0 1px 3px rgba(37, 99, 235, 0.1)' : 'none',
                 }}
               >
                 <MdPhotoCamera size={13} />
@@ -463,13 +462,13 @@ export default function Onboarding() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 4,
-                  padding: '4px 10px',
+                  padding: '5px 12px',
                   borderRadius: 9999,
-                  border: '1px solid var(--border-color)',
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  color: 'var(--text-secondary)',
-                  fontSize: 11,
-                  fontWeight: 600,
+                  border: theme === 'light' ? '1px solid rgba(15, 23, 42, 0.22)' : '1px solid rgba(255, 255, 255, 0.18)',
+                  background: theme === 'light' ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+                  color: theme === 'light' ? '#0f172a' : '#e2e8f0',
+                  fontSize: 11.5,
+                  fontWeight: 700,
                   cursor: verifyingFace ? 'not-allowed' : 'pointer',
                   transition: 'all 0.15s ease',
                 }}
