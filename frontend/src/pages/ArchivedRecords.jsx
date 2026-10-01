@@ -13,7 +13,7 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { downloadGateRecordsPDF } from '../utils/pdfReportGenerator';
+import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
 import {
   MdPictureAsPdf,
   MdStorage,
@@ -94,14 +94,51 @@ export default function ArchivedRecords() {
         }
       }
 
-      const res = await api.get(`/archive/export-data?${params.toString()}`);
-      if (!res.data?.success || !res.data?.records || res.data.records.length === 0) {
+      try {
+        const res = await api.get(`/archive/export-data?${params.toString()}`);
+        if (res.data?.success && res.data?.records && res.data.records.length > 0) {
+          downloadGateRecordsPDF(res.data);
+          toast.success(`PDF downloaded successfully! (${res.data.records.length} records)`, { id: toastId });
+          return;
+        }
+      } catch (apiErr) {
+        console.warn('[Archive PDF] Server export route unavailable, falling back to direct logs query:', apiErr.message);
+      }
+
+      // Fallback: Fetch directly from /inout/logs and /homevisit/list
+      const [gateRes, homeRes] = await Promise.all([
+        api.get('/inout/logs?limit=500').catch(() => ({ data: { logs: [] } })),
+        api.get('/homevisit/list?limit=500').catch(() => ({ data: { visits: [] } })),
+      ]);
+
+      const selectedMonth = customParams?.month || exportMonth;
+      let rawGate = gateRes.data?.logs || [];
+      let rawHome = homeRes.data?.visits || [];
+
+      if (selectedMonth) {
+        rawGate = rawGate.filter(l => (l.date || '').startsWith(selectedMonth));
+        rawHome = rawHome.filter(h => (h.leave_date || '').startsWith(selectedMonth));
+      }
+
+      if (hostelFilter && hostelFilter !== 'all') {
+        rawGate = rawGate.filter(l => (l.hostel || l.student_id?.hostel) === hostelFilter);
+        rawHome = rawHome.filter(h => (h.hostel || h.student_id?.hostel) === hostelFilter);
+      }
+
+      if (rawGate.length === 0 && rawHome.length === 0) {
         toast.error('No scan records found matching the selected filters.', { id: toastId });
         return;
       }
 
-      downloadGateRecordsPDF(res.data);
-      toast.success(`PDF downloaded successfully! (${res.data.records.length} records)`, { id: toastId });
+      generatePDFFromLocalLogs({
+        gateLogs: exportType === 'home' ? [] : rawGate,
+        homeLogs: exportType === 'gate' ? [] : rawHome,
+        user,
+        period: selectedMonth || (startDate && endDate ? `${startDate} to ${endDate}` : 'All Records'),
+        hostelFilter: hostelFilter === 'all' ? 'All Hostels' : hostelFilter,
+      });
+
+      toast.success('PDF report generated and downloaded successfully!', { id: toastId });
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.message || 'Failed to generate PDF report', { id: toastId });

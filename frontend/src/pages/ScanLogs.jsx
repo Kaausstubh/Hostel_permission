@@ -6,7 +6,8 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdHistory, MdRefresh, MdPictureAsPdf } from 'react-icons/md';
-import { downloadGateRecordsPDF } from '../utils/pdfReportGenerator';
+import { useAuth } from '../context/AuthContext';
+import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
   const [logs, setLogs] = useState([]);
@@ -58,29 +59,52 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
+  const { user } = useAuth();
   const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => { fetchLogs(); }, [dateFilter, statusFilter]);
 
   const handleExportPDF = async () => {
+    const currentRecords = activeTab === 'gate' ? logs : homeLogs;
+    if (!currentRecords || currentRecords.length === 0) {
+      toast.error('No records available for the selected filters to generate PDF');
+      return;
+    }
+
     try {
       setExportingPdf(true);
       const params = new URLSearchParams({
-        category: activeTab === 'gate' ? 'gate' : 'home',
+        type: activeTab === 'gate' ? 'gate' : 'home',
       });
       if (dateFilter) {
         params.append('startDate', dateFilter);
         params.append('endDate', dateFilter);
       }
-      const res = await api.get(`/archive/export-data?${params.toString()}`);
-      if (!res.data.records || res.data.records.length === 0) {
-        toast.error('No records available for the selected filters to generate PDF');
-        return;
+
+      let exportedFromServer = false;
+      try {
+        const res = await api.get(`/archive/export-data?${params.toString()}`);
+        if (res.data?.records && res.data.records.length > 0) {
+          downloadGateRecordsPDF(res.data);
+          exportedFromServer = true;
+        }
+      } catch (err) {
+        console.warn('[PDF Export] Server export-data route fallback to client generation:', err.message);
       }
-      downloadGateRecordsPDF(res.data);
+
+      if (!exportedFromServer) {
+        generatePDFFromLocalLogs({
+          gateLogs: activeTab === 'gate' ? logs : [],
+          homeLogs: activeTab === 'home' ? homeLogs : [],
+          user,
+          period: dateFilter || `${activeTab === 'gate' ? 'Gate Scan Logs' : 'Home Visit Records'} (${new Date().toLocaleDateString('en-IN')})`,
+          customFileName: `HEIMDALL_${activeTab === 'gate' ? 'Gate_Scan' : 'Home_Visit'}_Logs_${dateFilter || 'Export'}.pdf`,
+        });
+      }
+
       toast.success('PDF report downloaded successfully');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to generate PDF report');
+      toast.error('Failed to generate PDF report');
     } finally {
       setExportingPdf(false);
     }

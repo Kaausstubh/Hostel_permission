@@ -159,3 +159,79 @@ export const downloadGateRecordsPDF = (reportData, customFileName) => {
 
   doc.save(filename);
 };
+
+/**
+ * Generate PDF directly from client-side logs (works for Warden & Security regardless of backend state)
+ */
+export const generatePDFFromLocalLogs = ({
+  gateLogs = [],
+  homeLogs = [],
+  user = {},
+  period = 'Records',
+  hostelFilter = 'All Hostels',
+  customFileName,
+}) => {
+  const formattedRecords = [];
+
+  for (const log of gateLogs) {
+    const student = log.student_id;
+    const d = log.date || (log.timestamp ? new Date(log.timestamp).toISOString().slice(0, 10) : '—');
+    const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : (log.out_time || '—');
+    formattedRecords.push({
+      id: log._id,
+      category: 'In/Out Daily',
+      date: d,
+      time: timeStr,
+      studentName: student?.name || log.name || 'Unknown',
+      rollNo: student?.rollNo || log.rollNo || '—',
+      hostel: student?.hostel || log.hostel || '—',
+      status: log.status || 'OUT',
+      returned: log.returned ? 'Yes' : 'No',
+      destination: log.place || 'City / Local',
+      timestamp: log.timestamp ? new Date(log.timestamp).getTime() : 0,
+    });
+  }
+
+  for (const log of homeLogs) {
+    const student = log.student_id;
+    const leaveTime = log.actual_out_time ? new Date(log.actual_out_time).toLocaleTimeString('en-IN') : (log.leave_date || '—');
+    formattedRecords.push({
+      id: log._id,
+      category: 'Home Visit',
+      date: `${log.leave_date || ''} → ${log.return_date || ''}`,
+      time: leaveTime,
+      studentName: student?.name || log.name || 'Unknown',
+      rollNo: student?.rollNo || log.rollNo || '—',
+      hostel: student?.hostel || log.hostel || '—',
+      status: log.overall_status?.toUpperCase() || 'APPROVED',
+      returned: log.qr_used_in ? 'Yes' : 'No',
+      destination: log.place || 'Home Destination',
+      timestamp: log.createdAt ? new Date(log.createdAt).getTime() : 0,
+    });
+  }
+
+  formattedRecords.sort((a, b) => b.timestamp - a.timestamp);
+
+  const totalExits = formattedRecords.filter((r) => r.status === 'OUT').length;
+  const totalEntries = formattedRecords.filter((r) => r.status === 'IN').length;
+  const notReturned = formattedRecords.filter((r) => r.status === 'OUT' && r.returned === 'No').length;
+
+  const reportData = {
+    metadata: {
+      generatedAt: new Date().toLocaleString('en-IN'),
+      generatedBy: `${user?.name || 'Authorized Staff'} (${(user?.role || 'staff').toUpperCase()})`,
+      period,
+      hostelFilter,
+      totalCount: formattedRecords.length,
+    },
+    summary: {
+      totalRecords: formattedRecords.length,
+      totalExits,
+      totalEntries,
+      notReturned,
+    },
+    records: formattedRecords,
+  };
+
+  downloadGateRecordsPDF(reportData, customFileName);
+};
