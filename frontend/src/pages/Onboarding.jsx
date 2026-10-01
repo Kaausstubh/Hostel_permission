@@ -768,6 +768,28 @@ export default function Onboarding() {
           </div>
         </div>
 
+        {/* Warning Note */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 14px',
+            borderRadius: '10px',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.28)',
+            color: '#ef4444',
+            fontSize: '12.5px',
+            lineHeight: '1.45',
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ fontSize: '17px', flexShrink: 0 }}>⚠️</span>
+          <span>
+            <strong>Note:</strong> Any wrong or false information provided during registration will result in immediate removal from the hostel.
+          </span>
+        </div>
+
         {/* Submit button */}
         <button
           type="submit"
