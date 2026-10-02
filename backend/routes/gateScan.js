@@ -185,6 +185,9 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
       return { status: 400, body: { success: false, message: 'Student is already marked OUT' } };
     }
 
+    const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
+    const effectiveStudentPhoto = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
+
     let log;
     try {
       log = await InOutLog.create({
@@ -195,7 +198,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         phone: student.phone || '',
         parentPhone: student.parentPhone || '',
         hostel: student.hostel || '',
-        student_photo: student.picture || '',
+        student_photo: effectiveStudentPhoto,
         place: pendingRequest.place || '',
         reason: pendingRequest.reason || '',
         qr_token: token,
@@ -206,6 +209,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         date: todayStr(),
         returned: false,
         scannedBy: req.user._id,
+        scanned_by_name: guardName,
       });
     } catch (err) {
       if (err?.code === 11000) {
@@ -215,13 +219,15 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         success: true,
         message: 'Student already marked as OUT',
         kind: 'inout_request',
+        guardInCharge: guardName,
+        scannedByName: guardName,
         student: {
           name: student.name,
           rollNumber: student.rollNo,
           hostel: student.hostel,
           studentPhone: student.phone || null,
           parentPhone: student.parentPhone || null,
-          picture: student.picture || null,
+          picture: effectiveStudentPhoto || null,
         },
         log: { status: 'OUT', timestamp: now, place: pendingRequest.place || '', reason: pendingRequest.reason || '' },
         scanDuration: Date.now() - scanStart,
@@ -239,13 +245,15 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         success: true,
         message: 'Student marked as OUT',
         kind: 'inout_request',
+        guardInCharge: guardName,
+        scannedByName: guardName,
         student: {
           name: student.name,
           rollNumber: student.rollNo,
           hostel: student.hostel,
           studentPhone: student.phone || null,
           parentPhone: student.parentPhone || null,
-          picture: student.picture || null,
+          picture: effectiveStudentPhoto || null,
         },
         log: {
           status: 'OUT',
@@ -285,6 +293,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         timestamp: now,
         returned: true,
         scannedBy: req.user._id,
+        scanned_by_name: guardName,
       },
     },
     { new: true, sort: { createdAt: -1 }, runValidators: true }
@@ -307,6 +316,8 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
         success: true,
         message: 'Student already marked as IN',
         kind: 'inout_request',
+        guardInCharge: guardName,
+        scannedByName: guardName,
         student: {
           name: studentDoc.name,
           rollNumber: studentDoc.rollNo,
@@ -339,13 +350,15 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
       success: true,
       message: 'Student marked as IN',
       kind: 'inout_request',
+      guardInCharge: guardName,
+      scannedByName: guardName,
       student: {
         name: student.name,
         rollNumber: student.rollNo,
         hostel: student.hostel,
         studentPhone: student.phone || null,
         parentPhone: student.parentPhone || null,
-        picture: student.picture || null,
+        picture: effectiveStudentPhoto || null,
       },
       log: {
         status: 'IN',
@@ -387,6 +400,7 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
   }
 
   const activeToken = existing.qr_token || token;
+  const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
 
   let visit = await HomeVisitLog.findOneAndUpdate(
     {
@@ -399,7 +413,10 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         qr_used_out: true,
         actual_out_time: now,
         actual_out: now,
-        student_photo: existing.student_id?.picture || existing.student_photo || null,
+        scannedBy: req.user._id,
+        scanned_by_out: req.user._id,
+        scanned_by_name: guardName,
+        student_photo: existing.student_id?.studentPhoto || (existing.student_id?.picture && !existing.student_id.picture.includes('googleusercontent.com') ? existing.student_id.picture : null) || existing.student_photo || existing.student_id?.picture || null,
       },
     },
     { new: true }
@@ -415,13 +432,15 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         success: true,
         message: 'Marked as HOME OUT',
         kind: 'home_visit',
+        guardInCharge: guardName,
+        scannedByName: guardName,
         student: {
           name: student?.name || visit.name,
           rollNumber: student?.rollNo || visit.rollNo,
           hostel: student?.hostel || 'N/A',
           studentPhone: student?.phone || null,
           parentPhone: student?.parentPhone || null,
-          picture: student?.picture || visit.student_photo || null,
+          picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
         },
         log: { status: 'HOME OUT', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
         scanDuration: Date.now() - scanStart,
@@ -442,7 +461,10 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         actual_in_time: now,
         actual_in: now,
         overall_status: 'completed',
-        student_photo: existing.student_id?.picture || existing.student_photo || null,
+        scannedBy: req.user._id,
+        scanned_by_in: req.user._id,
+        scanned_by_name: guardName,
+        student_photo: existing.student_id?.studentPhoto || (existing.student_id?.picture && !existing.student_id.picture.includes('googleusercontent.com') ? existing.student_id.picture : null) || existing.student_photo || existing.student_id?.picture || null,
       },
     },
     { new: true }
@@ -458,13 +480,15 @@ const handleHomeVisitScan = async (token, payload, scanStart) => {
         success: true,
         message: 'Marked as HOME IN',
         kind: 'home_visit',
+        guardInCharge: guardName,
+        scannedByName: guardName,
         student: {
           name: student?.name || visit.name,
           rollNumber: student?.rollNo || visit.rollNo,
           hostel: student?.hostel || 'N/A',
           studentPhone: student?.phone || null,
           parentPhone: student?.parentPhone || null,
-          picture: student?.picture || visit.student_photo || null,
+          picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
         },
         log: { status: 'HOME IN', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
         scanDuration: Date.now() - scanStart,

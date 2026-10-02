@@ -133,7 +133,9 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 
       if (!existing) {
         status = 'OUT';
+        const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
         try {
+          const photo = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
           log = await InOutLog.create({
             student_id: payload.student_id,
             name: student.name || '',
@@ -142,6 +144,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
             phone: student.phone || '',
             parentPhone: student.parentPhone || '',
             hostel: student.hostel || '',
+            student_photo: photo,
             qr_token: token,
             status,
             out_time: now,
@@ -150,10 +153,13 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
             date: todayStr(),
             returned: false,
             scannedBy: req.user._id,
+            scanned_by_name: guardName,
           });
         } catch (err) {
           if (err?.code === 11000) {
             return { status: 200, body: { success: true, message: 'Student already marked as OUT',
+              guardInCharge: guardName,
+              scannedByName: guardName,
               student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
               log: { status: 'OUT', timestamp: now } } };
           }
@@ -167,8 +173,9 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
           return { status: 400, body: { success: false, message: 'Invalid state for this QR' } };
         }
         status = 'IN';
+        const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
         log = await InOutLog.findByIdAndUpdate(existing._id, {
-          $set: { status: 'IN', in_time: now, timestamp: now, returned: true, scannedBy: req.user._id }
+          $set: { status: 'IN', in_time: now, timestamp: now, returned: true, scannedBy: req.user._id, scanned_by_name: guardName }
         }, { new: true }).lean();
         await removeActiveQR(token);
       }
@@ -203,7 +210,9 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     const filter = {};
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
-    const studentSelect = req.user.role === 'security' ? 'name rollNo hostel picture' : 'name rollNo hostel phone picture';
+    const studentSelect = req.user.role === 'security'
+      ? 'name rollNo hostel picture studentPhoto'
+      : 'name rollNo hostel phone parentPhone picture studentPhoto';
 
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)

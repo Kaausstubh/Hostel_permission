@@ -4,6 +4,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
+import StudentAvatar from '../components/StudentAvatar';
 
 export default function WardenStudents() {
   const { user } = useAuth();
@@ -84,8 +85,18 @@ export default function WardenStudents() {
                   {filteredStudents.length > 0 ? (
                     filteredStudents.map((student) => (
                       <tr key={student._id}>
-                        <td style={{ fontWeight: 600 }}>{student.name}</td>
-                        <td style={{ color: 'var(--text-accent)' }}>{student.rollNo || 'N/A'}</td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <StudentAvatar student={student} name={student.name} size={36} />
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{student.name}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{student.email || student.rollNo || '—'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ color: 'var(--text-accent)', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                          {student.rollNo || 'N/A'}
+                        </td>
                         <td>
                           {student.hostel ? (
                             <span className="badge badge-primary">{student.hostel}</span>

@@ -109,6 +109,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
     }
 
     // Create the request record
+    const studentPhoto = req.user.studentPhoto || (req.user.picture && !req.user.picture.includes('googleusercontent.com') ? req.user.picture : null) || req.user.picture || null;
     const visit = await HomeVisitLog.create({
       student_id: req.user._id,
       reason,
@@ -117,6 +118,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       place: String(place).trim().slice(0, 200),
       name: req.user.name,
       rollNo: req.user.rollNo || '',
+      student_photo: studentPhoto,
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
       parent_phone_alt: req.user.parentPhone2 ? normalizeToE164(req.user.parentPhone2) : null,
     });
@@ -278,7 +280,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     }
 
     let scanResult;
-    const scannerName = req.user.name || req.user.rollNo || req.user.email || 'MSF Security Guard';
+    const scannerName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
 
     if (!visit.qr_used_out) {
       // First scan = HOME OUT
@@ -325,7 +327,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture')
+        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture studentPhoto')
         .populate('scannedBy', 'name rollNo email')
         .populate('scanned_by_out', 'name rollNo email')
         .populate('scanned_by_in', 'name rollNo email')

@@ -68,6 +68,10 @@ const inOutLogSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    scanned_by_name: {
+      type: String,
+      default: '',
+    },
     alertSent: {
       // Was the 11:59 PM not-returned alert sent?
       type: Boolean,

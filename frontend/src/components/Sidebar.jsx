@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   MdDashboard, MdQrCodeScanner, MdHome, MdReport,
   MdPeople, MdLogout, MdWarning, MdHistory, MdClose,
-  MdExitToApp, MdInventory2
+  MdExitToApp
 } from 'react-icons/md';
 import toast from 'react-hot-toast';
 
@@ -20,14 +20,12 @@ const wardenNav = [
   { to: '/home-visits',  icon: <MdHome />,          label: 'Home Visits' },
   { to: '/complaints',   icon: <MdReport />,        label: 'Complaints' },
   { to: '/logs',         icon: <MdHistory />,       label: 'Gate Scan Logs' },
-  { to: '/home-logs',        icon: <MdHistory />,       label: 'Home Scan Logs' },
-  { to: '/archived-records', icon: <MdInventory2 />,    label: 'Archived Records' },
+  { to: '/home-logs',    icon: <MdHistory />,       label: 'Home Scan Logs' },
 ];
 
 const securityNav = [
   { to: '/scanner',          icon: <MdQrCodeScanner />, label: 'QR Scanner' },
   { to: '/logs',             icon: <MdHistory />,       label: 'Scan Logs' },
-  { to: '/archived-records', icon: <MdInventory2 />,    label: 'Archived Records' },
 ];
 
 export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {

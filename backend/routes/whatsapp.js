@@ -285,6 +285,7 @@ const finalizeHomeVisitRequest = async (phone, returnDate, user, session) => {
       student_id: user._id,
       name: user.name,
       rollNo: user.rollNo || user.rollNumber || '',
+      student_photo: user.studentPhoto || (user.picture && !user.picture.includes('googleusercontent.com') ? user.picture : null) || user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       reason: session.data.reason,
       place: session.data.place || '',

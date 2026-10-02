@@ -10,6 +10,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { MdCheckCircle, MdError, MdQrCodeScanner, MdRefresh, MdAccessTime } from 'react-icons/md';
+import { useAuth } from '../context/AuthContext';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const READY_STATUS = 'Camera ready — hold QR inside the box';
@@ -20,6 +21,7 @@ const SCAN_ERROR_COOLDOWN_MS = 1200;
 const SAME_QR_CLEAR_FRAME_COUNT = 4;
 
 export default function SecurityDashboard() {
+  const { user } = useAuth();
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -728,7 +730,23 @@ export default function SecurityDashboard() {
 
           {/* Scanner Panel */}
           <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 15 }}>📷 Gate QR Scanner (Daily + Home Visit)</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>📷 Gate QR Scanner (Daily + Home Visit)</div>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                padding: '4px 10px',
+                borderRadius: 99,
+                background: 'rgba(99, 102, 241, 0.12)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                color: 'var(--primary-light)',
+              }}>
+                <span>🛡️ Guard In-Charge:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{user?.name || user?.rollNo || 'Security Guard'}</span>
+              </div>
+            </div>
 
             <div
               id={SCANNER_ELEMENT_ID}
@@ -1122,6 +1140,25 @@ export default function SecurityDashboard() {
                         }}>
                           {isHome ? (isHomeOut ? 'HOME OUT' : 'HOME IN') : (isIN ? 'IN' : 'OUT')}
                         </div>
+                      </div>
+
+                      {/* Guard in-charge signature / verification badge */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: 12,
+                        padding: '8px 12px',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        marginTop: 10,
+                        marginBottom: 10,
+                      }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Verified By (Guard In-Charge):</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {result.scannedByName || result.guardInCharge || user?.name || user?.rollNo || 'Security Guard'}
+                        </span>
                       </div>
 
                       {/* Scan Again + duration badge */}

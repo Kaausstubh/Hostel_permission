@@ -7,6 +7,7 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdHome, MdRefresh, MdCheckCircle, MdCancel, MdPhone, MdPhoneInTalk } from 'react-icons/md';
+import StudentAvatar from '../components/StudentAvatar';
 
 const STATUS_FILTERS = ['all', 'pending', 'approved', 'rejected', 'completed'];
 
@@ -161,20 +162,14 @@ export default function HomeVisits() {
                   <tr key={v._id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {(v.student_photo || v.student_id?.picture) ? (
-                          <img
-                            src={v.student_photo || v.student_id?.picture}
-                            alt=""
-                            style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1.5px solid var(--border-color)' }}
-                          />
-                        ) : (
-                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                            {(v.student_id?.name || 'S')[0]}
-                          </div>
-                        )}
+                        <StudentAvatar
+                          student={v.student_id}
+                          recordPhoto={v.student_photo}
+                          name={v.student_id?.name || v.name}
+                        />
                         <div>
-                          <div style={{ fontWeight: 600 }}>{v.student_id?.name || 'Unknown'}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNo}</div>
+                          <div style={{ fontWeight: 600 }}>{v.student_id?.name || v.name || 'Unknown'}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNo || v.rollNo || '—'}</div>
                         </div>
                       </div>
                     </td>

@@ -116,7 +116,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
   doc.text('System: HEIMDALL Access Control v2.4', badgeX + 10, 47);
-  doc.text('Security Wing: Maharashtra Security Force (MSF)', badgeX + 10, 56);
+  doc.text('Security Wing: Campus Security Gate', badgeX + 10, 56);
 
   // Dividing Rule
   doc.setDrawColor(226, 232, 240); // slate-200
@@ -223,7 +223,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
       'Out Time',
       'In Time',
       'Returned',
-      'Verified By (MSF)',
+      'Scanned By',
     ]],
     body: tableRows,
     theme: 'grid',
@@ -304,7 +304,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
 
   const lineY = signY + 30;
 
-  // Box 1: Security Supervisor (MSF)
+  // Box 1: Security Supervisor / Guard In-Charge
   doc.setDrawColor(148, 163, 184);
   doc.setLineWidth(0.8);
   doc.line(32, lineY, 210, lineY);
@@ -315,7 +315,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Maharashtra Security Force (MSF) — Campus Gate', 32, lineY + 19);
+  doc.text('Campus Security Gate — Main Security Post', 32, lineY + 19);
 
   // Box 2: Hostel Warden
   doc.line(310, lineY, 490, lineY);

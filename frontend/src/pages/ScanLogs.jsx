@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { MdHistory, MdRefresh, MdPictureAsPdf } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
+import StudentAvatar from '../components/StudentAvatar';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
   const [logs, setLogs] = useState([]);
@@ -202,7 +203,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Out Time</th>
                   <th>In Time</th>
                   <th>Returned</th>
-                  <th>Scanned By (MSF)</th>
+                  <th>Scanned By</th>
                 </tr>
               </thead>
               <tbody>
@@ -210,20 +211,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <tr key={log._id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {(log.student_photo || log.student_id?.picture) ? (
-                          <img
-                            src={log.student_photo || log.student_id?.picture}
-                            alt=""
-                            style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1.5px solid var(--border-color)' }}
-                          />
-                        ) : (
-                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                            {(log.student_id?.name || 'S')[0]}
-                          </div>
-                        )}
+                        <StudentAvatar
+                          student={log.student_id}
+                          recordPhoto={log.student_photo}
+                          name={log.student_id?.name || log.name}
+                        />
                         <div>
-                          <div style={{ fontWeight: 600 }}>{log.student_id?.name || 'Unknown'}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo}</div>
+                          <div style={{ fontWeight: 600 }}>{log.student_id?.name || log.name || 'Unknown'}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo || log.rollNo || '—'}</div>
                         </div>
                       </div>
                     </td>
@@ -252,7 +247,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                       }
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      {log.scannedBy?.rollNo || log.scannedBy?.name || 'MSF Security Guard'}
+                      {log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.scannedBy?.email || 'Duty Guard'}
                     </td>
                   </tr>
                 ))}
@@ -274,7 +269,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Home In</th>
                   <th>Status</th>
                   <th>Parent Phone</th>
-                  <th>Scanned By (MSF)</th>
+                  <th>Scanned By</th>
                 </tr>
               </thead>
               <tbody>
@@ -282,17 +277,11 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <tr key={visit._id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {(visit.student_photo || visit.student_id?.picture) ? (
-                          <img
-                            src={visit.student_photo || visit.student_id?.picture}
-                            alt=""
-                            style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1.5px solid var(--border-color)' }}
-                          />
-                        ) : (
-                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                            {(visit.student_id?.name || visit.name || 'S')[0]}
-                          </div>
-                        )}
+                        <StudentAvatar
+                          student={visit.student_id}
+                          recordPhoto={visit.student_photo}
+                          name={visit.student_id?.name || visit.name}
+                        />
                         <div>
                           <div style={{ fontWeight: 600 }}>{visit.student_id?.name || visit.name || 'Unknown'}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{visit.student_id?.rollNo || visit.rollNo || '—'}</div>
@@ -321,12 +310,12 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                       {visit.student_id?.parentPhone || visit.parent_phone || '—'}
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      {visit.scannedBy?.name ||
+                      {visit.scanned_by_name ||
+                       visit.scannedBy?.name ||
                        visit.scanned_by_in?.name ||
                        visit.scanned_by_out?.name ||
-                       visit.scanned_by_name ||
                        visit.parent_call_confirmed_by?.name ||
-                       (visit.actual_in_time || visit.actual_out_time ? 'MSF Security Guard' : '—')}
+                       (visit.actual_in_time || visit.actual_out_time ? 'Duty Guard' : '—')}
                     </td>
                   </tr>
                 ))}

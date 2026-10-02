@@ -29,7 +29,6 @@ const WardenStudents      = lazy(() => import('./pages/WardenStudents'));
 const StudentSimulator    = lazy(() => import('./pages/StudentSimulator'));
 const ParentHomeVisitRespond = lazy(() => import('./pages/ParentHomeVisitRespond'));
 const Onboarding          = lazy(() => import('./pages/Onboarding'));
-const ArchivedRecords     = lazy(() => import('./pages/ArchivedRecords'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -191,11 +190,7 @@ function AppRoutes() {
             <AppLayout><ScanLogs defaultTab="home" /></AppLayout>
           </ProtectedRoute>
         } />
-        <Route path="/archived-records" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin', 'security']}>
-            <AppLayout><ArchivedRecords /></AppLayout>
-          </ProtectedRoute>
-        } />
+        <Route path="/archived-records" element={<Navigate to="/dashboard" replace />} />
 
         {/* ── Security Routes ── */}
         <Route path="/scanner" element={
