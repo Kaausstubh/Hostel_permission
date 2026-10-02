@@ -322,16 +322,16 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 router.get('/list', protect, authorize('warden', 'security'), async (req, res) => {
   try {
     const { status } = req.query;
-    const { page, limit, skip } = getPagination(req.query, 25, 100);
+    const { page, limit, skip } = getPagination(req.query, 50, 100);
     const filter = status ? { overall_status: status } : {};
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
         .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture studentPhoto')
-        .populate('scannedBy', 'name rollNo email')
-        .populate('scanned_by_out', 'name rollNo email')
-        .populate('scanned_by_in', 'name rollNo email')
-        .populate('parent_call_confirmed_by', 'name rollNo email')
+        .populate('scannedBy', 'name')
+        .populate('scanned_by_out', 'name')
+        .populate('scanned_by_in', 'name')
+        .populate('parent_call_confirmed_by', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

@@ -30,30 +30,40 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     return [visit.leave_date, visit.return_date, outDate, inDate].includes(date);
   };
 
-  const fetchLogs = async () => {
+  const fetchGateLogs = async () => {
+    const params = new URLSearchParams();
+    if (dateFilter) params.append('date', dateFilter);
+    if (statusFilter) params.append('status', statusFilter);
+    const gateRes = await api.get(`/inout/logs?${params.toString()}`);
+    setLogs(gateRes.data?.logs || []);
+  };
+
+  const fetchHomeLogs = async () => {
+    const homeRes = await api.get('/homevisit/list?limit=60');
+    const filteredHomeLogs = (homeRes.data?.visits || []).filter((visit) => {
+      const hasScanRecord = Boolean(visit.actual_out_time || visit.actual_in_time || visit.qr_used_out || visit.qr_used_in);
+      if (!hasScanRecord) return false;
+      if (statusFilter) {
+        if (statusFilter === 'OUT' && !visit.actual_out_time) return false;
+        if (statusFilter === 'IN' && !visit.actual_in_time) return false;
+      }
+      return hasMatchingDate(visit, dateFilter);
+    });
+    setHomeLogs(filteredHomeLogs);
+  };
+
+  const fetchLogs = async (tabToPrioritize = activeTab) => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (dateFilter) params.append('date', dateFilter);
-      if (statusFilter) params.append('status', statusFilter);
-      const [gateRes, homeRes] = await Promise.all([
-        api.get(`/inout/logs?${params.toString()}`),
-        api.get('/homevisit/list?limit=200'),
-      ]);
-
-      setLogs(gateRes.data.logs || []);
-
-      const filteredHomeLogs = (homeRes.data.visits || []).filter((visit) => {
-        const hasScanRecord = Boolean(visit.actual_out_time || visit.actual_in_time || visit.qr_used_out || visit.qr_used_in);
-        if (!hasScanRecord) return false;
-        if (statusFilter) {
-          if (statusFilter === 'OUT' && !visit.actual_out_time) return false;
-          if (statusFilter === 'IN' && !visit.actual_in_time) return false;
-        }
-        return hasMatchingDate(visit, dateFilter);
-      });
-
-      setHomeLogs(filteredHomeLogs);
+      if (tabToPrioritize === 'gate') {
+        await fetchGateLogs();
+        setLoading(false);
+        fetchHomeLogs().catch(() => {});
+      } else {
+        await fetchHomeLogs();
+        setLoading(false);
+        fetchGateLogs().catch(() => {});
+      }
     } catch (err) {
       toast.error('Failed to load logs');
     } finally {
@@ -63,7 +73,9 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
   const [exportingPdf, setExportingPdf] = useState(false);
 
-  useEffect(() => { fetchLogs(); }, [dateFilter, statusFilter]);
+  useEffect(() => { 
+    fetchLogs(activeTab); 
+  }, [dateFilter, statusFilter, activeTab]);
 
   const handleExportPDF = async () => {
     const currentRecords = activeTab === 'gate' ? logs : homeLogs;

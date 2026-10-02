@@ -74,5 +74,8 @@ complaintSchema.index({ hostel: 1, status: 1 });
 complaintSchema.index({ student_id: 1 });
 complaintSchema.index({ student_id: 1, timestamp: -1 });
 complaintSchema.index({ status: 1, timestamp: -1 });
+complaintSchema.index({ timestamp: -1 });
+complaintSchema.index({ hostel: 1, timestamp: -1 });
+complaintSchema.index({ hostel: 1, status: 1, timestamp: -1 });
 
 module.exports = mongoose.model('Complaint', complaintSchema);

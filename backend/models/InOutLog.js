@@ -88,5 +88,8 @@ inOutLogSchema.index({ status: 1, returned: 1, date: 1 });
 inOutLogSchema.index({ student_id: 1, date: -1, timestamp: -1 });
 inOutLogSchema.index({ qr_token: 1 }, { unique: true });
 inOutLogSchema.index({ date: -1, timestamp: -1 });
+inOutLogSchema.index({ timestamp: -1 });
+inOutLogSchema.index({ status: 1, timestamp: -1 });
+inOutLogSchema.index({ date: -1, status: 1, timestamp: -1 });
 
 module.exports = mongoose.model('InOutLog', inOutLogSchema);
