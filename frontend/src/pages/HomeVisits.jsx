@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHome, MdRefresh, MdCheckCircle, MdCancel, MdPhone, MdPhoneInTalk, MdDeleteForever } from 'react-icons/md';
+import { MdHome, MdRefresh, MdCheckCircle, MdCancel, MdPhone, MdPhoneInTalk } from 'react-icons/md';
 
 const STATUS_FILTERS = ['all', 'pending', 'approved', 'rejected', 'completed'];
 
@@ -25,19 +25,6 @@ export default function HomeVisits() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [actioning, setActioning] = useState(null);
-
-  const handleDeleteVisit = async (visitId) => {
-    if (!window.confirm('Are you sure you want to permanently delete this home visit record?')) return;
-    try {
-      const res = await api.delete(`/homevisit/${visitId}`);
-      if (res.data?.success) {
-        toast.success('Home visit record deleted successfully');
-        setVisits((prev) => prev.filter((v) => v._id !== visitId));
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete home visit record');
-    }
-  };
 
   const fetchVisits = async () => {
     try {
@@ -369,40 +356,13 @@ export default function HomeVisits() {
                                   <MdCancel size={16} />
                                 )}
                               </button>
-
-                              {/* Delete Button */}
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                onClick={() => handleDeleteVisit(v._id)}
-                                title="Delete Home Visit Record"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: '#ef4444',
-                                  padding: '5px 8px',
-                                }}
-                              >
-                                <MdDeleteForever size={16} />
-                              </button>
                             </div>
                           );
                         })()
                       ) : (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                            {v.overall_status === 'completed' ? '✅ Done' : (v.overall_status || '—')}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => handleDeleteVisit(v._id)}
-                            title="Delete this record"
-                            style={{ color: '#ef4444', padding: '3px 6px', borderRadius: 4 }}
-                          >
-                            <MdDeleteForever size={15} />
-                          </button>
-                        </div>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                          {v.overall_status === 'completed' ? '✅ Done' : (v.overall_status || '—')}
+                        </span>
                       )}
                     </td>
                   </tr>

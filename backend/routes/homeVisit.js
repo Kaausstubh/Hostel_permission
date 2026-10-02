@@ -278,15 +278,23 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     }
 
     let scanResult;
+    const scannerName = req.user.name || req.user.rollNo || req.user.email || 'MSF Security Guard';
+
     if (!visit.qr_used_out) {
       // First scan = HOME OUT
       visit.qr_used_out = true;
       visit.actual_out_time = new Date();
+      visit.scanned_by_out = req.user._id;
+      visit.scannedBy = req.user._id;
+      visit.scanned_by_name = scannerName;
       scanResult = 'HOME OUT';
     } else if (!visit.qr_used_in) {
       // Second scan = HOME IN
       visit.qr_used_in = true;
       visit.actual_in_time = new Date();
+      visit.scanned_by_in = req.user._id;
+      visit.scannedBy = req.user._id;
+      visit.scanned_by_name = scannerName;
       visit.overall_status = 'completed';
       scanResult = 'HOME IN';
     } else {
@@ -318,6 +326,10 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
         .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture')
+        .populate('scannedBy', 'name rollNo email')
+        .populate('scanned_by_out', 'name rollNo email')
+        .populate('scanned_by_in', 'name rollNo email')
+        .populate('parent_call_confirmed_by', 'name rollNo email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

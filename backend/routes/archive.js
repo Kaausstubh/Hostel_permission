@@ -304,6 +304,7 @@ router.get('/storage-stats', authorize('warden', 'security', 'admin'), async (re
     }
 
     const quotaMB = 512;
+    const remainingMB = Math.max(0, parseFloat((quotaMB - storageUsedMB).toFixed(2)));
     const usagePercent = parseFloat(Math.min(100, Math.max(0.1, (storageUsedMB / quotaMB) * 100)).toFixed(1));
 
     // Aggregate records by month (YYYY-MM)
@@ -364,6 +365,7 @@ router.get('/storage-stats', authorize('warden', 'security', 'admin'), async (re
         complaintCount,
         totalRecords,
         storageUsedMB,
+        remainingMB,
         quotaMB,
         usagePercent,
         months,

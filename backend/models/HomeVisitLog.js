@@ -76,6 +76,27 @@ const homeVisitLogSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ── Security Guard who performed gate scan ───────────────────────────────
+    scanned_by_out: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    scanned_by_in: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    scannedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    scanned_by_name: {
+      type: String,
+      default: '',
+    },
+
     // ── Legacy parent workflow fields (kept for backward compatibility) ──────
     // Not used in the "warden calls parent" flow, but left to avoid breaking
     // existing documents/routes.
