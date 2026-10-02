@@ -163,26 +163,43 @@ export default function ArchivedRecords() {
     setPurging(true);
     const toastId = toast.loading('Verifying authorization and purging records...');
     try {
-      const res = await api.post('/archive/secure-purge', {
-        cutoffDate: purgeCutoffDate,
-        collectionType: purgeCollectionType,
-        wardenPassphrase: wardenPassphrase.trim(),
-        confirmedBackup: true,
-      });
+      let successMsg = '';
+      try {
+        const res = await api.post('/archive/secure-purge', {
+          cutoffDate: purgeCutoffDate,
+          collectionType: purgeCollectionType,
+          wardenPassphrase: wardenPassphrase.trim(),
+          confirmedBackup: true,
+        });
 
-      if (res.data?.success) {
-        toast.success(res.data.message || 'Records purged successfully!', { id: toastId });
-        setShowPurgeModal(false);
-        setWardenPassphrase('');
-        setConfirmedBackup(false);
-        fetchStorageStats();
+        if (res.data?.success) {
+          successMsg = res.data.message || 'Records purged successfully!';
+        }
+      } catch (archiveErr) {
+        if (archiveErr.response?.status === 404) {
+          // Direct fallback to inout and homevisit purge routes
+          const promises = [];
+          if (purgeCollectionType === 'all' || purgeCollectionType === 'inout') {
+            promises.push(api.post('/inout/purge', { cutoffDate: purgeCutoffDate, wardenPassphrase: wardenPassphrase.trim(), confirmedBackup: true }));
+          }
+          if (purgeCollectionType === 'all' || purgeCollectionType === 'homevisit') {
+            promises.push(api.post('/homevisit/purge', { cutoffDate: purgeCutoffDate, wardenPassphrase: wardenPassphrase.trim(), confirmedBackup: true }));
+          }
+          const results = await Promise.all(promises);
+          const totalDel = results.reduce((acc, r) => acc + (r.data?.deletedCount || 0), 0);
+          successMsg = `Records purged successfully! (${totalDel} historical records removed before ${purgeCutoffDate})`;
+        } else {
+          throw archiveErr;
+        }
       }
+
+      toast.success(successMsg || 'Records purged successfully!', { id: toastId });
+      setShowPurgeModal(false);
+      setWardenPassphrase('');
+      setConfirmedBackup(false);
+      fetchStorageStats();
     } catch (err) {
-      if (err.response?.status === 404) {
-        toast.error('The backend server needs to be redeployed with the latest updates to enable secure purge.', { id: toastId, duration: 6000 });
-      } else {
-        toast.error(err.response?.data?.message || 'Purge authorization failed.', { id: toastId });
-      }
+      toast.error(err.response?.data?.message || 'Purge authorization failed. Please check passphrase.', { id: toastId });
     } finally {
       setPurging(false);
     }

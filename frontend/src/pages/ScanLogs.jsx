@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHistory, MdRefresh, MdPictureAsPdf } from 'react-icons/md';
+import { MdHistory, MdRefresh, MdPictureAsPdf, MdDeleteForever } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
 
@@ -16,6 +16,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const { user } = useAuth();
+  const isWarden = user?.role === 'warden' || user?.role === 'admin';
 
   useEffect(() => {
     setActiveTab(defaultTab);
@@ -26,6 +28,32 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     const outDate = visit.actual_out_time ? new Date(visit.actual_out_time).toISOString().slice(0, 10) : '';
     const inDate = visit.actual_in_time ? new Date(visit.actual_in_time).toISOString().slice(0, 10) : '';
     return [visit.leave_date, visit.return_date, outDate, inDate].includes(date);
+  };
+
+  const handleDeleteGateLog = async (logId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this gate scan record?')) return;
+    try {
+      const res = await api.delete(`/inout/${logId}`);
+      if (res.data?.success) {
+        toast.success('Gate log deleted successfully');
+        setLogs((prev) => prev.filter((l) => l._id !== logId));
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete gate log');
+    }
+  };
+
+  const handleDeleteHomeVisit = async (visitId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this home visit record?')) return;
+    try {
+      const res = await api.delete(`/homevisit/${visitId}`);
+      if (res.data?.success) {
+        toast.success('Home visit record deleted successfully');
+        setHomeLogs((prev) => prev.filter((v) => v._id !== visitId));
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete home visit record');
+    }
   };
 
   const fetchLogs = async () => {
@@ -59,7 +87,6 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
-  const { user } = useAuth();
   const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => { fetchLogs(); }, [dateFilter, statusFilter]);
@@ -203,6 +230,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>In Time</th>
                   <th>Returned</th>
                   <th>Scanned By (MSF)</th>
+                  {isWarden && <th style={{ textAlign: 'center' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -254,6 +282,19 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                       {log.scannedBy?.rollNo || log.scannedBy?.name || 'N/A'}
                     </td>
+                    {isWarden && (
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleDeleteGateLog(log._id)}
+                          title="Delete this gate log record"
+                          style={{ color: '#ef4444', padding: '4px 8px', borderRadius: 6 }}
+                        >
+                          <MdDeleteForever size={16} /> Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -274,6 +315,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Home In</th>
                   <th>Status</th>
                   <th>Parent Phone</th>
+                  {isWarden && <th style={{ textAlign: 'center' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -319,6 +361,19 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                       {visit.student_id?.parentPhone || visit.parent_phone || '—'}
                     </td>
+                    {isWarden && (
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleDeleteHomeVisit(visit._id)}
+                          title="Delete this home visit record"
+                          style={{ color: '#ef4444', padding: '4px 8px', borderRadius: 6 }}
+                        >
+                          <MdDeleteForever size={16} /> Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

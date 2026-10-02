@@ -165,6 +165,33 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.text(`${summary.totalExits || 0} Out  /  ${summary.totalEntries || 0} In  /  ${summary.notReturned || 0} Outside`, 645, startY + 35);
 
+  // Clean Date Formatter helpers
+  const formatSingleDate = (d) => {
+    if (!d || d === '—' || d === '-') return '—';
+    const str = String(d).trim();
+    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    }
+    return str;
+  };
+
+  const formatRecordDate = (r) => {
+    if (r.leaveDate && r.returnDate) {
+      return `${formatSingleDate(r.leaveDate)} to\n${formatSingleDate(r.returnDate)}`;
+    }
+    const raw = r.date || '';
+    if (!raw || raw === '—' || raw === '-') return '—';
+    const str = String(raw).trim();
+    if (str.includes('→') || str.includes(' to ') || str.includes(' - ')) {
+      const parts = str.split(/[→]|(\s+to\s+)|(\s+-\s+)/).map(s => s?.trim()).filter(s => s && s !== 'to' && s !== '-');
+      if (parts.length >= 2) {
+        return `${formatSingleDate(parts[0])} to\n${formatSingleDate(parts[1])}`;
+      }
+    }
+    return formatSingleDate(str);
+  };
+
   // ── 5. Audit Log Table ──
   const tableRows = records.map((r, index) => [
     index + 1,
@@ -174,11 +201,11 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
     r.category || 'In/Out',
     r.status || '—',
     r.place || r.destination || '—',
-    r.date || '—',
+    formatRecordDate(r),
     r.outTime || (r.status === 'OUT' ? r.time : '—') || '—',
     r.inTime || (r.status === 'IN' ? r.time : '—') || '—',
     r.returned || '—',
-    r.scannedBy || '—',
+    r.scannedBy || r.scannedByName || '—',
   ]);
 
   autoTable(doc, {
@@ -211,23 +238,24 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
     bodyStyles: {
       fontSize: 7.2,
       textColor: [15, 23, 42],
-      cellPadding: 4,
+      cellPadding: 3.5,
+      valign: 'middle',
     },
     alternateRowStyles: {
       fillColor: [248, 250, 252],
     },
     columnStyles: {
       0: { cellWidth: 20, halign: 'center' },
-      1: { cellWidth: 96, fontStyle: 'bold', halign: 'left' },
-      2: { cellWidth: 58, halign: 'center' },
-      3: { cellWidth: 36, halign: 'center' },
-      4: { cellWidth: 52, halign: 'center' },
-      5: { cellWidth: 38, halign: 'center' },
-      6: { cellWidth: 84, halign: 'left' },
-      7: { cellWidth: 58, halign: 'center' },
-      8: { cellWidth: 64, halign: 'center' },
-      9: { cellWidth: 64, halign: 'center' },
-      10: { cellWidth: 44, halign: 'center' },
+      1: { cellWidth: 95, fontStyle: 'bold', halign: 'left' },
+      2: { cellWidth: 55, halign: 'center' },
+      3: { cellWidth: 35, halign: 'center' },
+      4: { cellWidth: 50, halign: 'center' },
+      5: { cellWidth: 46, halign: 'center' },
+      6: { cellWidth: 80, halign: 'left' },
+      7: { cellWidth: 78, halign: 'center' }, // Generous width prevents date wrapping
+      8: { cellWidth: 58, halign: 'center' },
+      9: { cellWidth: 58, halign: 'center' },
+      10: { cellWidth: 42, halign: 'center' },
       11: { cellWidth: 'auto', halign: 'left' },
     },
     didParseCell: (data) => {
@@ -388,13 +416,20 @@ export const generatePDFFromLocalLogs = async ({
     const leaveTime = outTimeStr !== '—' ? outTimeStr : (inTimeStr !== '—' ? inTimeStr : '—');
     const scannedByName = log.scannedBy?.name || log.scannedBy?.rollNo || log.parent_call_confirmed_by?.name || (typeof log.scannedBy === 'string' ? log.scannedBy : '—');
 
+    const dateStr = (log.leave_date && log.return_date)
+      ? `${log.leave_date} to ${log.return_date}`
+      : (log.leave_date || log.return_date || '—');
+
     formattedRecords.push({
       id: log._id,
       category: 'Home Visit',
-      date: `${log.leave_date || ''} → ${log.return_date || ''}`,
+      date: dateStr,
+      leaveDate: log.leave_date || '',
+      returnDate: log.return_date || '',
       time: leaveTime,
       outTime: outTimeStr,
       inTime: inTimeStr,
+      scannedByName,
       scannedBy: scannedByName,
       studentName: student?.name || log.name || 'Unknown',
       rollNo: student?.rollNo || log.rollNo || '—',

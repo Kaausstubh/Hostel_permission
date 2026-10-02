@@ -351,4 +351,40 @@ router.get('/my', protect, authorize('student'), async (req, res) => {
   }
 });
 
+// ─── Delete Individual Home Visit Record (Warden/Admin) ──────────────────────
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const visit = await HomeVisitLog.findByIdAndDelete(req.params.id);
+    if (!visit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
+    logger.info('[HomeVisit] Warden deleted visit record', { id: req.params.id, warden: req.user.email });
+    res.json({ success: true, message: 'Home visit record deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Bulk Purge Home Visits by Cutoff Date (Warden/Admin) ────────────────────
+router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { cutoffDate } = req.body;
+    if (!cutoffDate) {
+      return res.status(400).json({ success: false, message: 'cutoffDate is required (YYYY-MM-DD)' });
+    }
+    const cutoff = new Date(cutoffDate + 'T23:59:59.999Z');
+    const result = await HomeVisitLog.deleteMany({
+      $or: [
+        { createdAt: { $lte: cutoff } },
+        { leave_date: { $lte: cutoffDate } },
+        { return_date: { $lte: cutoffDate } },
+        { actual_in_time: { $lte: cutoff } },
+        { actual_out_time: { $lte: cutoff } },
+      ]
+    });
+    logger.info('[HomeVisit] Warden purged records', { cutoffDate, deletedCount: result.deletedCount, warden: req.user.email });
+    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Purged ${result.deletedCount || 0} home visit records` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;

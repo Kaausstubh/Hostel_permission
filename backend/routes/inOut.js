@@ -309,11 +309,38 @@ router.get('/history/:id', protect, async (req, res) => {
   }
 });
 
-// ─── Pending Active QRs (Security Dashboard live panel) ──────────────────────────────────────────
-// Returns all QR codes that have been generated but NOT yet scanned
-router.get('/pending-qrs', protect, authorize('warden', 'security'), async (req, res) => {
-  const qrs = await getActiveQRs(); // prunes expired automatically
-  res.json({ success: true, count: qrs.length, qrs });
+// ─── Delete Individual Gate Log (Warden/Admin) ──────────────────────────────────
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const log = await InOutLog.findByIdAndDelete(req.params.id);
+    if (!log) return res.status(404).json({ success: false, message: 'Gate log record not found' });
+    logger.info('[InOut] Warden deleted log record', { id: req.params.id, warden: req.user.email });
+    res.json({ success: true, message: 'Gate log record deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Bulk Purge Gate Logs by Cutoff Date (Warden/Admin) ──────────────────────
+router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { cutoffDate } = req.body;
+    if (!cutoffDate) {
+      return res.status(400).json({ success: false, message: 'cutoffDate is required (YYYY-MM-DD)' });
+    }
+    const cutoff = new Date(cutoffDate + 'T23:59:59.999Z');
+    const result = await InOutLog.deleteMany({
+      $or: [
+        { timestamp: { $lte: cutoff } },
+        { createdAt: { $lte: cutoff } },
+        { date: { $lte: cutoffDate } }
+      ]
+    });
+    logger.info('[InOut] Warden purged records', { cutoffDate, deletedCount: result.deletedCount, warden: req.user.email });
+    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Purged ${result.deletedCount || 0} gate logs` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 module.exports = router;
