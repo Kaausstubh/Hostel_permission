@@ -153,8 +153,8 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
   try {
     const { wipeStudents, target } = req.body;
 
-    if (req.user.role === 'security' && target !== 'inout') {
-      return res.status(403).json({ success: false, message: 'Security personnel can only clear gate scan logs' });
+    if (req.user.role === 'security' && target !== 'inout' && target !== 'homevisit') {
+      return res.status(403).json({ success: false, message: 'Security personnel can only clear gate scan or home visit logs' });
     }
 
     if (target === 'inout') {
@@ -164,6 +164,16 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
         success: true,
         message: `Successfully deleted ${inoutRes.deletedCount} In/Out scan logs. Student accounts and home visits remain safe.`,
         deleted: { inout: inoutRes.deletedCount },
+      });
+    }
+
+    if (target === 'homevisit') {
+      const homeRes = await HomeVisitLog.deleteMany({});
+      logger.info('[Dashboard] Home visit logs cleared', { userId: req.user._id, role: req.user.role, homeDeleted: homeRes.deletedCount });
+      return res.json({
+        success: true,
+        message: `Successfully deleted ${homeRes.deletedCount} Home Visit records. Student accounts and gate logs remain safe.`,
+        deleted: { homevisit: homeRes.deletedCount },
       });
     }
 

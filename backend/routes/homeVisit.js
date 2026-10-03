@@ -366,20 +366,31 @@ router.get('/my', protect, authorize('student'), async (req, res) => {
   }
 });
 
-// ─── Delete Individual Home Visit Record (Warden/Admin) ──────────────────────
-router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+// ─── Delete Individual Home Visit Record (Warden/Admin/Security) ─────────────
+router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const visit = await HomeVisitLog.findByIdAndDelete(req.params.id);
     if (!visit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
-    logger.info('[HomeVisit] Warden deleted visit record', { id: req.params.id, warden: req.user.email });
+    logger.info('[HomeVisit] Deleted visit record', { id: req.params.id, user: req.user.email, role: req.user.role });
     res.json({ success: true, message: 'Home visit record deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ─── Bulk Purge Home Visits by Cutoff Date (Warden/Admin) ────────────────────
-router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
+// ─── Delete All Home Visit Records (Warden/Admin/Security) ───────────────────
+router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const result = await HomeVisitLog.deleteMany({});
+    logger.info('[HomeVisit] Cleared all home visits', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
+    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Cleared ${result.deletedCount || 0} home visit records` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Bulk Purge Home Visits by Cutoff Date (Warden/Admin/Security) ────────────
+router.post('/purge', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const { cutoffDate } = req.body;
     if (!cutoffDate) {

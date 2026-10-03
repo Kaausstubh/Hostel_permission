@@ -124,34 +124,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   };
 
   const [clearing, setClearing] = useState(false);
-
-  const handleDeleteSingleLog = async (logId) => {
-    if (!window.confirm('Delete this gate scan record?')) return;
-    try {
-      setClearing(true);
-      await api.delete(`/inout/${logId}`);
-      toast.success('Gate record deleted successfully');
-      await fetchLogs('gate');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete record');
-    } finally {
-      setClearing(false);
-    }
-  };
-
-  const handleClearAllLogs = async () => {
-    if (!window.confirm('Are you sure you want to delete ALL gate scan records? This cannot be undone.')) return;
-    try {
-      setClearing(true);
-      await api.delete('/inout');
-      toast.success('All gate scan logs deleted successfully');
-      await fetchLogs('gate');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to clear logs');
-    } finally {
-      setClearing(false);
-    }
-  };
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    description: '',
+    confirmTargetText: 'delete',
+    onConfirm: null,
+  });
+  const [confirmInput, setConfirmInput] = useState('');
 
   return (
     <div className="fade-in">
@@ -160,24 +140,66 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
         <div className="section-header">
           <div>
-            <div className="section-title"><MdHistory /> Gate Scan Logs</div>
+            <div className="section-title">
+              <MdHistory /> {activeTab === 'gate' ? 'Gate Scan Logs' : 'Home Visit Records'}
+            </div>
             <div className="section-subtitle">
               {activeTab === 'gate' ? logs.length : homeLogs.length} record(s)
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {activeTab === 'gate' && logs.length > 0 && (
               <button
                 className="btn btn-outline btn-sm"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
-                onClick={handleClearAllLogs}
+                onClick={() => {
+                  setConfirmModal({
+                    isOpen: true,
+                    title: 'Delete All Gate Scan Logs',
+                    description: `You are about to permanently delete all ${logs.length} gate scan records from the database. Student accounts and home visits remain 100% safe.`,
+                    confirmTargetText: 'delete',
+                    onConfirm: async () => {
+                      await api.delete('/inout');
+                      toast.success('All gate scan logs deleted successfully');
+                      await fetchLogs('gate');
+                    },
+                  });
+                  setConfirmInput('');
+                }}
                 disabled={clearing || loading}
                 title="Delete all gate scan records"
               >
                 <MdDeleteOutline size={16} />
-                {clearing ? 'Deleting...' : 'Delete All Logs'}
+                Delete All Gate Logs
               </button>
             )}
+
+            {activeTab === 'home' && homeLogs.length > 0 && (
+              <button
+                className="btn btn-outline btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
+                onClick={() => {
+                  setConfirmModal({
+                    isOpen: true,
+                    title: 'Delete All Home Visit Records',
+                    description: `You are about to permanently delete all ${homeLogs.length} home visit pass records from the database. Student accounts and gate logs remain 100% safe.`,
+                    confirmTargetText: 'delete',
+                    onConfirm: async () => {
+                      await api.delete('/homevisit');
+                      toast.success('All home visit records deleted successfully');
+                      await fetchLogs('home');
+                    },
+                  });
+                  setConfirmInput('');
+                }}
+                disabled={clearing || loading}
+                title="Delete all home visit records"
+              >
+                <MdDeleteOutline size={16} />
+                Delete All Home Visits
+              </button>
+            )}
+
             <button
               className="btn btn-outline btn-sm"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#cbd5e1' }}
@@ -309,7 +331,21 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         className="btn btn-ghost btn-xs"
                         style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
                         title="Delete record"
-                        onClick={() => handleDeleteSingleLog(log._id)}
+                        onClick={() => {
+                          const studentName = log.student_id?.name || log.name || 'Student';
+                          setConfirmModal({
+                            isOpen: true,
+                            title: 'Delete Gate Scan Record',
+                            description: `Delete gate scan record for ${studentName} (${log.status} on ${log.date})? This action cannot be undone.`,
+                            confirmTargetText: 'delete',
+                            onConfirm: async () => {
+                              await api.delete(`/inout/${log._id}`);
+                              toast.success('Gate record deleted successfully');
+                              await fetchLogs('gate');
+                            },
+                          });
+                          setConfirmInput('');
+                        }}
                         disabled={clearing}
                       >
                         <MdDeleteOutline size={17} />
@@ -336,6 +372,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Status</th>
                   <th>Parent Phone</th>
                   <th>Scanned By</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -383,6 +420,31 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                        visit.parent_call_confirmed_by?.name ||
                        (visit.actual_in_time || visit.actual_out_time ? 'Duty Guard' : '—')}
                     </td>
+                    <td>
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                        title="Delete record"
+                        onClick={() => {
+                          const studentName = visit.student_id?.name || visit.name || 'Student';
+                          setConfirmModal({
+                            isOpen: true,
+                            title: 'Delete Home Visit Record',
+                            description: `Delete home visit record for ${studentName} (${visit.leave_date} to ${visit.return_date})? This action cannot be undone.`,
+                            confirmTargetText: 'delete',
+                            onConfirm: async () => {
+                              await api.delete(`/homevisit/${visit._id}`);
+                              toast.success('Home visit record deleted successfully');
+                              await fetchLogs('home');
+                            },
+                          });
+                          setConfirmInput('');
+                        }}
+                        disabled={clearing}
+                      >
+                        <MdDeleteOutline size={17} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -390,6 +452,136 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
           </div>
         )}
       </div>
+
+      {confirmModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--surface, #1e293b)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: '16px',
+            maxWidth: '460px',
+            width: '100%',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '22px',
+                flexShrink: 0
+              }}>
+                ⚠️
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text-primary, #f8fafc)' }}>
+                  {confirmModal.title}
+                </h3>
+                <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600' }}>
+                  Permanent Action — Cannot Be Undone
+                </span>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary, #94a3b8)', lineHeight: 1.5, marginBottom: '16px' }}>
+              {confirmModal.description}
+            </p>
+
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px dashed rgba(239, 68, 68, 0.35)',
+              borderRadius: '8px',
+              padding: '14px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-primary, #e2e8f0)', marginBottom: '8px' }}>
+                To confirm this deletion, type <strong>{confirmModal.confirmTargetText}</strong> below:
+              </div>
+              <input
+                type="text"
+                className="form-input"
+                style={{
+                  width: '100%',
+                  borderColor: confirmInput.trim().toLowerCase() === confirmModal.confirmTargetText.toLowerCase() ? '#10b981' : '#f87171',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  letterSpacing: '1px'
+                }}
+                placeholder={`Type "${confirmModal.confirmTargetText}" to confirm`}
+                value={confirmInput}
+                onChange={(e) => setConfirmInput(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setConfirmModal({ isOpen: false, title: '', description: '', confirmTargetText: 'delete', onConfirm: null });
+                  setConfirmInput('');
+                }}
+                disabled={clearing}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  backgroundColor: confirmInput.trim().toLowerCase() === confirmModal.confirmTargetText.toLowerCase() ? '#ef4444' : '#64748b',
+                  color: '#fff',
+                  cursor: confirmInput.trim().toLowerCase() === confirmModal.confirmTargetText.toLowerCase() ? 'pointer' : 'not-allowed',
+                  opacity: confirmInput.trim().toLowerCase() === confirmModal.confirmTargetText.toLowerCase() ? 1 : 0.5,
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                disabled={confirmInput.trim().toLowerCase() !== confirmModal.confirmTargetText.toLowerCase() || clearing}
+                onClick={async () => {
+                  try {
+                    setClearing(true);
+                    if (confirmModal.onConfirm) {
+                      await confirmModal.onConfirm();
+                    }
+                    setConfirmModal({ isOpen: false, title: '', description: '', confirmTargetText: 'delete', onConfirm: null });
+                    setConfirmInput('');
+                  } catch (err) {
+                    toast.error(err.response?.data?.message || 'Deletion failed');
+                  } finally {
+                    setClearing(false);
+                  }
+                }}
+              >
+                <MdDeleteOutline size={16} />
+                {clearing ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
