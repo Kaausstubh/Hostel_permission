@@ -13,7 +13,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, invalidateUserCache } = require('../middleware/auth');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
@@ -640,6 +640,9 @@ router.put('/onboard', async (req, res) => {
       { new: true }
     );
 
+    // Invalidate session cache so subsequent requests load fresh profile & photo
+    await invalidateUserCache(String(user._id));
+
     res.json({
       success: true,
       message: 'Onboarding completed successfully!',
@@ -682,6 +685,9 @@ router.put('/photo', async (req, res) => {
       },
       { new: true }
     );
+
+    // Invalidate session cache so subsequent requests load fresh profile & photo
+    await invalidateUserCache(String(req.user._id));
 
     res.json({
       success: true,

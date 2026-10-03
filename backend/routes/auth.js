@@ -228,7 +228,8 @@ router.get(
 // ── Get current user ──────────────────────────────────────────────────────────
 // Used by AuthContext on mount to silently re-validate the stored token.
 router.get('/me', protect, async (req, res) => {
-  let u = req.user;
+  // Always query fresh from DB for /me to guarantee latest profile and student photo
+  let u = (await User.findById(req.user._id).lean()) || req.user;
 
   // Auto-recovery: If student has no studentPhoto or if picture is Google's letter avatar,
   // attempt to recover their verified face photo from past HomeVisitLog or InOutLog
@@ -238,17 +239,19 @@ router.get('/me', protect, async (req, res) => {
       const InOutLog = require('../models/InOutLog');
       const pastVisit = await HomeVisitLog.findOne({
         student_id: u._id,
-        student_photo: { $regex: '^data:image' },
+        student_photo: { $ne: null, $nin: ['', null] },
       }).sort({ createdAt: -1 });
 
       const pastInOut = !pastVisit && await InOutLog.findOne({
         student_id: u._id,
-        student_photo: { $regex: '^data:image' },
+        student_photo: { $ne: null, $nin: ['', null] },
       }).sort({ createdAt: -1 });
 
-      const recovered = pastVisit?.student_photo || pastInOut?.student_photo;
+      const candidate = pastVisit?.student_photo || pastInOut?.student_photo;
+      const recovered = (candidate && !candidate.includes('googleusercontent.com')) ? candidate : null;
       if (recovered) {
         await User.updateOne({ _id: u._id }, { $set: { studentPhoto: recovered, picture: recovered } });
+        await invalidateUserCache(String(u._id));
         u.studentPhoto = recovered;
         u.picture = recovered;
       }

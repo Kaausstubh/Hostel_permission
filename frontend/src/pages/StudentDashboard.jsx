@@ -30,6 +30,8 @@ import {
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.png';
+import StudentAvatar from '../components/StudentAvatar';
+import { verifyHumanFace } from '../utils/faceDetector';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
@@ -474,7 +476,7 @@ export default function StudentDashboard() {
   const [activePasses, setActivePasses] = useState([]);
   const [qrQuickLoading, setQrQuickLoading] = useState(false);
   const [scanAlertModal, setScanAlertModal] = useState(null);
-  const lastScanFingerprintRef = useRef(null);
+  const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
   const bottomRef = useRef(null);
@@ -487,12 +489,150 @@ export default function StudentDashboard() {
   const msgIdRef = useRef(0);
   const [avatarImgError, setAvatarImgError] = useState(false);
 
+  // Profile Photo Update States
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [photoUpdating, setPhotoUpdating] = useState(false);
+  const [profileCameraOpen, setProfileCameraOpen] = useState(false);
+  const [profileCameraLoading, setProfileCameraLoading] = useState(false);
+  const [profileFaceError, setProfileFaceError] = useState('');
+  const [verifyingProfileFace, setVerifyingProfileFace] = useState(false);
+  const profileVideoRef = useRef(null);
+  const profileStreamRef = useRef(null);
+  const profileFileInputRef = useRef(null);
+
   // Complaint photo states
   const [complaintPhoto, setComplaintPhoto] = useState(null);
   const [complaintNote, setComplaintNote] = useState('');
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
   const complaintCameraRef = useRef(null);
   const complaintFileRef = useRef(null);
+
+  const startProfileCamera = async () => {
+    setProfileCameraOpen(true);
+    setProfileCameraLoading(true);
+    setProfileFaceError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 640 }, facingMode: 'user' },
+      });
+      profileStreamRef.current = stream;
+      if (profileVideoRef.current) {
+        profileVideoRef.current.srcObject = stream;
+        await profileVideoRef.current.play();
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Unable to access camera. Please allow camera permissions or upload a photo.');
+      stopProfileCamera();
+    } finally {
+      setProfileCameraLoading(false);
+    }
+  };
+
+  const stopProfileCamera = () => {
+    if (profileStreamRef.current) {
+      profileStreamRef.current.getTracks().forEach((track) => track.stop());
+      profileStreamRef.current = null;
+    }
+    setProfileCameraOpen(false);
+  };
+
+  const saveUploadedPhoto = async (dataUrl) => {
+    setPhotoUpdating(true);
+    const toastId = toast.loading('Saving verified registration face photo...');
+    try {
+      const res = await api.put('/student/photo', { photo: dataUrl });
+      if (res.data?.success) {
+        updateUser({ studentPhoto: dataUrl, picture: dataUrl });
+        toast.success('Registration face photo updated successfully! 🎉', { id: toastId });
+        setPhotoModalOpen(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update photo. Please try again.', { id: toastId });
+    } finally {
+      setPhotoUpdating(false);
+    }
+  };
+
+  const captureProfilePhoto = async () => {
+    if (!profileVideoRef.current) return;
+    const video = profileVideoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    const size = Math.min(video.videoWidth || 360, video.videoHeight || 360);
+    const sx = ((video.videoWidth || 360) - size) / 2;
+    const sy = ((video.videoHeight || 360) - size) / 2;
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, 360, 360);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+
+    setVerifyingProfileFace(true);
+    setProfileFaceError('');
+    try {
+      const verification = await verifyHumanFace(canvas);
+      if (!verification.ok) {
+        setProfileFaceError(verification.message || 'No human face detected. Please face the camera directly in good lighting.');
+        toast.error(verification.message || 'No human face detected! Only real human face photos are accepted.');
+        return;
+      }
+      stopProfileCamera();
+      await saveUploadedPhoto(dataUrl);
+    } catch (err) {
+      console.error(err);
+      toast.error('Face verification failed. Please try again.');
+    } finally {
+      setVerifyingProfileFace(false);
+    }
+  };
+
+  const handleProfilePhotoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      return toast.error('Please upload an image file (JPG or PNG).');
+    }
+    setVerifyingProfileFace(true);
+    setProfileFaceError('');
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 360;
+        canvas.height = 360;
+        const ctx = canvas.getContext('2d');
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, 360, 360);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+
+        try {
+          const verification = await verifyHumanFace(canvas);
+          if (!verification.ok) {
+            setProfileFaceError(verification.message || 'No human face detected! Only clear human face photos are accepted.');
+            toast.error(verification.message || 'No human face detected. Only genuine human face photos are accepted.');
+            if (profileFileInputRef.current) profileFileInputRef.current.value = '';
+            return;
+          }
+          await saveUploadedPhoto(dataUrl);
+        } catch (err) {
+          console.error(err);
+          toast.error('Failed to verify face photo. Please try again.');
+        } finally {
+          setVerifyingProfileFace(false);
+          if (profileFileInputRef.current) profileFileInputRef.current.value = '';
+        }
+      };
+      img.onerror = () => {
+        setVerifyingProfileFace(false);
+        toast.error('Invalid image file. Please upload a clear JPG/PNG photo.');
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -763,7 +903,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: label });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara, Pune, Mumbai, Home Address)?');
     }
   };
 
@@ -789,7 +929,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: text });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara ,Pune, Mumbai, Home Address)?');
     } else if (step === STEPS.HV_PLACE) {
       setLoading(true);
       try {
@@ -1175,51 +1315,70 @@ export default function StudentDashboard() {
       const currentFingerprint = `${logKey}__${hvApprovedKey}__${hvRecentKey}__${s.currentStatus || ''}`;
 
       if (!isInitialStatusLoadedRef.current) {
-        lastScanFingerprintRef.current = currentFingerprint;
+        lastScanStateRef.current = {
+          fingerprint: currentFingerprint,
+          logKey,
+          hvApprovedKey,
+          hvRecentKey,
+          status: s.currentStatus,
+        };
         isInitialStatusLoadedRef.current = true;
-      } else if (lastScanFingerprintRef.current && lastScanFingerprintRef.current !== currentFingerprint) {
-        lastScanFingerprintRef.current = currentFingerprint;
+      } else if (lastScanStateRef.current && lastScanStateRef.current.fingerprint !== currentFingerprint) {
+        const prevState = lastScanStateRef.current;
+        lastScanStateRef.current = {
+          fingerprint: currentFingerprint,
+          logKey,
+          hvApprovedKey,
+          hvRecentKey,
+          status: s.currentStatus,
+        };
 
-        let scanType = 'IN';
-        let title = 'Campus Entry Verified';
-        let subtitle = 'Security scanned your pass. Welcome back to campus!';
-        let destination = '';
-        let scanTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        // Determine whether Home Visit or Daily pass changed
+        const hvApprovedChanged = latestApprovedHv && prevState.hvApprovedKey !== hvApprovedKey;
+        const hvRecentChanged = latestRecentHv && prevState.hvRecentKey !== hvRecentKey;
+        const logChanged = latestLog && prevState.logKey !== logKey;
 
-        if (latestLog && (latestLog.status === 'IN' || latestLog.in_time)) {
-          scanType = 'IN';
-          title = 'Campus Entry Verified';
-          subtitle = 'Security scanned your QR code at the gate. Welcome back!';
-          destination = latestLog.place || 'Hostel Campus';
-          if (latestLog.in_time) {
-            scanTime = new Date(latestLog.in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        // Check for Home Visit Return
+        const isHvReturn =
+          (hvRecentChanged && (latestRecentHv?.qr_used_in || latestRecentHv?.overall_status === 'completed')) ||
+          (hvApprovedChanged && latestApprovedHv?.qr_used_in);
+
+        // Check for Home Visit Departure
+        const isHvDeparture =
+          hvApprovedChanged && latestApprovedHv?.qr_used_out && !latestApprovedHv?.qr_used_in;
+
+        let isHomeVisit = false;
+        let isHvPhaseReturn = false;
+
+        if (isHvReturn) {
+          isHomeVisit = true;
+          isHvPhaseReturn = true;
+        } else if (isHvDeparture) {
+          isHomeVisit = true;
+          isHvPhaseReturn = false;
+        } else if (!logChanged && (latestApprovedHv?.qr_used_out || latestRecentHv?.qr_used_in)) {
+          if (latestRecentHv?.qr_used_in) {
+            isHomeVisit = true;
+            isHvPhaseReturn = true;
+          } else if (latestApprovedHv?.qr_used_out) {
+            isHomeVisit = true;
+            isHvPhaseReturn = false;
           }
-        } else if (latestLog && latestLog.status === 'OUT') {
-          scanType = 'OUT';
-          title = 'Campus Exit Verified';
-          subtitle = 'Security scanned your QR code at the gate. Have a safe journey!';
-          destination = latestLog.place || 'Out of Campus';
-          if (latestLog.out_time || latestLog.timestamp) {
-            scanTime = new Date(latestLog.out_time || latestLog.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-          }
-        } else if (latestApprovedHv?.qr_used_out && !latestApprovedHv?.qr_used_in) {
-          scanType = 'OUT';
-          title = 'Home Visit Departure Verified';
-          subtitle = 'Security scanned your Home Visit pass. Have a safe journey home!';
-          destination = 'Home';
-        } else if (latestRecentHv?.qr_used_in || latestApprovedHv?.qr_used_in) {
-          scanType = 'IN';
-          title = 'Home Visit Return Verified';
-          subtitle = 'Security scanned your Home Visit return pass. Welcome back!';
-          destination = 'Hostel Campus';
-        } else if (s.currentStatus === 'OUT') {
-          scanType = 'OUT';
-          title = 'Campus Exit Recorded';
-          subtitle = 'Security scanned your pass. You are marked OUT.';
+        } else if (logChanged) {
+          isHomeVisit = false;
         } else {
-          scanType = 'IN';
-          title = 'Campus Entry Recorded';
-          subtitle = 'Security scanned your pass. You are marked IN.';
+          // Compare event timestamps to see what is newest
+          const hvReturnTime = new Date(latestRecentHv?.actual_in_time || latestRecentHv?.actual_in || 0).getTime();
+          const hvOutTime = new Date(latestApprovedHv?.actual_out_time || latestApprovedHv?.actual_out || 0).getTime();
+          const logTime = new Date(latestLog?.in_time || latestLog?.out_time || latestLog?.timestamp || 0).getTime();
+
+          const maxHvTime = Math.max(hvReturnTime, hvOutTime);
+          if (maxHvTime > logTime) {
+            isHomeVisit = true;
+            isHvPhaseReturn = hvReturnTime >= hvOutTime;
+          } else {
+            isHomeVisit = false;
+          }
         }
 
         // Close zoomed QR so full screen modal takes over cleanly
@@ -1235,26 +1394,109 @@ export default function StudentDashboard() {
           }
         }
 
-        // Show full screen notification modal
-        setScanAlertModal({
-          scanType,
-          title,
-          subtitle,
-          destination,
-          scanTime,
-          studentName: user?.name || 'Student',
-          rollNo: user?.rollNo || '',
-          hostel: user?.hostel || '',
-        });
+        if (isHomeVisit) {
+          const hvRecord = isHvPhaseReturn ? (latestRecentHv || latestApprovedHv) : latestApprovedHv;
+          const scanType = isHvPhaseReturn ? 'HOME_IN' : 'HOME_OUT';
+          const title = isHvPhaseReturn ? 'Home Visit Return Verified' : 'Home Visit Departure Verified';
+          const subtitle = isHvPhaseReturn
+            ? 'Security scanned your Home Visit return pass. Welcome back to campus hostel!'
+            : 'Security scanned your Home Visit pass at the gate. Have a safe journey home!';
+          const destination = hvRecord?.place || 'Home';
+          const leaveDate = hvRecord?.leave_date ? format(new Date(hvRecord.leave_date), 'dd MMM yyyy') : '';
+          const returnDate = hvRecord?.return_date ? format(new Date(hvRecord.return_date), 'dd MMM yyyy') : '';
+          const rawTime = isHvPhaseReturn
+            ? (hvRecord?.actual_in_time || hvRecord?.actual_in || new Date())
+            : (hvRecord?.actual_out_time || hvRecord?.actual_out || new Date());
+          const scanTime = new Date(rawTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-        // Add confirmation to chat thread
-        botSay(
-          `🛡️ **Gate Scan Confirmed by Security!**\n\n` +
-          `✅ Movement: *${scanType === 'OUT' ? 'Campus Exit (OUT)' : 'Campus Entry (IN)'}*\n` +
-          `${destination ? `📍 Location: *${destination}*\n` : ''}` +
-          `⏰ Verified at: *${scanTime}*\n` +
-          `👮 Scanned at Main Campus Security Gate.`
-        );
+          setScanAlertModal({
+            isHomeVisit: true,
+            homeVisitPhase: isHvPhaseReturn ? 'return' : 'departure',
+            scanType,
+            title,
+            subtitle,
+            destination,
+            leaveDate,
+            returnDate,
+            scanTime,
+            studentName: user?.name || 'Student',
+            rollNo: user?.rollNo || '',
+            hostel: user?.hostel || '',
+          });
+
+          if (isHvPhaseReturn) {
+            botSay(
+              `🏡 **Home Visit Return Confirmed by Security!**\n\n` +
+              `✅ Movement: *Campus Entry (Home Visit Return)*\n` +
+              `📍 Returned from: *${destination}*\n` +
+              (leaveDate && returnDate ? `📅 Visit Period: *${leaveDate}* to *${returnDate}*\n` : '') +
+              `⏰ Verified at: *${scanTime}*\n` +
+              `👮 Scanned at Main Campus Security Gate. Welcome back to campus!`
+            );
+          } else {
+            botSay(
+              `🏡 **Home Visit Departure Confirmed by Security!**\n\n` +
+              `✅ Movement: *Campus Exit (Home Visit)*\n` +
+              `📍 Destination: *${destination}*\n` +
+              (leaveDate && returnDate ? `📅 Approved Leave: *${leaveDate}* to *${returnDate}*\n` : '') +
+              `⏰ Verified at: *${scanTime}*\n` +
+              `👮 Scanned at Main Campus Security Gate. Have a safe journey home!`
+            );
+          }
+        } else {
+          // Daily In/Out Pass
+          let scanType = 'IN';
+          let title = 'Campus Entry Verified';
+          let subtitle = 'Security scanned your pass. Welcome back to campus!';
+          let destination = latestLog?.place || (s.currentStatus === 'OUT' ? 'Out of Campus' : 'Hostel Campus');
+          let scanTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+          if (latestLog && latestLog.status === 'OUT') {
+            scanType = 'OUT';
+            title = 'Campus Exit Verified';
+            subtitle = 'Security scanned your QR code at the gate. Have a safe journey!';
+            destination = latestLog.place || 'Out of Campus';
+            if (latestLog.out_time || latestLog.timestamp) {
+              scanTime = new Date(latestLog.out_time || latestLog.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            }
+          } else if (latestLog && (latestLog.status === 'IN' || latestLog.in_time)) {
+            scanType = 'IN';
+            title = 'Campus Entry Verified';
+            subtitle = 'Security scanned your QR code at the gate. Welcome back!';
+            destination = latestLog.place || 'Hostel Campus';
+            if (latestLog.in_time) {
+              scanTime = new Date(latestLog.in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            }
+          } else if (s.currentStatus === 'OUT') {
+            scanType = 'OUT';
+            title = 'Campus Exit Recorded';
+            subtitle = 'Security scanned your pass. You are marked OUT.';
+          } else {
+            scanType = 'IN';
+            title = 'Campus Entry Recorded';
+            subtitle = 'Security scanned your pass. You are marked IN.';
+          }
+
+          setScanAlertModal({
+            isHomeVisit: false,
+            scanType,
+            title,
+            subtitle,
+            destination,
+            scanTime,
+            studentName: user?.name || 'Student',
+            rollNo: user?.rollNo || '',
+            hostel: user?.hostel || '',
+          });
+
+          botSay(
+            `🛡️ **Gate Scan Confirmed by Security!**\n\n` +
+            `✅ Movement: *${scanType === 'OUT' ? 'Campus Exit (OUT)' : 'Campus Entry (IN)'}*\n` +
+            `${destination ? `📍 Location: *${destination}*\n` : ''}` +
+            `⏰ Verified at: *${scanTime}*\n` +
+            `👮 Scanned at Main Campus Security Gate.`
+          );
+        }
       }
     } catch {
       // background silent check
@@ -2026,33 +2268,39 @@ export default function StudentDashboard() {
           padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ flexShrink: 0 }}>
-              {(user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com'))) && !avatarImgError ? (
-                <img
-                  src={user?.studentPhoto || user?.picture}
-                  alt={user?.name || 'Student photo'}
-                  onError={() => setAvatarImgError(true)}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: '50%',
-                    objectFit: 'cover',
-                    display: 'block',
-                    border: '2px solid rgba(99, 102, 241, 0.65)',
-                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
-                  }}
-                />
-              ) : (
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, color: '#fff', fontSize: 16,
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-                }}>
-                  {user?.name?.charAt(0).toUpperCase() || 'S'}
-                </div>
-              )}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <StudentAvatar
+                student={user}
+                size={44}
+                style={{
+                  border: '2px solid rgba(99, 102, 241, 0.65)',
+                  boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setPhotoModalOpen(true)}
+                title="Update / Upload registration face photo"
+                style={{
+                  position: 'absolute',
+                  bottom: -2,
+                  right: -2,
+                  width: 20,
+                  height: 20,
+                  borderRadius: '50%',
+                  background: '#3b82f6',
+                  border: '1.5px solid var(--card-bg, #1a2234)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  padding: 0,
+                  boxShadow: '0 2px 5px rgba(0,0,0,0.4)',
+                }}
+              >
+                <MdPhotoCamera size={11} />
+              </button>
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2215,20 +2463,7 @@ export default function StudentDashboard() {
                 gap: 6,
                 minWidth: 0,
               }}>
-                {(user?.studentPhoto || (user?.picture && !user.picture.includes('googleusercontent.com')) || user?.photo) && !avatarImgError && (
-                  <img
-                    src={user?.studentPhoto || (!user?.picture?.includes('googleusercontent.com') ? user?.picture : null) || user?.photo}
-                    alt=""
-                    onError={() => setAvatarImgError(true)}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      objectFit: 'cover',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
+                <StudentAvatar student={user} size={20} style={{ flexShrink: 0 }} />
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   🎓 {user?.name ? `${user.name.split(' ')[0]} (Student)` : 'Student'}
                 </span>
@@ -2683,16 +2918,28 @@ export default function StudentDashboard() {
               position: 'relative',
               width: '100%',
               maxWidth: 480,
-              background: scanAlertModal.scanType === 'OUT'
-                ? 'linear-gradient(180deg, rgba(32, 16, 22, 0.97) 0%, rgba(18, 12, 16, 0.99) 100%)'
-                : 'linear-gradient(180deg, rgba(10, 32, 22, 0.97) 0%, rgba(10, 18, 16, 0.99) 100%)',
-              border: scanAlertModal.scanType === 'OUT'
-                ? '2px solid rgba(244, 63, 94, 0.55)'
-                : '2px solid rgba(16, 185, 129, 0.55)',
+              background: scanAlertModal.isHomeVisit
+                ? (scanAlertModal.homeVisitPhase === 'departure'
+                    ? 'linear-gradient(180deg, rgba(28, 16, 44, 0.98) 0%, rgba(16, 10, 28, 0.99) 100%)'
+                    : 'linear-gradient(180deg, rgba(8, 30, 24, 0.98) 0%, rgba(6, 18, 16, 0.99) 100%)')
+                : (scanAlertModal.scanType === 'OUT'
+                    ? 'linear-gradient(180deg, rgba(32, 16, 22, 0.97) 0%, rgba(18, 12, 16, 0.99) 100%)'
+                    : 'linear-gradient(180deg, rgba(10, 32, 22, 0.97) 0%, rgba(10, 18, 16, 0.99) 100%)'),
+              border: scanAlertModal.isHomeVisit
+                ? (scanAlertModal.homeVisitPhase === 'departure'
+                    ? '2px solid rgba(168, 85, 247, 0.6)'
+                    : '2px solid rgba(16, 185, 129, 0.6)')
+                : (scanAlertModal.scanType === 'OUT'
+                    ? '2px solid rgba(244, 63, 94, 0.55)'
+                    : '2px solid rgba(16, 185, 129, 0.55)'),
               borderRadius: 28,
-              boxShadow: scanAlertModal.scanType === 'OUT'
-                ? '0 0 60px rgba(244, 63, 94, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)'
-                : '0 0 60px rgba(16, 185, 129, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              boxShadow: scanAlertModal.isHomeVisit
+                ? (scanAlertModal.homeVisitPhase === 'departure'
+                    ? '0 0 60px rgba(168, 85, 247, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)'
+                    : '0 0 60px rgba(16, 185, 129, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)')
+                : (scanAlertModal.scanType === 'OUT'
+                    ? '0 0 60px rgba(244, 63, 94, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)'
+                    : '0 0 60px rgba(16, 185, 129, 0.35), 0 25px 50px -12px rgba(0, 0, 0, 0.85)'),
               padding: '32px 24px',
               textAlign: 'center',
               display: 'flex',
@@ -2726,16 +2973,33 @@ export default function StudentDashboard() {
                   fontWeight: 800,
                   letterSpacing: '0.08em',
                   textTransform: 'uppercase',
-                  background: scanAlertModal.scanType === 'OUT'
-                    ? 'rgba(244, 63, 94, 0.15)'
-                    : 'rgba(16, 185, 129, 0.15)',
-                  color: scanAlertModal.scanType === 'OUT' ? '#fda4af' : '#6ee7b7',
-                  border: scanAlertModal.scanType === 'OUT'
-                    ? '1px solid rgba(244, 63, 94, 0.35)'
-                    : '1px solid rgba(16, 185, 129, 0.35)',
+                  background: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? 'rgba(99, 102, 241, 0.2)'
+                        : 'rgba(16, 185, 129, 0.2)')
+                    : (scanAlertModal.scanType === 'OUT'
+                        ? 'rgba(244, 63, 94, 0.15)'
+                        : 'rgba(16, 185, 129, 0.15)'),
+                  color: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure' ? '#c4b5fd' : '#6ee7b7')
+                    : (scanAlertModal.scanType === 'OUT' ? '#fda4af' : '#6ee7b7'),
+                  border: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? '1px solid rgba(168, 85, 247, 0.45)'
+                        : '1px solid rgba(16, 185, 129, 0.45)')
+                    : (scanAlertModal.scanType === 'OUT'
+                        ? '1px solid rgba(244, 63, 94, 0.35)'
+                        : '1px solid rgba(16, 185, 129, 0.35)'),
+                  boxShadow: scanAlertModal.isHomeVisit ? '0 0 12px rgba(124, 58, 237, 0.25)' : undefined,
                 }}
               >
-                <span>🛡️ Gate Security Verified</span>
+                <span>
+                  {scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? '🏡 Home Visit · Departure'
+                        : '🏡 Home Visit · Welcome Back')
+                    : '🛡️ Gate Security Verified'}
+                </span>
               </span>
             </div>
 
@@ -2756,9 +3020,13 @@ export default function StudentDashboard() {
                   position: 'absolute',
                   inset: -8,
                   borderRadius: '50%',
-                  background: scanAlertModal.scanType === 'OUT'
-                    ? 'radial-gradient(circle, rgba(244, 63, 94, 0.45) 0%, rgba(244, 63, 94, 0) 70%)'
-                    : 'radial-gradient(circle, rgba(16, 185, 129, 0.45) 0%, rgba(16, 185, 129, 0) 70%)',
+                  background: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? 'radial-gradient(circle, rgba(168, 85, 247, 0.45) 0%, rgba(168, 85, 247, 0) 70%)'
+                        : 'radial-gradient(circle, rgba(16, 185, 129, 0.45) 0%, rgba(16, 185, 129, 0) 70%)')
+                    : (scanAlertModal.scanType === 'OUT'
+                        ? 'radial-gradient(circle, rgba(244, 63, 94, 0.45) 0%, rgba(244, 63, 94, 0) 70%)'
+                        : 'radial-gradient(circle, rgba(16, 185, 129, 0.45) 0%, rgba(16, 185, 129, 0) 70%)'),
                   animation: 'pulseRingModal 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite',
                 }}
               />
@@ -2767,29 +3035,51 @@ export default function StudentDashboard() {
                   width: 80,
                   height: 80,
                   borderRadius: '50%',
-                  background: scanAlertModal.scanType === 'OUT'
-                    ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
-                    : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                  background: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? 'linear-gradient(135deg, #6366f1 0%, #9333ea 100%)'
+                        : 'linear-gradient(135deg, #059669 0%, #0d9488 100%)')
+                    : (scanAlertModal.scanType === 'OUT'
+                        ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
+                        : 'linear-gradient(135deg, #059669 0%, #047857 100%)'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: scanAlertModal.scanType === 'OUT'
-                    ? '0 10px 25px rgba(225, 29, 72, 0.6)'
-                    : '0 10px 25px rgba(5, 150, 105, 0.6)',
+                  boxShadow: scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure'
+                        ? '0 10px 25px rgba(147, 51, 234, 0.6)'
+                        : '0 10px 25px rgba(5, 150, 105, 0.6)')
+                    : (scanAlertModal.scanType === 'OUT'
+                        ? '0 10px 25px rgba(225, 29, 72, 0.6)'
+                        : '0 10px 25px rgba(5, 150, 105, 0.6)'),
                   color: '#ffffff',
                 }}
               >
-                {scanAlertModal.scanType === 'OUT' ? (
-                  <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
+                {scanAlertModal.isHomeVisit ? (
+                  scanAlertModal.homeVisitPhase === 'departure' ? (
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                  ) : (
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  )
                 ) : (
-                  <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                    <polyline points="22 4 12 14.01 9 11.01" />
-                  </svg>
+                  scanAlertModal.scanType === 'OUT' ? (
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                  ) : (
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  )
                 )}
               </div>
             </div>
@@ -2799,7 +3089,7 @@ export default function StudentDashboard() {
               <h2
                 style={{
                   margin: 0,
-                  fontSize: 24,
+                  fontSize: 23,
                   fontWeight: 900,
                   letterSpacing: '-0.02em',
                   color: '#ffffff',
@@ -2812,7 +3102,7 @@ export default function StudentDashboard() {
                 style={{
                   margin: 0,
                   fontSize: 14,
-                  color: 'rgba(255, 255, 255, 0.75)',
+                  color: 'rgba(255, 255, 255, 0.8)',
                   lineHeight: 1.45,
                 }}
               >
@@ -2824,8 +3114,16 @@ export default function StudentDashboard() {
             <div
               style={{
                 width: '100%',
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
+                background: scanAlertModal.isHomeVisit
+                  ? (scanAlertModal.homeVisitPhase === 'departure'
+                      ? 'rgba(168, 85, 247, 0.08)'
+                      : 'rgba(16, 185, 129, 0.08)')
+                  : 'rgba(255, 255, 255, 0.05)',
+                border: scanAlertModal.isHomeVisit
+                  ? (scanAlertModal.homeVisitPhase === 'departure'
+                      ? '1px solid rgba(168, 85, 247, 0.25)'
+                      : '1px solid rgba(16, 185, 129, 0.25)')
+                  : '1px solid rgba(255, 255, 255, 0.12)',
                 borderRadius: 18,
                 padding: '16px 18px',
                 display: 'grid',
@@ -2835,20 +3133,15 @@ export default function StudentDashboard() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {user?.picture ? (
-                  <img
-                    src={user.picture}
-                    alt=""
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: '50%',
-                      objectFit: 'cover',
-                      flexShrink: 0,
-                      border: '1.5px solid rgba(255,255,255,0.3)',
-                    }}
-                  />
-                ) : null}
+                <StudentAvatar
+                  student={user}
+                  size={40}
+                  style={{
+                    border: '1.5px solid rgba(255,255,255,0.4)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    flexShrink: 0,
+                  }}
+                />
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Student
@@ -2858,7 +3151,7 @@ export default function StudentDashboard() {
                   </div>
                   {scanAlertModal.rollNo && (
                     <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
-                      {scanAlertModal.rollNo}
+                      {scanAlertModal.rollNo} {scanAlertModal.hostel ? `· ${scanAlertModal.hostel}` : ''}
                     </div>
                   )}
                 </div>
@@ -2870,13 +3163,17 @@ export default function StudentDashboard() {
                 </div>
                 <div
                   style={{
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: 800,
                     marginTop: 2,
-                    color: scanAlertModal.scanType === 'OUT' ? '#fb7185' : '#34d399',
+                    color: scanAlertModal.isHomeVisit
+                      ? (scanAlertModal.homeVisitPhase === 'departure' ? '#c4b5fd' : '#34d399')
+                      : (scanAlertModal.scanType === 'OUT' ? '#fb7185' : '#34d399'),
                   }}
                 >
-                  {scanAlertModal.scanType === 'OUT' ? '🚪 EXIT (OUT)' : '🏫 ENTRY (IN)'}
+                  {scanAlertModal.isHomeVisit
+                    ? (scanAlertModal.homeVisitPhase === 'departure' ? '🏡 HOME LEAVE (OUT)' : '🏫 HOME RETURN (IN)')
+                    : (scanAlertModal.scanType === 'OUT' ? '🚪 EXIT (OUT)' : '🏫 ENTRY (IN)')}
                 </div>
                 <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
                   Main Gate Security
@@ -2886,10 +3183,21 @@ export default function StudentDashboard() {
               {scanAlertModal.destination && (
                 <div style={{ gridColumn: 'span 2' }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Destination / Location
+                    {scanAlertModal.isHomeVisit ? 'Home Visit Destination' : 'Destination / Location'}
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc', marginTop: 2 }}>
                     📍 {scanAlertModal.destination}
+                  </div>
+                </div>
+              )}
+
+              {scanAlertModal.isHomeVisit && scanAlertModal.leaveDate && scanAlertModal.returnDate && (
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.45)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Approved Leave Period
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#c4b5fd', marginTop: 2 }}>
+                    📅 {scanAlertModal.leaveDate} ➔ {scanAlertModal.returnDate}
                   </div>
                 </div>
               )}
@@ -2913,17 +3221,25 @@ export default function StudentDashboard() {
                 padding: '14px 20px',
                 borderRadius: 14,
                 border: 'none',
-                background: scanAlertModal.scanType === 'OUT'
-                  ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
-                  : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                background: scanAlertModal.isHomeVisit
+                  ? (scanAlertModal.homeVisitPhase === 'departure'
+                      ? 'linear-gradient(135deg, #6366f1 0%, #7c3aed 100%)'
+                      : 'linear-gradient(135deg, #059669 0%, #0d9488 100%)')
+                  : (scanAlertModal.scanType === 'OUT'
+                      ? 'linear-gradient(135deg, #e11d48 0%, #be123c 100%)'
+                      : 'linear-gradient(135deg, #059669 0%, #047857 100%)'),
                 color: '#ffffff',
                 fontSize: 15,
                 fontWeight: 800,
                 letterSpacing: '0.02em',
                 cursor: 'pointer',
-                boxShadow: scanAlertModal.scanType === 'OUT'
-                  ? '0 4px 18px rgba(225, 29, 72, 0.45)'
-                  : '0 4px 18px rgba(5, 150, 105, 0.45)',
+                boxShadow: scanAlertModal.isHomeVisit
+                  ? (scanAlertModal.homeVisitPhase === 'departure'
+                      ? '0 4px 18px rgba(124, 58, 237, 0.45)'
+                      : '0 4px 18px rgba(5, 150, 105, 0.45)')
+                  : (scanAlertModal.scanType === 'OUT'
+                      ? '0 4px 18px rgba(225, 29, 72, 0.45)'
+                      : '0 4px 18px rgba(5, 150, 105, 0.45)'),
                 transition: 'transform 0.15s ease, filter 0.15s ease',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -2934,6 +3250,268 @@ export default function StudentDashboard() {
           </div>
         </div>
       )}
+
+      {/* Profile Photo Update Modal */}
+      {photoModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            if (!photoUpdating && !verifyingProfileFace) {
+              stopProfileCamera();
+              setPhotoModalOpen(false);
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.82)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 420,
+              background: 'var(--card-bg, #1a2234)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 24,
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+              animation: 'scaleUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {/* Header */}
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Student Face Photo
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Official registration photo for gate verification
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  stopProfileCamera();
+                  setPhotoModalOpen(false);
+                }}
+                disabled={photoUpdating || verifyingProfileFace}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 4,
+                }}
+              >
+                <MdClose size={22} />
+              </button>
+            </div>
+
+            {/* Current Photo Preview or Camera Viewfinder */}
+            {profileCameraOpen ? (
+              <div
+                style={{
+                  position: 'relative',
+                  width: 240,
+                  height: 240,
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  background: '#000',
+                  border: '3px solid #3b82f6',
+                  boxShadow: '0 0 30px rgba(59, 130, 246, 0.35)',
+                }}
+              >
+                <video
+                  ref={profileVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transform: 'scaleX(-1)',
+                  }}
+                />
+                {profileCameraLoading && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      fontSize: 13,
+                      background: 'rgba(0,0,0,0.6)',
+                    }}
+                  >
+                    Starting camera...
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ position: 'relative', padding: 8 }}>
+                <StudentAvatar
+                  student={user}
+                  size={120}
+                  style={{
+                    border: '3px solid var(--primary, #3b82f6)',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+                  }}
+                />
+              </div>
+            )}
+
+            {profileFaceError && (
+              <div
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  color: '#f87171',
+                  fontSize: 12,
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                }}
+              >
+                ⚠️ {profileFaceError}
+              </div>
+            )}
+
+            {/* Actions */}
+            {profileCameraOpen ? (
+              <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+                <button
+                  type="button"
+                  onClick={captureProfilePhoto}
+                  disabled={verifyingProfileFace || profileCameraLoading || photoUpdating}
+                  style={{
+                    flex: 1,
+                    padding: '12px 18px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: verifyingProfileFace
+                      ? 'linear-gradient(135deg, #6366f1, #3b82f6)'
+                      : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: verifyingProfileFace || profileCameraLoading || photoUpdating ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <MdPhotoCamera size={18} />
+                  <span>{verifyingProfileFace ? 'Verifying Face...' : 'Snap & Save Photo'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={stopProfileCamera}
+                  disabled={verifyingProfileFace || photoUpdating}
+                  style={{
+                    padding: '12px 18px',
+                    borderRadius: 12,
+                    border: '1px solid var(--border-color)',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+                <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+                  <button
+                    type="button"
+                    onClick={startProfileCamera}
+                    disabled={photoUpdating || verifyingProfileFace}
+                    style={{
+                      flex: 1,
+                      padding: '11px 16px',
+                      borderRadius: 12,
+                      border: '1px solid rgba(59, 130, 246, 0.4)',
+                      background: 'rgba(59, 130, 246, 0.12)',
+                      color: 'var(--primary-light, #60a5fa)',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <MdPhotoCamera size={16} />
+                    <span>Live Camera</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => profileFileInputRef.current?.click()}
+                    disabled={photoUpdating || verifyingProfileFace}
+                    style={{
+                      flex: 1,
+                      padding: '11px 16px',
+                      borderRadius: 12,
+                      border: '1px solid var(--border-color)',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text-primary)',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <MdUpload size={16} />
+                    <span>{verifyingProfileFace ? 'Verifying...' : 'Upload Photo'}</span>
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.4 }}>
+                  🔒 Face verification is active. Only clear, genuine human face photos are accepted for gate security records.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for profile face photo */}
+      <input
+        ref={profileFileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleProfilePhotoUpload}
+      />
 
       {/* Hidden file inputs for complaint photo capture */}
       <input

@@ -30,8 +30,11 @@ export default function StudentAvatar({
     if (student?.picture && !student.picture.includes('googleusercontent.com')) {
       return student.picture;
     }
-    // 4. Any remaining photo fallback
-    return student?.studentPhoto || recordPhoto || student?.picture || null;
+    // 4. User's photo property if not a Google default letter avatar
+    if (student?.photo && !student.photo.includes('googleusercontent.com')) {
+      return student.photo;
+    }
+    return null;
   })();
 
   const studentName = student?.name || name || 'Student';

@@ -96,10 +96,26 @@ export const AuthProvider = ({ children }) => {
       const uidStr = typeof uid === 'object' ? uid.toString() : String(uid);
       localStorage.removeItem(`student-dashboard-chat:${uidStr}`);
     }
+
+    let mergedUser = newUser;
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const prev = JSON.parse(stored);
+        const prevId = prev?.id || prev?._id;
+        const newId = newUser?.id || newUser?._id;
+        if (prev && (prevId === newId || prev?.email === newUser?.email)) {
+          if (!mergedUser?.studentPhoto && prev.studentPhoto) {
+            mergedUser = { ...mergedUser, studentPhoto: prev.studentPhoto, picture: prev.studentPhoto };
+          }
+        }
+      }
+    } catch {}
+
     localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
+    localStorage.setItem('user', JSON.stringify(mergedUser));
     setToken(newToken);
-    setUser(newUser);
+    setUser(mergedUser);
   }, []);
 
   // ── initiateGoogleOAuth: redirects browser to begin Google OAuth ─────────────
