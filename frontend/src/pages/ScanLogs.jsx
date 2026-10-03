@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHistory, MdRefresh, MdPictureAsPdf } from 'react-icons/md';
+import { MdHistory, MdRefresh, MdPictureAsPdf, MdDeleteOutline } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
 import StudentAvatar from '../components/StudentAvatar';
@@ -123,6 +123,36 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
+  const [clearing, setClearing] = useState(false);
+
+  const handleDeleteSingleLog = async (logId) => {
+    if (!window.confirm('Delete this gate scan record?')) return;
+    try {
+      setClearing(true);
+      await api.delete(`/inout/${logId}`);
+      toast.success('Gate record deleted successfully');
+      await fetchLogs('gate');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete record');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleClearAllLogs = async () => {
+    if (!window.confirm('Are you sure you want to delete ALL gate scan records? This cannot be undone.')) return;
+    try {
+      setClearing(true);
+      await api.delete('/inout');
+      toast.success('All gate scan logs deleted successfully');
+      await fetchLogs('gate');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to clear logs');
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <div className="fade-in">
       <Navbar title="Scan Logs" />
@@ -136,16 +166,28 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {activeTab === 'gate' && logs.length > 0 && (
+              <button
+                className="btn btn-outline btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
+                onClick={handleClearAllLogs}
+                disabled={clearing || loading}
+                title="Delete all gate scan records"
+              >
+                <MdDeleteOutline size={16} />
+                {clearing ? 'Deleting...' : 'Delete All Logs'}
+              </button>
+            )}
             <button
               className="btn btn-outline btn-sm"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#cbd5e1' }}
               onClick={handleExportPDF}
-              disabled={exportingPdf || loading}
+              disabled={exportingPdf || loading || clearing}
             >
               <MdPictureAsPdf size={16} color="#ef4444" />
               {exportingPdf ? 'Exporting...' : 'Export PDF'}
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={fetchLogs} disabled={loading}>
+            <button className="btn btn-ghost btn-sm" onClick={() => fetchLogs()} disabled={loading || clearing}>
               <MdRefresh size={16} /> Refresh
             </button>
           </div>
@@ -216,6 +258,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>In Time</th>
                   <th>Returned</th>
                   <th>Scanned By</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,6 +303,17 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                       {log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.scannedBy?.email || 'Duty Guard'}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                        title="Delete record"
+                        onClick={() => handleDeleteSingleLog(log._id)}
+                        disabled={clearing}
+                      >
+                        <MdDeleteOutline size={17} />
+                      </button>
                     </td>
                   </tr>
                 ))}

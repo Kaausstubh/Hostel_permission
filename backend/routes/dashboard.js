@@ -149,9 +149,23 @@ router.delete('/students/:id', protect, authorize('warden', 'admin'), async (req
 });
 
 // ── Wipe Operational or Student Records ──────────────────────────────────────
-router.post('/wipe-records', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
-    const { wipeStudents } = req.body;
+    const { wipeStudents, target } = req.body;
+
+    if (req.user.role === 'security' && target !== 'inout') {
+      return res.status(403).json({ success: false, message: 'Security personnel can only clear gate scan logs' });
+    }
+
+    if (target === 'inout') {
+      const inoutRes = await InOutLog.deleteMany({});
+      logger.info('[Dashboard] In/Out logs cleared', { userId: req.user._id, role: req.user.role, inoutDeleted: inoutRes.deletedCount });
+      return res.json({
+        success: true,
+        message: `Successfully deleted ${inoutRes.deletedCount} In/Out scan logs. Student accounts and home visits remain safe.`,
+        deleted: { inout: inoutRes.deletedCount },
+      });
+    }
 
     const inoutRes = await InOutLog.deleteMany({});
     const homeRes = await HomeVisitLog.deleteMany({});

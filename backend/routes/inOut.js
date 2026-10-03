@@ -349,20 +349,31 @@ router.get('/history/:id', protect, async (req, res) => {
   }
 });
 
-// ─── Delete Individual Gate Log (Warden/Admin) ──────────────────────────────────
-router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+// ─── Delete Individual Gate Log (Warden/Admin/Security) ──────────────────────
+router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const log = await InOutLog.findByIdAndDelete(req.params.id);
     if (!log) return res.status(404).json({ success: false, message: 'Gate log record not found' });
-    logger.info('[InOut] Warden deleted log record', { id: req.params.id, warden: req.user.email });
+    logger.info('[InOut] Deleted log record', { id: req.params.id, user: req.user.email, role: req.user.role });
     res.json({ success: true, message: 'Gate log record deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ─── Bulk Purge Gate Logs by Cutoff Date (Warden/Admin) ──────────────────────
-router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
+// ─── Delete All Gate Logs (Warden/Admin/Security) ────────────────────────────
+router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const result = await InOutLog.deleteMany({});
+    logger.info('[InOut] Cleared all gate logs', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
+    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Cleared ${result.deletedCount || 0} gate logs` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Bulk Purge Gate Logs by Cutoff Date (Warden/Admin/Security) ──────────────
+router.post('/purge', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const { cutoffDate } = req.body;
     if (!cutoffDate) {
@@ -376,7 +387,7 @@ router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) =>
         { date: { $lte: cutoffDate } }
       ]
     });
-    logger.info('[InOut] Warden purged records', { cutoffDate, deletedCount: result.deletedCount, warden: req.user.email });
+    logger.info('[InOut] Purged records', { cutoffDate, deletedCount: result.deletedCount, user: req.user.email, role: req.user.role });
     res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Purged ${result.deletedCount || 0} gate logs` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
