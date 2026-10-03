@@ -118,4 +118,76 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
   }
 });
 
+// ── Delete Individual Student ────────────────────────────────────────────────
+router.delete('/students/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const student = await User.findById(req.params.id);
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    // Cascade delete associated operational records
+    await Promise.all([
+      InOutLog.deleteMany({ student: student._id }),
+      HomeVisitLog.deleteMany({ student: student._id }),
+      Complaint.deleteMany({ student: student._id }),
+      User.findByIdAndDelete(student._id),
+    ]);
+
+    logger.info('[Dashboard] Student deleted by warden', {
+      wardenId: req.user._id,
+      deletedStudentId: student._id,
+      name: student.name,
+      rollNo: student.rollNo,
+    });
+
+    res.json({ success: true, message: `Student ${student.name} and their records were deleted successfully.` });
+  } catch (error) {
+    logger.error('[Dashboard] Delete student error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── Wipe Operational or Student Records ──────────────────────────────────────
+router.post('/wipe-records', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { wipeStudents } = req.body;
+
+    const inoutRes = await InOutLog.deleteMany({});
+    const homeRes = await HomeVisitLog.deleteMany({});
+    const complaintRes = await Complaint.deleteMany({});
+
+    let studentsDeleted = 0;
+    if (wipeStudents) {
+      // Delete all student accounts (preserves warden and security staff accounts)
+      const userRes = await User.deleteMany({ role: 'student' });
+      studentsDeleted = userRes.deletedCount;
+    }
+
+    logger.info('[Dashboard] Records wiped by warden', {
+      wardenId: req.user._id,
+      wipeStudents: Boolean(wipeStudents),
+      studentsDeleted,
+      inoutDeleted: inoutRes.deletedCount,
+      homeDeleted: homeRes.deletedCount,
+    });
+
+    res.json({
+      success: true,
+      message: wipeStudents
+        ? `Successfully wiped all ${studentsDeleted} students and all pass/request records.`
+        : `Successfully cleared ${inoutRes.deletedCount} In/Out and ${homeRes.deletedCount} Home Visit logs. Student accounts remain safe.`,
+      deleted: {
+        students: studentsDeleted,
+        inout: inoutRes.deletedCount,
+        homeVisits: homeRes.deletedCount,
+        complaints: complaintRes.deletedCount,
+      },
+    });
+  } catch (error) {
+    logger.error('[Dashboard] Wipe records error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock } from 'react-icons/md';
+import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
 
@@ -22,6 +22,36 @@ export default function WardenStudents() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteStudent = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to permanently delete student "${name}" and all their request history?`)) {
+      return;
+    }
+    try {
+      const res = await api.delete(`/dashboard/students/${id}`);
+      toast.success(res.data.message || 'Student deleted');
+      fetchStudents();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete student');
+    }
+  };
+
+  const handleWipeAllStudents = async () => {
+    const confirmText = window.prompt(
+      '⚠️ WARNING: This will permanently delete ALL registered student accounts, photos, and pass records.\nType "WIPE" to confirm:'
+    );
+    if (confirmText !== 'WIPE') {
+      if (confirmText !== null) toast.error('Confirmation mismatch. Operation cancelled.');
+      return;
+    }
+    try {
+      const res = await api.post('/dashboard/wipe-records', { wipeStudents: true });
+      toast.success(res.data.message || 'All students deleted successfully');
+      fetchStudents();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to wipe students');
     }
   };
 
@@ -51,8 +81,8 @@ export default function WardenStudents() {
         </div>
 
         <div className="card">
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-            <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 260, maxWidth: 400 }}>
               <MdSearch size={20} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
               <input
                 type="text"
@@ -63,6 +93,29 @@ export default function WardenStudents() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+
+            {user?.role === 'warden' && (
+              <button
+                type="button"
+                onClick={handleWipeAllStudents}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  padding: '8px 16px',
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <MdDeleteOutline size={18} /> Wipe All Students
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -79,6 +132,7 @@ export default function WardenStudents() {
                     <th>Hostel</th>
                     <th>Contact Info</th>
                     <th>Joined</th>
+                    {user?.role === 'warden' && <th>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -142,11 +196,35 @@ export default function WardenStudents() {
                         <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                           {new Date(student.createdAt).toLocaleDateString()}
                         </td>
+                        {user?.role === 'warden' && (
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteStudent(student._id, student.name)}
+                              title={`Delete ${student.name}`}
+                              style={{
+                                background: 'rgba(239, 68, 68, 0.08)',
+                                color: '#ef4444',
+                                border: '1px solid rgba(239, 68, 68, 0.28)',
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}
+                            >
+                              <MdDeleteOutline size={15} /> Delete
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5" style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                      <td colSpan={user?.role === 'warden' ? '6' : '5'} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
                         No students found matching your criteria.
                       </td>
                     </tr>
