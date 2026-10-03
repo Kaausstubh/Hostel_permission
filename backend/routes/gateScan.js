@@ -33,7 +33,8 @@ const {
 const { PENDING_QR_LIST_LIMIT } = require('../config/campus');
 
 const todayStr = () => new Date().toISOString().split('T')[0];
-const SCAN_PHASE_GUARD_MS = parseInt(process.env.SCAN_PHASE_GUARD_MS || '8000', 10);
+// 30 seconds minimum cooldown between consecutive scans (e.g. OUT -> IN)
+const SCAN_PHASE_GUARD_MS = parseInt(process.env.SCAN_PHASE_GUARD_MS || '30000', 10);
 
 const parseListLimit = (raw) => {
   const n = parseInt(raw, 10);
@@ -188,7 +189,17 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
 
   if (scanType === 'OUT') {
     if (activeLog) {
-      return { status: 400, body: { success: false, message: 'Student is already marked OUT' } };
+      const scanTooSoon = getPhaseGuardSecondsLeft(activeLog?.out_time || activeLog?.timestamp);
+      return {
+        status: 409,
+        body: {
+          success: false,
+          message: scanTooSoon
+            ? `Exit just recorded. 30s cooldown active — wait ${scanTooSoon}s before scanning back IN.`
+            : 'Student is already marked OUT',
+          cooldownSecondsLeft: scanTooSoon || 0,
+        },
+      };
     }
 
     let log;
@@ -278,7 +289,8 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
       status: 409,
       body: {
         success: false,
-        message: `Exit just recorded — move the QR away and retry in ${scanTooSoonIn}s when the student actually returns`,
+        message: `Exit was just recorded. 30s cooldown active — wait ${scanTooSoonIn}s before scanning back IN.`,
+        cooldownSecondsLeft: scanTooSoonIn,
       },
     };
   }
@@ -396,7 +408,8 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
         status: 409,
         body: {
           success: false,
-          message: `HOME OUT just recorded — move the QR away and retry in ${scanTooSoonIn}s when the student returns`,
+          message: `HOME OUT was just recorded. 30s cooldown active — wait ${scanTooSoonIn}s before scanning HOME IN.`,
+          cooldownSecondsLeft: scanTooSoonIn,
         },
       };
     }

@@ -621,7 +621,11 @@ export default function SecurityDashboard() {
       feedbackTone = 'error';
       setScanTone('error');
       setScannerStatus(msg);
-      if (err.response?.status !== 409) toast.error(msg, { duration: 3000 });
+      if (err.response?.status === 409) {
+        toast.error(`⏳ ${msg}`, { duration: 4500, id: 'scan-cooldown-alert' });
+      } else {
+        toast.error(msg, { duration: 3000 });
+      }
       await resumeLiveScanner();
     } finally {
       isProcessingScanRef.current = false;

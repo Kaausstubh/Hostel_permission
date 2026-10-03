@@ -190,6 +190,19 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
         if (existing.status !== 'OUT') {
           return { status: 400, body: { success: false, message: 'Invalid state for this QR' } };
         }
+        const elapsedSinceOut = Date.now() - new Date(existing.out_time || existing.timestamp).getTime();
+        const COOLDOWN_MS = 30000;
+        if (elapsedSinceOut < COOLDOWN_MS) {
+          const secondsLeft = Math.ceil((COOLDOWN_MS - elapsedSinceOut) / 1000);
+          return {
+            status: 409,
+            body: {
+              success: false,
+              message: `Exit was just recorded. 30s cooldown active — wait ${secondsLeft}s before scanning back IN.`,
+              cooldownSecondsLeft: secondsLeft,
+            },
+          };
+        }
         status = 'IN';
         const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
         log = await InOutLog.findByIdAndUpdate(existing._id, {
