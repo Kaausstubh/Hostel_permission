@@ -116,6 +116,22 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(mergedUser));
     setToken(newToken);
     setUser(mergedUser);
+
+    // Immediately fetch full profile with verified studentPhoto from /api/auth/me
+    api
+      .get('/auth/me', {
+        headers: { Authorization: `Bearer ${newToken}` },
+      })
+      .then((res) => {
+        const freshUser = res.data?.user;
+        if (freshUser) {
+          localStorage.setItem('user', JSON.stringify(freshUser));
+          setUser(freshUser);
+        }
+      })
+      .catch((e) => {
+        console.warn('[AuthContext] Silent profile hydration failed after login', e);
+      });
   }, []);
 
   // ── initiateGoogleOAuth: redirects browser to begin Google OAuth ─────────────

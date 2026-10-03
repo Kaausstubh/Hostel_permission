@@ -176,6 +176,7 @@ router.get('/status', async (req, res) => {
         recentVisitHistory,
         recentComplaints,
         todayLogs,
+        studentPhoto: req.user?.studentPhoto || req.user?.picture || null,
       },
     });
   } catch (err) {

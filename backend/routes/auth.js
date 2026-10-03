@@ -205,7 +205,8 @@ router.get(
           }
         }
 
-        // ── Issue JWT & redirect ─────────────────────────────────────────────
+        // ── Invalidate session cache & issue JWT & redirect ──────────────────
+        await invalidateUserCache(String(user._id));
         const token = signToken(user._id);
         logger.info('[Auth] Google OAuth login success', {
           userId: user._id,

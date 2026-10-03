@@ -507,6 +507,23 @@ export default function StudentDashboard() {
   const complaintCameraRef = useRef(null);
   const complaintFileRef = useRef(null);
 
+  // Automatically sync verified student registration photo if missing from local state
+  useEffect(() => {
+    if (user && !user.studentPhoto) {
+      api.get('/auth/me')
+        .then((res) => {
+          const fresh = res.data?.user;
+          if (fresh?.studentPhoto) {
+            updateUser({
+              studentPhoto: fresh.studentPhoto,
+              picture: fresh.picture || fresh.studentPhoto,
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user, updateUser]);
+
   const startProfileCamera = async () => {
     setProfileCameraOpen(true);
     setProfileCameraLoading(true);
@@ -1295,6 +1312,10 @@ export default function StudentDashboard() {
       const res = await api.get('/student/status');
       const s = res.data?.status;
       if (!s) return;
+
+      if (s.studentPhoto && !user?.studentPhoto) {
+        updateUser({ studentPhoto: s.studentPhoto, picture: s.studentPhoto });
+      }
 
       const passes = parseActivePasses(s);
       setActivePasses(passes);

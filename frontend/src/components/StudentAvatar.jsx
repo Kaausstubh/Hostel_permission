@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 /**
  * Robust student avatar component that intelligently resolves:
@@ -36,6 +36,11 @@ export default function StudentAvatar({
     }
     return null;
   })();
+
+  // Reset image error state whenever resolved photo URL changes
+  useEffect(() => {
+    setImgError(false);
+  }, [photoUrl]);
 
   const studentName = student?.name || name || 'Student';
   const initial = studentName.trim()[0]?.toUpperCase() || 'S';
