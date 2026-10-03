@@ -2726,9 +2726,51 @@ export default function StudentDashboard() {
               alignItems: 'center',
               justifyContent: 'center',
               position: 'relative',
+              overflow: 'hidden',
               userSelect: 'none',
+              touchAction: 'none',
               WebkitTouchCallout: 'none',
             }}>
+              {/* Dynamic Animated Hologram Laser Scanner Beam */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 8,
+                  right: 8,
+                  height: 3,
+                  background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, #10b981 50%, rgba(16,185,129,0) 100%)',
+                  boxShadow: '0 0 12px 3px rgba(16, 185, 129, 0.75)',
+                  borderRadius: 2,
+                  pointerEvents: 'none',
+                  animation: 'laserScan 2.2s ease-in-out infinite alternate',
+                  zIndex: 2,
+                }}
+              />
+
+              {/* Dynamic Security Roll Number Watermark */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transform: 'rotate(-25deg)',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.12em',
+                  color: 'rgba(0, 0, 0, 0.09)',
+                  textTransform: 'uppercase',
+                  userSelect: 'none',
+                  zIndex: 1,
+                  textAlign: 'center',
+                  lineHeight: 1.8,
+                }}
+              >
+                {user?.rollNo || 'IIIT PUNE'} • LIVE ACTIVE PASS • {user?.name || ''}
+              </div>
+
               <img
                 src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
                 alt="Gate Pass QR"
@@ -3214,6 +3256,11 @@ export default function StudentDashboard() {
           0% { transform: scale(0.95); opacity: 0.8; }
           50% { transform: scale(1.2); opacity: 0.2; }
           100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        @keyframes laserScan {
+          0% { top: 12px; opacity: 0.85; }
+          50% { opacity: 1; }
+          100% { top: calc(100% - 15px); opacity: 0.85; }
         }
       `}</style>
       </div>

@@ -43,7 +43,7 @@ export default function AntiScreenshotShield({ children }) {
     }
   };
 
-  const activateShield = (duration = 3000, message = '') => {
+  const activateShield = (duration = 3500, message = '') => {
     setIsShieldActive(true);
     shieldActiveTimeRef.current = Date.now();
 
@@ -51,7 +51,7 @@ export default function AntiScreenshotShield({ children }) {
       notifyRestricted(message);
     }
 
-    // Clear any previous countdown so rapid/frequent swipes always keep shield up
+    // Clear any previous countdown so rapid/frequent swipes always renew and keep shield up
     if (shieldTimerRef.current) {
       clearTimeout(shieldTimerRef.current);
     }
@@ -65,21 +65,17 @@ export default function AntiScreenshotShield({ children }) {
     // ── 1. Window Blur / Focus Detection ──────────────────────────────────────
     const handleBlur = () => {
       if (window.__filePickerActive) return;
-      activateShield(2500);
+      activateShield(3500);
     };
 
     const handleFocus = () => {
-      // Don't auto-dismiss immediately; let the timer expire cleanly
-      setTimeout(() => {
-        if (Date.now() - shieldActiveTimeRef.current >= 2000) {
-          setIsShieldActive(false);
-        }
-      }, 800);
+      // When window regains focus, do not prematurely dismiss if a shield timer is running.
+      // Let the shieldTimerRef expire naturally or require explicit user resume.
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        activateShield(2500);
+        activateShield(3500);
       }
     };
 
@@ -171,37 +167,43 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
-    // ── 4. Mobile 3-Finger Gesture Blocker (Android 3-Finger Swipe Screenshot) ──
+    // ── 4. Mobile Multi-Touch & 3-Finger Gesture Blocker (Android Screenshot Swipes) ──
     const activePointers = new Set();
 
     const handleTouch = (e) => {
       const touchCount = (e.touches && e.touches.length) || (e.targetTouches && e.targetTouches.length) || 0;
-      if (touchCount >= 3) {
+      // Triggers as soon as 2 or more fingers contact the screen (before 3rd finger completes OS gesture)
+      if (touchCount >= 2) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
-        activateShield(3000, '⚠️ 3-finger screenshot gesture blocked! Screen capture is prohibited.');
+        activePointers.clear();
+        activateShield(3500, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.');
         return false;
       }
     };
 
     const handleTouchEnd = (e) => {
       const remaining = e.touches ? e.touches.length : 0;
-      if (remaining === 0) {
+      if (remaining <= 1) {
         activePointers.clear();
       }
     };
 
     const handlePointerDown = (e) => {
       activePointers.add(e.pointerId);
-      if (activePointers.size >= 3) {
+      if (activePointers.size >= 2) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
-        activateShield(3000, '⚠️ 3-finger screenshot gesture blocked! Screen capture is prohibited.');
+        activePointers.clear();
+        activateShield(3500, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.');
       }
     };
 
     const handlePointerUp = (e) => {
       activePointers.delete(e.pointerId);
+      if (activePointers.size <= 1) {
+        activePointers.clear();
+      }
     };
 
     window.addEventListener('blur', handleBlur);
@@ -287,12 +289,15 @@ export default function AntiScreenshotShield({ children }) {
         }
       `}</style>
 
-      {/* Main portal contents with dynamic blur when shield is active */}
+      {/* Main portal contents with instant blanking when shield is active */}
       <div
         className="anti-screenshot-protected"
         style={{
-          filter: isShieldActive ? 'blur(35px)' : 'none',
-          transition: 'filter 0.15s ease',
+          filter: isShieldActive ? 'blur(50px)' : 'none',
+          opacity: isShieldActive ? 0 : 1,
+          visibility: isShieldActive ? 'hidden' : 'visible',
+          pointerEvents: isShieldActive ? 'none' : 'auto',
+          transition: 'none', // 0ms: instantaneous so camera frame buffer gets 0 pixels
           minHeight: '100%',
         }}
       >
@@ -318,7 +323,7 @@ export default function AntiScreenshotShield({ children }) {
             padding: 24,
             cursor: 'default',
             userSelect: 'none',
-            animation: 'fadeInShield 0.15s ease-out forwards',
+            animation: 'none',
           }}
         >
           <div
