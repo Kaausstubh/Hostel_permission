@@ -47,6 +47,39 @@ function LiveGatePassClock() {
   return <span>{timeStr}</span>;
 }
 
+// ── Format WhatsApp-style chat markdown (*bold*, _italic_) ───────────────────
+function formatChatContent(text) {
+  if (typeof text !== 'string') return text;
+  if (!text) return null;
+
+  // Split by *bold* tokens
+  const boldParts = text.split(/(\*[^*\r\n]+\*)/g);
+  return boldParts.map((bPart, bIdx) => {
+    if (bPart.startsWith('*') && bPart.endsWith('*') && bPart.length > 2) {
+      return (
+        <strong key={`b-${bIdx}`} style={{ fontWeight: 700 }}>
+          {bPart.slice(1, -1)}
+        </strong>
+      );
+    }
+
+    // Split remaining text by _italic_ tokens
+    const italicParts = bPart.split(/(_[^_\r\n]+_)/g);
+    if (italicParts.length === 1) return bPart;
+
+    return italicParts.map((iPart, iIdx) => {
+      if (iPart.startsWith('_') && iPart.endsWith('_') && iPart.length > 2) {
+        return (
+          <em key={`i-${bIdx}-${iIdx}`} style={{ fontStyle: 'italic' }}>
+            {iPart.slice(1, -1)}
+          </em>
+        );
+      }
+      return iPart;
+    });
+  });
+}
+
 // ── Bot message factory ───────────────────────────────────────────────────────
 // NOTE: msgId is created inside the component via useRef to avoid stale IDs
 // during React HMR (hot module replacement) in development.
@@ -786,7 +819,7 @@ export default function StudentDashboard() {
     } else if (step === STEPS.HV_REASON) {
       if (id === 'hv_other') {
         setStep(STEPS.HV_REASON_OTHER);
-        botSay('Please type your detailed reason below:\n\n_Type *menu* or *cancel* anytime to go back._');
+        botSay('Please type your detailed reason below:\n\nType *menu* or *cancel* anytime to go back.');
         return;
       }
       setHvData({ reason: label });
@@ -1710,7 +1743,7 @@ export default function StudentDashboard() {
             color: 'var(--text-primary)',
             marginBottom: 8,
           }}>
-            {m.content}
+            {formatChatContent(m.content)}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
               {m.time}
             </div>
@@ -1768,7 +1801,7 @@ export default function StudentDashboard() {
             marginBottom: 10,
             maxWidth: '100%',
           }}>
-            {m.content}
+            {formatChatContent(m.content)}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
               {m.time}
             </div>
@@ -1821,7 +1854,7 @@ export default function StudentDashboard() {
             color: 'var(--text-primary)',
             marginBottom: 10,
           }}>
-            {m.content}
+            {formatChatContent(m.content)}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
               {m.time}
             </div>
@@ -2067,7 +2100,7 @@ export default function StudentDashboard() {
         border: isUser ? 'none' : '1px solid var(--glass-border)',
         color: isUser ? '#fff' : 'var(--text-primary)',
       }}>
-        {m.content}
+        {formatChatContent(m.content)}
         {m.meta?.photo && (
           <div style={{
             marginTop: 8,
