@@ -129,12 +129,11 @@ const resolveScanPayload = async (token) => {
     return { error: 'Home visit not approved yet — warden must approve first' };
   }
 
-  if (/^HV-/i.test(token) || /^eyJ/i.test(token)) {
-    return { error: 'Home visit pass not found or expired — student should open View My Status for a fresh QR' };
-  }
-
   const { valid, payload, error } = validateQR(token);
-  if (valid && payload?.type === 'inout_request') {
+  if (valid && (payload?.type === 'inout_request' || payload?.type === 'inout')) {
+    return { payload };
+  }
+  if (valid && payload?.type === 'home_visit') {
     return { payload };
   }
 
@@ -144,6 +143,10 @@ const resolveScanPayload = async (token) => {
       payload: { type: 'inout_request', student_id: String(pendingCompact.studentId) },
       pendingRequest: pendingCompact,
     };
+  }
+
+  if (/^HV-/i.test(token)) {
+    return { error: 'Home visit pass not found or expired — student should open View My Status for a fresh QR' };
   }
 
   return { error: error || 'Invalid or expired QR code' };
@@ -169,6 +172,9 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
     return { status: 404, body: { success: false, message: 'Student not found' } };
   }
 
+  const guardName = req.user?.name || req.user?.rollNo || req.user?.email || 'Security Guard';
+  const effectiveStudentPhoto = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
+
   const activeLog = await InOutLog.findOne({
     student_id: payload.student_id,
     date: todayStr(),
@@ -184,9 +190,6 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
     if (activeLog) {
       return { status: 400, body: { success: false, message: 'Student is already marked OUT' } };
     }
-
-    const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
-    const effectiveStudentPhoto = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
 
     let log;
     try {
@@ -374,7 +377,7 @@ const handleInOutScan = async (token, payload, req, scanStart) => {
   };
 };
 
-const handleHomeVisitScan = async (token, payload, scanStart) => {
+const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   const visitId = payload.visit_id;
   const now = new Date();
 
@@ -526,12 +529,12 @@ router.post('/scan', async (req, res) => {
 
       const { payload } = resolved;
 
-      if (payload.type === 'inout_request') {
+      if (payload.type === 'inout_request' || payload.type === 'inout') {
         return handleInOutScan(token, payload, req, scanStart);
       }
 
       if (payload.type === 'home_visit') {
-        return handleHomeVisitScan(token, payload, scanStart);
+        return handleHomeVisitScan(token, payload, req, scanStart);
       }
 
       return { status: 400, body: { success: false, message: 'Unsupported QR type' } };

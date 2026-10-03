@@ -13,6 +13,7 @@ const InOutLog = require('../models/InOutLog');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const { generateQR, renderQRFromToken, validateQR, registerActiveQR, removeActiveQR, getActiveQRs } = require('../services/qrService');
+const { createPendingInOutRequest } = require('../services/inOutRequestService');
 const { withScanLock } = require('../services/scanLockService');
 const logger = require('../utils/logger');
 const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
@@ -76,7 +77,7 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
 
     const { token, qrDataUrl, qrPublicUrl, qrFilename } = await generateQR(payload, `inout_${studentId}_${Date.now()}`);
 
-    // Register in active store so Security Dashboard can see pending QRs
+    // Register in active store and in-out request service so Security Dashboard & Scanner see pending QRs
     await registerActiveQR(token, {
       studentId: studentId,
       studentName: req.user.name,
@@ -87,6 +88,23 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
       qrPublicUrl,
       qrDataUrl,
     });
+
+    await createPendingInOutRequest({
+      studentId,
+      studentName: req.user.name,
+      hostel: req.user.hostel || 'N/A',
+      rollNumber: req.user.rollNo || 'N/A',
+      studentPhone: req.user.phone || '',
+      parentPhone: req.user.parentPhone || '',
+      studentPhoto: req.user.studentPhoto || req.user.picture || '',
+      scanType: 'OUT',
+      place: '',
+      reason: '',
+      token,
+      qrDataUrl,
+      qrPublicUrl,
+      qrFilename,
+    }).catch(() => {});
 
     res.json({
       success: true,

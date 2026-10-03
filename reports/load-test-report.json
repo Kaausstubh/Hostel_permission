@@ -1,0 +1,610 @@
+{
+  "timestamp": "2026-10-03T10:23:49.871Z",
+  "environment": "Local Smart Campus Engine",
+  "backendUrl": "http://localhost:5001",
+  "frontendUrl": "http://localhost:5173",
+  "totalRegisteredStudents": 5000,
+  "maxTestedUsers": 5000,
+  "maxStableUsers": 5000,
+  "maxStableRps": 205.5,
+  "maxStableQrRps": 43.5,
+  "progressiveStages": [
+    {
+      "users": 5000,
+      "requestsPerSecond": 205.5,
+      "totalRequests": 15095,
+      "successfulRequests": 15056,
+      "failedRequests": 39,
+      "successRate": 99.7,
+      "latencies": {
+        "min": 17.64,
+        "max": 50511.61,
+        "avg": 18693.81,
+        "p50": 14245.37,
+        "p90": 42507.58,
+        "p95": 46379.06,
+        "p99": 49274.17
+      },
+      "portals": {
+        "student": {
+          "total": 11595,
+          "success": 11556,
+          "errors": 39,
+          "successRate": 99.7,
+          "stats": {
+            "min": 17.64,
+            "max": 50511.61,
+            "avg": 19783.32,
+            "p50": 16348.31,
+            "p90": 43578.32,
+            "p95": 47272,
+            "p99": 49427.17
+          }
+        },
+        "guard": {
+          "total": 2000,
+          "success": 2000,
+          "errors": 0,
+          "successRate": 100,
+          "stats": {
+            "min": 129.33,
+            "max": 50456.61,
+            "avg": 17363.77,
+            "p50": 10435.52,
+            "p90": 40199.5,
+            "p95": 42747.17,
+            "p99": 47210.81
+          }
+        },
+        "warden": {
+          "total": 1500,
+          "success": 1500,
+          "errors": 0,
+          "successRate": 100,
+          "stats": {
+            "min": 84.05,
+            "max": 47913.19,
+            "avg": 12045.28,
+            "p50": 5848.68,
+            "p90": 35547.21,
+            "p95": 42704.19,
+            "p99": 46782.48
+          }
+        }
+      }
+    }
+  ],
+  "qrRaceResult": {
+    "success": true,
+    "guard1": {
+      "status": 200,
+      "message": "Student marked as OUT"
+    },
+    "guard2": {
+      "status": 409,
+      "message": "This QR is already being processed — please wait and retry"
+    },
+    "durationMs": 7.988916
+  },
+  "qrMetrics": {
+    "min": 3.74,
+    "max": 11.53,
+    "avg": 7.67,
+    "p50": 7.74,
+    "p90": 9.72,
+    "p95": 10.11,
+    "p99": 10.96
+  },
+  "dbMetrics": {
+    "connected": true,
+    "dbName": "hostel",
+    "collections": {
+      "archivejobs": {
+        "count": 0
+      },
+      "auditlogs": {
+        "count": 0
+      },
+      "complaints": {
+        "count": 3018
+      },
+      "inoutlogs": {
+        "count": 5789
+      },
+      "homevisitlogs": {
+        "count": 1210
+      },
+      "users": {
+        "count": 5034
+      }
+    },
+    "indexes": {
+      "archivejobs": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "archiveId_1",
+          "key": {
+            "archiveId": 1
+          },
+          "unique": true,
+          "sparse": false
+        },
+        {
+          "name": "collectionName_1_periodStart_1_periodEnd_1",
+          "key": {
+            "collectionName": 1,
+            "periodStart": 1,
+            "periodEnd": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "status_1_createdAt_-1",
+          "key": {
+            "status": 1,
+            "createdAt": -1
+          },
+          "unique": false,
+          "sparse": false
+        }
+      ],
+      "auditlogs": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "event_1_timestamp_-1",
+          "key": {
+            "event": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "archiveId_1_timestamp_-1",
+          "key": {
+            "archiveId": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "timestamp_-1",
+          "key": {
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        }
+      ],
+      "complaints": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "hostel_1_status_1",
+          "key": {
+            "hostel": 1,
+            "status": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "student_id_1",
+          "key": {
+            "student_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "student_id_1_timestamp_-1",
+          "key": {
+            "student_id": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "status_1_timestamp_-1",
+          "key": {
+            "status": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "timestamp_-1",
+          "key": {
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "hostel_1_timestamp_-1",
+          "key": {
+            "hostel": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "hostel_1_status_1_timestamp_-1",
+          "key": {
+            "hostel": 1,
+            "status": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        }
+      ],
+      "inoutlogs": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "status_1_returned_1_date_1",
+          "key": {
+            "status": 1,
+            "returned": 1,
+            "date": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "student_id_1_date_-1_timestamp_-1",
+          "key": {
+            "student_id": 1,
+            "date": -1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "qr_token_1",
+          "key": {
+            "qr_token": 1
+          },
+          "unique": true,
+          "sparse": false
+        },
+        {
+          "name": "date_-1_timestamp_-1",
+          "key": {
+            "date": -1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "timestamp_-1",
+          "key": {
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "status_1_timestamp_-1",
+          "key": {
+            "status": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "date_-1_status_1_timestamp_-1",
+          "key": {
+            "date": -1,
+            "status": 1,
+            "timestamp": -1
+          },
+          "unique": false,
+          "sparse": false
+        }
+      ],
+      "homevisitlogs": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "student_id_1_createdAt_-1",
+          "key": {
+            "student_id": 1,
+            "createdAt": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "overall_status_1_createdAt_-1",
+          "key": {
+            "overall_status": 1,
+            "createdAt": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "warden_status_1_parent_call_confirmed_1_createdAt_-1",
+          "key": {
+            "warden_status": 1,
+            "parent_call_confirmed": 1,
+            "createdAt": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "leave_date_1_return_date_1",
+          "key": {
+            "leave_date": 1,
+            "return_date": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "student_id_1_overall_status_1_leave_date_1_return_date_1",
+          "key": {
+            "student_id": 1,
+            "overall_status": 1,
+            "leave_date": 1,
+            "return_date": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "qr_token_1",
+          "key": {
+            "qr_token": 1
+          },
+          "unique": false,
+          "sparse": true
+        },
+        {
+          "name": "overall_status_1_qr_used_out_1_qr_used_in_1",
+          "key": {
+            "overall_status": 1,
+            "qr_used_out": 1,
+            "qr_used_in": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "createdAt_-1",
+          "key": {
+            "createdAt": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "actual_out_time_-1",
+          "key": {
+            "actual_out_time": -1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "actual_in_time_-1",
+          "key": {
+            "actual_in_time": -1
+          },
+          "unique": false,
+          "sparse": false
+        }
+      ],
+      "users": [
+        {
+          "name": "_id_",
+          "key": {
+            "_id": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "email_1",
+          "key": {
+            "email": 1
+          },
+          "unique": true,
+          "sparse": false
+        },
+        {
+          "name": "rollNo_1",
+          "key": {
+            "rollNo": 1
+          },
+          "unique": true,
+          "sparse": true
+        },
+        {
+          "name": "role_1",
+          "key": {
+            "role": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "authProvider_1",
+          "key": {
+            "authProvider": 1
+          },
+          "unique": false,
+          "sparse": false
+        },
+        {
+          "name": "oauthId_1_oauthProvider_1",
+          "key": {
+            "oauthId": 1,
+            "oauthProvider": 1
+          },
+          "unique": true,
+          "sparse": false
+        }
+      ]
+    },
+    "connections": {
+      "current": 9,
+      "available": 25591,
+      "totalCreated": 1659
+    },
+    "benchmarks": {
+      "userByIdMs": 0.410584,
+      "userByEmailMs": 0.425,
+      "activeOutQueryMs": 2.336958,
+      "dashboardAggregateMs": 6.067291,
+      "counts": {
+        "totalStudents": 5000,
+        "outNow": 867,
+        "pendingLeaves": 985,
+        "openComplaints": 2714
+      }
+    }
+  },
+  "coldStartData": {
+    "targetUrl": "https://hostel-permission-8add.onrender.com",
+    "coldProbe": {
+      "status": 0,
+      "latencyMs": 13.014166,
+      "isCold": false
+    },
+    "warm": {
+      "samples": [
+        0.750542,
+        0.698542,
+        0.803458,
+        0.697,
+        0.823583,
+        0.669917,
+        0.763833,
+        1.254458,
+        1.482541,
+        1.458542
+      ],
+      "avgMs": 0.94,
+      "minMs": 0.67,
+      "maxMs": 1.48
+    },
+    "readiness": null
+  },
+  "frontendData": null,
+  "authResults": {
+    "validAuth": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 3.543042
+    },
+    "missingToken": {
+      "ok": true,
+      "status": 401
+    },
+    "invalidSignature": {
+      "ok": true,
+      "status": 401
+    },
+    "expiredToken": {
+      "ok": true,
+      "status": 401
+    },
+    "logout": {
+      "ok": true,
+      "status": 200,
+      "durationMs": 1.057334
+    },
+    "concurrentBurst": null
+  },
+  "portals": {
+    "student": {
+      "total": 11595,
+      "success": 11556,
+      "errors": 39,
+      "successRate": 99.7,
+      "stats": {
+        "min": 17.64,
+        "max": 50511.61,
+        "avg": 19783.32,
+        "p50": 16348.31,
+        "p90": 43578.32,
+        "p95": 47272,
+        "p99": 49427.17
+      }
+    },
+    "guard": {
+      "total": 2000,
+      "success": 2000,
+      "errors": 0,
+      "successRate": 100,
+      "stats": {
+        "min": 129.33,
+        "max": 50456.61,
+        "avg": 17363.77,
+        "p50": 10435.52,
+        "p90": 40199.5,
+        "p95": 42747.17,
+        "p99": 47210.81
+      }
+    },
+    "warden": {
+      "total": 1500,
+      "success": 1500,
+      "errors": 0,
+      "successRate": 100,
+      "stats": {
+        "min": 84.05,
+        "max": 47913.19,
+        "avg": 12045.28,
+        "p50": 5848.68,
+        "p90": 35547.21,
+        "p95": 42704.19,
+        "p99": 46782.48
+      }
+    }
+  }
+}

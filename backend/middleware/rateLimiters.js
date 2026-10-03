@@ -34,6 +34,7 @@ const makeKeyGenerator = (keyFn) => (req) => {
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || `${15 * 60 * 1000}`, 10),
   max:      parseInt(process.env.API_RATE_LIMIT_MAX || '3000', 10),
+  keyGenerator: (req) => req.headers['authorization'] || ipKeyGenerator(req),
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false }, // Render uses a reverse proxy

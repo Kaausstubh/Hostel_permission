@@ -116,7 +116,8 @@ const validatePlaceGeo = async (placeName) => {
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'HEIMDALL-Hostel-Management-System/2.0 (student-gatepass-validation)'
-      }
+      },
+      signal: AbortSignal.timeout(3000)
     });
     
     if (!res.ok) {

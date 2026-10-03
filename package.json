@@ -6,6 +6,11 @@
     "backend": "cd backend && npm run dev",
     "frontend": "cd frontend && npm run dev",
     "seed": "cd backend && node seed.js",
+    "seed-test-users": "NODE_PATH=backend/node_modules node load-tests/seedUsers.js",
+    "cleanup-test-users": "NODE_PATH=backend/node_modules node load-tests/cleanupUsers.js",
+    "loadtest": "NODE_PATH=backend/node_modules node load-tests/runner.js",
+    "qr-loadtest": "NODE_PATH=backend/node_modules node load-tests/qrStressTester.js",
+    "stress-test": "NODE_PATH=backend/node_modules node load-tests/runner.js --stress",
     "install:all": "cd backend && npm install && cd ../frontend && npm install"
   },
   "devDependencies": {

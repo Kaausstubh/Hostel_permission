@@ -348,9 +348,9 @@ function ChatDatePicker({ label, min, max, disabled, onConfirm, isReturnStep = f
   const quickOptions = (isReturnStep
     ? [
         { label: 'Earliest', value: anchor },
-        { label: '+2 days', value: addDaysToDateStr(anchor, 1) },
-        { label: '+1 week', value: addDaysToDateStr(anchor, 6) },
-        { label: '+2 weeks', value: addDaysToDateStr(anchor, 13) },
+        { label: '+2 days', value: addDaysToDateStr(anchor, 2) },
+        { label: '+1 week', value: addDaysToDateStr(anchor, 7) },
+        { label: '+2 weeks', value: addDaysToDateStr(anchor, 14) },
       ]
     : [
         { label: 'Today', value: today },
@@ -763,7 +763,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: label });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
     }
   };
 
@@ -789,7 +789,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: text });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Pune, Mumbai, Home Address)?');
     } else if (step === STEPS.HV_PLACE) {
       setLoading(true);
       try {
@@ -801,7 +801,7 @@ export default function StudentDashboard() {
         }
         setHvData((d) => ({ ...d, place: text }));
         setStep(STEPS.HV_LEAVE);
-        botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+        botSay('📅 Step 3/4 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
           pickerStep: STEPS.HV_LEAVE,
         });
       } catch (err) {
@@ -810,7 +810,7 @@ export default function StudentDashboard() {
         } else {
           setHvData((d) => ({ ...d, place: text }));
           setStep(STEPS.HV_LEAVE);
-          botSay('📅 Step 2/3 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+          botSay('📅 Step 3/4 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
             pickerStep: STEPS.HV_LEAVE,
           });
         }
@@ -937,7 +937,7 @@ export default function StudentDashboard() {
       setHvData((d) => ({ ...d, leave_date: leaveDate }));
       setStep(STEPS.HV_RETURN);
       botSay(
-        `📅 Step 4 — Select your *expected return date* below (after ${leaveDate}).`,
+        `📅 Step 4/4 — Select your *expected return date* below (after ${leaveDate}).`,
         'date_picker',
         { pickerStep: STEPS.HV_RETURN, leaveDate }
       );
@@ -960,7 +960,7 @@ export default function StudentDashboard() {
       if (!leaveDate) {
         botSay('❌ Leave date missing. Starting again from step 3.');
         setStep(STEPS.HV_LEAVE);
-        botSay('📅 Step 3 — Select your *date of leaving* below:', 'date_picker', {
+        botSay('📅 Step 3/4 — Select your *date of leaving* below:', 'date_picker', {
           pickerStep: STEPS.HV_LEAVE,
         });
         scrollChatToBottom();
@@ -972,7 +972,7 @@ export default function StudentDashboard() {
       }
       const maxReturnDate = getMaxReturnDateFromLeave(leaveDate);
       if (returnDate > maxReturnDate) {
-        botSay(`❌ Return date cannot be more than 4 months after leave. Maximum: ${maxReturnDate}.`);
+        botSay(`❌ Return date cannot exceed 3.5 months from leave date. Maximum: ${maxReturnDate}.`);
         return;
       }
       await submitHomeVisit({ ...hvData, return_date: returnDate });

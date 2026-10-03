@@ -21,6 +21,7 @@ const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
 const { issueHomeVisitGatePass, findHomeVisitByScanToken } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
+const logger = require('../utils/logger');
 
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
