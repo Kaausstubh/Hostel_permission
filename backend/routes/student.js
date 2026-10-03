@@ -668,9 +668,17 @@ router.put('/onboard', async (req, res) => {
 });
 
 // ── PUT /photo ───────────────────────────────────────────────────────────────
-// Update/re-upload verified student registration photo
+// Verified student registration photo is strictly one-time only. Locked once set.
 router.put('/photo', async (req, res) => {
   try {
+    const existing = await User.findById(req.user._id).select('studentPhoto').lean();
+    if (existing?.studentPhoto) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your official registration face photo is locked and cannot be edited. Please contact your hostel warden for changes.',
+      });
+    }
+
     const { photo } = req.body;
     if (!photo || typeof photo !== 'string' || !photo.trim()) {
       return res.status(400).json({ success: false, message: 'Photo is required' });
