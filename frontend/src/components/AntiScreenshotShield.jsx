@@ -164,6 +164,38 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
+    // ── 4. Mobile 3-Finger Gesture Blocker (Android 3-Finger Swipe Screenshot) ──
+    const activePointers = new Set();
+
+    const triggerGestureBlock = (e) => {
+      if (e && e.cancelable) {
+        e.preventDefault();
+      }
+      if (e) e.stopPropagation();
+      setIsShieldActive(true);
+      notifyRestricted('⚠️ 3-finger screenshot gesture blocked! Screen capture is prohibited.');
+      setTimeout(() => setIsShieldActive(false), 2500);
+      return false;
+    };
+
+    const handleTouch = (e) => {
+      const touchCount = e.touches?.length || e.targetTouches?.length || 0;
+      if (touchCount >= 3) {
+        return triggerGestureBlock(e);
+      }
+    };
+
+    const handlePointerDown = (e) => {
+      activePointers.add(e.pointerId);
+      if (activePointers.size >= 3) {
+        triggerGestureBlock(e);
+      }
+    };
+
+    const handlePointerUp = (e) => {
+      activePointers.delete(e.pointerId);
+    };
+
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -172,6 +204,15 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('contextmenu', handleContextMenu);
     window.addEventListener('dragstart', handleDragStart);
     window.addEventListener('copy', handleCopy);
+
+    // Touch & Pointer listeners with capture: true & passive: false to cancel 3-finger screenshot swipes
+    window.addEventListener('touchstart', handleTouch, { passive: false, capture: true });
+    window.addEventListener('touchmove', handleTouch, { passive: false, capture: true });
+    document.addEventListener('touchstart', handleTouch, { passive: false, capture: true });
+    document.addEventListener('touchmove', handleTouch, { passive: false, capture: true });
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    window.addEventListener('pointerup', handlePointerUp, { capture: true });
+    window.addEventListener('pointercancel', handlePointerUp, { capture: true });
 
     return () => {
       window.removeEventListener('blur', handleBlur);
@@ -182,6 +223,13 @@ export default function AntiScreenshotShield({ children }) {
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('dragstart', handleDragStart);
       window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('touchstart', handleTouch, true);
+      window.removeEventListener('touchmove', handleTouch, true);
+      document.removeEventListener('touchstart', handleTouch, true);
+      document.removeEventListener('touchmove', handleTouch, true);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerUp, true);
     };
   }, []);
 
