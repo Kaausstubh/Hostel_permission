@@ -1,15 +1,13 @@
 /**
- * Clear Pass & Request Logs Script
+ * Clear ONLY In/Out Logs Script
  *
- * Deletes ONLY operational logs:
- * - In/Out requests and gate passes (InOutLog)
- * - Home visit requests and passes (HomeVisitLog)
- *
- * Keeps ALL student accounts, registrations, roles, and verified face photos (User) 100% INTACT.
+ * Deletes ONLY daily In/Out records and gate passes (InOutLog).
+ * Keeps Home Visit passes (HomeVisitLog), Complaints, and ALL student accounts & face photos (User) 100% INTACT.
  *
  * Usage:
  *   npm run clear:logs
  *   (or: node scripts/clearLogs.js)
+ *   (or: node scripts/clearLogs.js "mongodb+srv://<user>:<pass>@cluster...")
  */
 
 const mongoose = require('mongoose');
@@ -21,35 +19,36 @@ const HomeVisitLog = require('../models/HomeVisitLog');
 const User = require('../models/User');
 
 async function main() {
-  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hostel';
+  const uri = process.argv[2] || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hostel';
   console.log('Connecting to database...');
   await mongoose.connect(uri);
 
   const inoutCountBefore = await InOutLog.countDocuments();
-  const homeCountBefore = await HomeVisitLog.countDocuments();
+  const homeCount = await HomeVisitLog.countDocuments();
   const userCount = await User.countDocuments();
 
   console.log(`Current state:`);
-  console.log(` - In/Out records:    ${inoutCountBefore}`);
-  console.log(` - Home Visit records: ${homeCountBefore}`);
-  console.log(` - Student/User records: ${userCount} (will NOT be touched)`);
+  console.log(` - In/Out records:      ${inoutCountBefore} (will be deleted)`);
+  console.log(` - Home Visit records:  ${homeCount} (SAFE - will NOT be touched)`);
+  console.log(` - Student/User accounts: ${userCount} (SAFE - will NOT be touched)`);
 
-  console.log('\nClearing In/Out and Home Visit logs...');
+  console.log('\nDeleting ONLY In/Out records...');
   const inoutRes = await InOutLog.deleteMany({});
-  const homeRes = await HomeVisitLog.deleteMany({});
 
+  const inoutCountAfter = await InOutLog.countDocuments();
+  const homeCountAfter = await HomeVisitLog.countDocuments();
   const userCountAfter = await User.countDocuments();
 
-  console.log('\n✅ Done!');
-  console.log(` - Deleted ${inoutRes.deletedCount} In/Out records`);
-  console.log(` - Deleted ${homeRes.deletedCount} Home Visit records`);
-  console.log(` - Verified: All ${userCountAfter} student accounts, registrations, and face photos are safe and intact.`);
+  console.log('\n✅ Completed successfully:');
+  console.log(` - Deleted ${inoutRes.deletedCount} In/Out records (remaining: ${inoutCountAfter})`);
+  console.log(` - Home Visit records remaining: ${homeCountAfter} (untouched)`);
+  console.log(` - Student accounts remaining:   ${userCountAfter} (untouched)`);
 
   await mongoose.disconnect();
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error('❌ Error clearing logs:', err.message);
+  console.error('❌ Error clearing In/Out logs:', err.message);
   process.exit(1);
 });
