@@ -51,10 +51,10 @@ export default function AntiScreenshotShield({ children }) {
     };
 
     const handleFocus = () => {
-      // Small buffer to guarantee screen capture tool has completed
+      // Extended buffer to guarantee screen capture tool (Snipping Tool / Grab) has fully finished
       setTimeout(() => {
         setIsShieldActive(false);
-      }, 180);
+      }, 700);
     };
 
     const handleVisibilityChange = () => {
@@ -63,7 +63,7 @@ export default function AntiScreenshotShield({ children }) {
       } else {
         setTimeout(() => {
           setIsShieldActive(false);
-        }, 180);
+        }, 700);
       }
     };
 
@@ -72,36 +72,62 @@ export default function AntiScreenshotShield({ children }) {
       const isMac = navigator.platform?.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-      // PrintScreen key
-      if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
+      // 1. Instantly trigger when Cmd+Shift or Ctrl+Shift are pressed
+      if (cmdOrCtrl && e.shiftKey) {
+        setIsShieldActive(true);
+        notifyRestricted('⚠️ Screen capture shortcuts are blocked on the student portal.');
+        setTimeout(() => setIsShieldActive(false), 2500);
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+
+      // 2. PrintScreen key (standard, Alt+PrintScreen, Win+PrintScreen)
+      if (
+        e.key === 'PrintScreen' ||
+        e.code === 'PrintScreen' ||
+        e.keyCode === 44
+      ) {
         e.preventDefault();
         e.stopPropagation();
         setIsShieldActive(true);
         notifyRestricted('⚠️ PrintScreen blocked! Gate passes cannot be screen-captured.');
-        setTimeout(() => setIsShieldActive(false), 2000);
+        setTimeout(() => setIsShieldActive(false), 2500);
         return false;
       }
 
-      // Cmd+Shift+3 / 4 / 5 on Mac or Ctrl+Shift+S / Win+Shift+S
-      if (cmdOrCtrl && e.shiftKey && (e.key === '3' || e.key === '4' || e.key === '5' || e.key === 's' || e.key === 'S')) {
+      // 3. Digit keys with modifiers or symbols (# is Shift+3, $ is Shift+4, % is Shift+5)
+      const isScreenshotKey =
+        e.code === 'Digit3' ||
+        e.code === 'Digit4' ||
+        e.code === 'Digit5' ||
+        e.code === 'KeyS' ||
+        e.key === '#' ||
+        e.key === '$' ||
+        e.key === '%' ||
+        e.key === '3' ||
+        e.key === '4' ||
+        e.key === '5';
+
+      if (cmdOrCtrl && isScreenshotKey) {
         e.preventDefault();
         e.stopPropagation();
         setIsShieldActive(true);
-        notifyRestricted('⚠️ Screen capture shortcuts are blocked on the student portal.');
-        setTimeout(() => setIsShieldActive(false), 2000);
+        notifyRestricted('⚠️ Screenshot shortcut blocked!');
+        setTimeout(() => setIsShieldActive(false), 2500);
         return false;
       }
 
-      // Print page (Cmd+P / Ctrl+P)
-      if (cmdOrCtrl && (e.key === 'p' || e.key === 'P')) {
+      // 4. Print page (Cmd+P / Ctrl+P)
+      if (cmdOrCtrl && (e.key === 'p' || e.key === 'P' || e.code === 'KeyP')) {
         e.preventDefault();
         e.stopPropagation();
         notifyRestricted('⚠️ Printing student gate passes is disabled.');
         return false;
       }
 
-      // Save page (Cmd+S / Ctrl+S)
-      if (cmdOrCtrl && (e.key === 's' || e.key === 'S') && !e.shiftKey) {
+      // 5. Save page (Cmd+S / Ctrl+S)
+      if (cmdOrCtrl && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
         e.preventDefault();
         e.stopPropagation();
         notifyRestricted('⚠️ Saving the gate pass portal offline is disabled.');
