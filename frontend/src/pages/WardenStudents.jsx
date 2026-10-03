@@ -38,23 +38,6 @@ export default function WardenStudents() {
     }
   };
 
-  const handleWipeAllStudents = async () => {
-    const confirmText = window.prompt(
-      '⚠️ WARNING: This will permanently delete ALL registered student accounts, photos, and pass records.\nType "WIPE" to confirm:'
-    );
-    if (confirmText !== 'WIPE') {
-      if (confirmText !== null) toast.error('Confirmation mismatch. Operation cancelled.');
-      return;
-    }
-    try {
-      const res = await api.post('/dashboard/wipe-records', { wipeStudents: true });
-      toast.success(res.data.message || 'All students deleted successfully');
-      fetchStudents();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to wipe students');
-    }
-  };
-
   useEffect(() => {
     fetchStudents();
   }, []);
@@ -81,8 +64,8 @@ export default function WardenStudents() {
         </div>
 
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: 260, maxWidth: 400 }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
               <MdSearch size={20} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
               <input
                 type="text"
@@ -93,29 +76,6 @@ export default function WardenStudents() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-
-            {user?.role === 'warden' && (
-              <button
-                type="button"
-                onClick={handleWipeAllStudents}
-                style={{
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#ef4444',
-                  border: '1px solid rgba(239, 68, 68, 0.35)',
-                  padding: '8px 16px',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <MdDeleteOutline size={18} /> Wipe All Students
-              </button>
-            )}
           </div>
 
           {loading ? (
