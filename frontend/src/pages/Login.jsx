@@ -44,7 +44,7 @@ const PORTALS = {
     label:       'Student',
     Icon:        MdSchool,
     description: 'Your digital key to hostel freedom. Request outpasses, track approvals in real-time, and carry your gate pass — right in your pocket.',
-    restriction: 'Restricted to @cse.iiitp.ac.in & @ece.iiitp.ac.in accounts.',
+    restriction: 'Restricted to IIIT Pune student domains (@cse, @ece, @cysec, @aids, @mevd.iiitp.ac.in).',
     btnText:     '🎓 Enter Student Portal',
     color:       '#3b82f6',
     glow:        'rgba(59, 130, 246, 0.35)',

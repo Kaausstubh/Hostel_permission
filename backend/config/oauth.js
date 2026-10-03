@@ -17,7 +17,13 @@
  */
 
 // ── Student domain whitelist ───────────────────────────────────────────────────
-const STUDENT_ALLOWED_DOMAINS = ['cse.iiitp.ac.in', 'ece.iiitp.ac.in'];
+const STUDENT_ALLOWED_DOMAINS = [
+  'cse.iiitp.ac.in',
+  'ece.iiitp.ac.in',
+  'cysec.iiitp.ac.in',
+  'aids.iiitp.ac.in',
+  'mevd.iiitp.ac.in',
+];
 
 // ── Warden email whitelist ────────────────────────────────────────────────────
 // Loaded from env (comma-separated). Empty = any authenticated account allowed.

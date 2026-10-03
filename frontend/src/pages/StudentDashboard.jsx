@@ -31,12 +31,23 @@ import {
 import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.png';
 import StudentAvatar from '../components/StudentAvatar';
+import AntiScreenshotShield from '../components/AntiScreenshotShield';
 import { verifyHumanFace } from '../utils/faceDetector';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
 const USER = 'user';
 const CHAT_STORAGE_PREFIX = 'student-dashboard-chat:';
+
+// ── Live Gate Pass Anti-Screenshot Clock ─────────────────────────────────────
+function LiveGatePassClock() {
+  const [timeStr, setTimeStr] = useState(() => format(new Date(), 'hh:mm:ss a'));
+  useEffect(() => {
+    const id = setInterval(() => setTimeStr(format(new Date(), 'hh:mm:ss a')), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <span>{timeStr}</span>;
+}
 
 // ── Bot message factory ───────────────────────────────────────────────────────
 // NOTE: msgId is created inside the component via useRef to avoid stale IDs
@@ -2097,7 +2108,11 @@ export default function StudentDashboard() {
 
                     <button
                       type="button"
-                      onClick={() => complaintCameraRef.current?.click()}
+                      onClick={() => {
+                        window.__filePickerActive = true;
+                        complaintCameraRef.current?.click();
+                        setTimeout(() => { window.__filePickerActive = false; }, 4000);
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -2119,7 +2134,11 @@ export default function StudentDashboard() {
 
                     <button
                       type="button"
-                      onClick={() => complaintFileRef.current?.click()}
+                      onClick={() => {
+                        window.__filePickerActive = true;
+                        complaintFileRef.current?.click();
+                        setTimeout(() => { window.__filePickerActive = false; }, 4000);
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -2226,7 +2245,8 @@ export default function StudentDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: 'var(--app-viewport-height)', minHeight: 'var(--app-viewport-height)', overflow: 'hidden', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
+    <AntiScreenshotShield>
+      <div style={{ display: 'flex', height: 'var(--app-viewport-height)', minHeight: 'var(--app-viewport-height)', overflow: 'hidden', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
 
       {/* ── Left Sidebar ── */}
       <aside style={{
@@ -2831,6 +2851,36 @@ export default function StudentDashboard() {
               )}
             </div>
 
+            {/* Live verification status stamp */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '5px 14px',
+                borderRadius: 999,
+                background: theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                color: theme === 'light' ? '#065f46' : '#34d399',
+                fontSize: 11.5,
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.15)',
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 8px #10b981',
+                  display: 'inline-block',
+                }}
+              />
+              <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
+            </div>
+
             <div style={{
               background: '#ffffff',
               padding: 16,
@@ -2839,22 +2889,43 @@ export default function StudentDashboard() {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
+              position: 'relative',
+              userSelect: 'none',
+              WebkitTouchCallout: 'none',
             }}>
               <img
                 src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
                 alt="Gate Pass QR"
+                onContextMenu={(e) => e.preventDefault()}
                 style={{
                   width: isMobile ? 220 : 280,
                   height: isMobile ? 220 : 280,
                   borderRadius: 0,
                   display: 'block',
                   imageRendering: 'pixelated',
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  WebkitUserDrag: 'none',
                 }}
               />
             </div>
 
-            <div style={{ fontSize: 11.5, color: theme === 'light' ? '#475569' : 'var(--text-muted)', textAlign: 'center', maxWidth: 280, fontWeight: 500 }}>
-              {zoomedQR.hint || 'Show to security at the gate'}
+            {/* Anti-screenshot notice */}
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#ef4444',
+                background: 'rgba(239, 68, 68, 0.08)',
+                padding: '4px 12px',
+                borderRadius: 999,
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              <span>🔒 Screenshots prohibited • Security accepts only live screen</span>
             </div>
 
             {/* Directional instruction banner at downside */}
@@ -3503,7 +3574,11 @@ export default function StudentDashboard() {
 
                   <button
                     type="button"
-                    onClick={() => profileFileInputRef.current?.click()}
+                    onClick={() => {
+                      window.__filePickerActive = true;
+                      profileFileInputRef.current?.click();
+                      setTimeout(() => { window.__filePickerActive = false; }, 4000);
+                    }}
                     disabled={photoUpdating || verifyingProfileFace}
                     style={{
                       flex: 1,
@@ -3593,6 +3668,7 @@ export default function StudentDashboard() {
           100% { transform: scale(0.95); opacity: 0.8; }
         }
       `}</style>
-    </div>
+      </div>
+    </AntiScreenshotShield>
   );
 }
