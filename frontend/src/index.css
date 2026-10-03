@@ -28,6 +28,7 @@
   --bg-card: rgba(139,92,246,0.1);
   --bg-card-hover: rgba(139,92,246,0.18);
   --bg-input: rgba(139,92,246,0.12);
+  --card-bg: #0c0b2f;
   --glass: rgba(139,92,246,0.06);
   --glass-border: rgba(139,92,246,0.25);
   --glass-border-hover: rgba(139,92,246,0.6);
@@ -48,6 +49,7 @@
 
   /* Borders / Shadows */
   --border: 1px solid rgba(139,92,246,0.18);
+  --border-color: rgba(139,92,246,0.22);
   --border-active: 1px solid var(--primary);
   --shadow-sm: 0 2px 8px rgba(139,92,246,0.15);
   --shadow-md: 0 4px 24px rgba(139,92,246,0.2);
@@ -112,6 +114,8 @@
 
   /* Borders / Shadows — clean, solid depth */
   --border: 1px solid #cbd5e1;
+  --border-color: #cbd5e1;
+  --card-bg: #ffffff;
   --border-active: 1.5px solid #6366f1;
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);

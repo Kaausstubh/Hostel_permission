@@ -903,7 +903,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: label });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara, Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
     }
   };
 
@@ -929,7 +929,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: text });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara ,Pune, Mumbai, Home Address)?');
+      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara ,Pune, Home Address)?');
     } else if (step === STEPS.HV_PLACE) {
       setLoading(true);
       try {
@@ -3281,25 +3281,27 @@ export default function StudentDashboard() {
               position: 'relative',
               width: '100%',
               maxWidth: 420,
-              background: 'var(--card-bg, #1a2234)',
-              border: '1px solid var(--border-color)',
+              background: theme === 'light' ? '#ffffff' : '#0e1320',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.14)',
               borderRadius: 24,
               padding: 24,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 16,
-              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+              boxShadow: theme === 'light'
+                ? '0 25px 50px -12px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0,0,0,0.04)'
+                : '0 25px 50px -12px rgba(0,0,0,0.85)',
               animation: 'scaleUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           >
             {/* Header */}
             <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#f8fafc' }}>
                   Student Face Photo
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.6)', marginTop: 2 }}>
                   Official registration photo for gate verification
                 </div>
               </div>
@@ -3311,14 +3313,19 @@ export default function StudentDashboard() {
                 }}
                 disabled={photoUpdating || verifyingProfileFace}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
+                  background: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
+                  border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.12)',
+                  color: theme === 'light' ? '#475569' : 'rgba(255, 255, 255, 0.7)',
                   cursor: 'pointer',
-                  padding: 4,
+                  padding: 6,
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                <MdClose size={22} />
+                <MdClose size={20} />
               </button>
             </div>
 
@@ -3371,8 +3378,8 @@ export default function StudentDashboard() {
                   student={user}
                   size={120}
                   style={{
-                    border: '3px solid var(--primary, #3b82f6)',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+                    border: theme === 'light' ? '3px solid #6366f1' : '3px solid #3b82f6',
+                    boxShadow: theme === 'light' ? '0 8px 24px rgba(99, 102, 241, 0.22)' : '0 8px 24px rgba(0, 0, 0, 0.35)',
                   }}
                 />
               </div>
@@ -3384,9 +3391,9 @@ export default function StudentDashboard() {
                   width: '100%',
                   padding: '8px 12px',
                   borderRadius: 10,
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.35)',
-                  color: '#f87171',
+                  background: theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.15)',
+                  border: theme === 'light' ? '1px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.35)',
+                  color: theme === 'light' ? '#dc2626' : '#f87171',
                   fontSize: 12,
                   textAlign: 'center',
                   fontWeight: 600,
@@ -3420,6 +3427,7 @@ export default function StudentDashboard() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                   }}
                 >
                   <MdPhotoCamera size={18} />
@@ -3432,9 +3440,9 @@ export default function StudentDashboard() {
                   style={{
                     padding: '12px 18px',
                     borderRadius: 12,
-                    border: '1px solid var(--border-color)',
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
+                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.16)',
+                    background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.06)',
+                    color: theme === 'light' ? '#334155' : '#cbd5e1',
                     fontWeight: 600,
                     fontSize: 14,
                     cursor: 'pointer',
@@ -3444,7 +3452,7 @@ export default function StudentDashboard() {
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
                 <div style={{ display: 'flex', gap: 10, width: '100%' }}>
                   <button
                     type="button"
@@ -3452,21 +3460,23 @@ export default function StudentDashboard() {
                     disabled={photoUpdating || verifyingProfileFace}
                     style={{
                       flex: 1,
-                      padding: '11px 16px',
+                      padding: '12px 16px',
                       borderRadius: 12,
-                      border: '1px solid rgba(59, 130, 246, 0.4)',
-                      background: 'rgba(59, 130, 246, 0.12)',
-                      color: 'var(--primary-light, #60a5fa)',
+                      border: theme === 'light' ? '1.5px solid #6366f1' : '1px solid rgba(59, 130, 246, 0.5)',
+                      background: theme === 'light' ? '#eef2ff' : 'rgba(59, 130, 246, 0.15)',
+                      color: theme === 'light' ? '#4f46e5' : '#60a5fa',
                       fontWeight: 700,
                       fontSize: 13,
-                      cursor: 'pointer',
+                      cursor: photoUpdating || verifyingProfileFace ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 6,
+                      boxShadow: theme === 'light' ? '0 2px 6px rgba(99, 102, 241, 0.12)' : 'none',
+                      transition: 'all 0.15s ease',
                     }}
                   >
-                    <MdPhotoCamera size={16} />
+                    <MdPhotoCamera size={17} />
                     <span>Live Camera</span>
                   </button>
 
@@ -3476,26 +3486,39 @@ export default function StudentDashboard() {
                     disabled={photoUpdating || verifyingProfileFace}
                     style={{
                       flex: 1,
-                      padding: '11px 16px',
+                      padding: '12px 16px',
                       borderRadius: 12,
-                      border: '1px solid var(--border-color)',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      color: 'var(--text-primary)',
+                      border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.22)',
+                      background: theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)',
+                      color: theme === 'light' ? '#0f172a' : '#f8fafc',
                       fontWeight: 700,
                       fontSize: 13,
-                      cursor: 'pointer',
+                      cursor: photoUpdating || verifyingProfileFace ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 6,
+                      boxShadow: theme === 'light' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none',
+                      transition: 'all 0.15s ease',
                     }}
                   >
-                    <MdUpload size={16} />
+                    <MdUpload size={17} />
                     <span>{verifyingProfileFace ? 'Verifying...' : 'Upload Photo'}</span>
                   </button>
                 </div>
 
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.4 }}>
+                <div
+                  style={{
+                    fontSize: 11.5,
+                    color: theme === 'light' ? '#475569' : 'rgba(255, 255, 255, 0.65)',
+                    textAlign: 'center',
+                    lineHeight: 1.45,
+                    background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.04)',
+                    padding: '9px 12px',
+                    borderRadius: 10,
+                    border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                  }}
+                >
                   🔒 Face verification is active. Only clear, genuine human face photos are accepted for gate security records.
                 </div>
               </div>
