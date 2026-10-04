@@ -43,32 +43,28 @@ export default function AntiScreenshotShield({ children }) {
     }
   };
 
-  const activateShield = (duration = 3500, message = '', persistent = false) => {
+  const activateShield = (duration = 0, message = '') => {
     setIsShieldActive(true);
     shieldActiveTimeRef.current = Date.now();
 
-    // Broadcast shield activation to unmount or reset any active QR hold states immediately
-    try {
-      window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
-    } catch (_) {}
+    // Broadcast shield activation so sensitive components (like gate pass QR) immediately mask
+    window.dispatchEvent(new CustomEvent('shield-activated'));
 
     if (message) {
       notifyRestricted(message);
     }
 
-    // Clear any previous countdown so rapid/frequent swipes always renew and keep shield up
+    // Clear any previous countdown
     if (shieldTimerRef.current) {
       clearTimeout(shieldTimerRef.current);
       shieldTimerRef.current = null;
     }
 
-    // Only set auto-dismiss timer for momentary warnings, NEVER for window-switch, blur, or recording
-    if (!persistent && duration > 0) {
+    // Only set auto-dismiss if duration > 0 (for keyboard shortcuts).
+    // Blur, visibilitychange, and gestures remain persistently locked until user resumes!
+    if (duration > 0) {
       shieldTimerRef.current = setTimeout(() => {
-        // Only dismiss if the document is actually active and focused
-        if (!document.hidden && document.hasFocus()) {
-          setIsShieldActive(false);
-        }
+        setIsShieldActive(false);
       }, duration);
     }
   };
@@ -77,24 +73,19 @@ export default function AntiScreenshotShield({ children }) {
     // ── 1. Window Blur / Focus Detection ──────────────────────────────────────
     const handleBlur = () => {
       if (window.__filePickerActive) return;
-      // Persistent shield: Must NOT auto-dismiss while user is in notification bar or screen recorder!
-      activateShield(0, '⚠️ Window lost focus. Content hidden for security.', true);
+      // Persistently shield window on blur — no auto-dismissal
+      activateShield(0, '⚠️ Window lost focus — screen capture protection active.');
     };
 
     const handleFocus = () => {
-      // When window regains focus, do NOT prematurely dismiss if screen recording might be running.
-      // Require explicit user tap on "Resume Portal" button.
+      // Window regained focus. Shield remains active until user clicks Resume Portal.
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // Persistent shield: Never auto-dismiss while hidden
-        activateShield(0, '⚠️ Content hidden for security while away from portal.', true);
+        // Persistently shield window when backgrounded
+        activateShield(0, '⚠️ Background app switch detected.');
       }
-    };
-
-    const handlePageHide = () => {
-      activateShield(0, '⚠️ Content hidden for security.', true);
     };
 
     // ── 2. Keyboard Shortcuts Interception ────────────────────────────────────
@@ -185,17 +176,24 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
-    // ── 4. Mobile Multi-Touch & 3-Finger Gesture Blocker (Android Screenshot Swipes) ──
+    // ── 4. Mobile Gestures & Screen Recording Drawer Interception ─────────────
     const activePointers = new Set();
 
     const handleTouch = (e) => {
+      // Top edge touch: Intercepts notification drawer & control center pull-downs for screen recording
+      if (e.touches && e.touches[0] && e.touches[0].clientY <= 45) {
+        activePointers.clear();
+        activateShield(0, '⚠️ System gesture detected — screen security active.');
+        return;
+      }
+
       const touchCount = (e.touches && e.touches.length) || (e.targetTouches && e.targetTouches.length) || 0;
-      // Triggers as soon as 2 or more fingers contact the screen (before 3rd finger completes OS gesture)
+      // Triggers as soon as 2 or more fingers contact the screen
       if (touchCount >= 2) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
         activePointers.clear();
-        activateShield(0, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.', true);
+        activateShield(0, '⚠️ Multi-finger gesture blocked! Screen capture is prohibited.');
         return false;
       }
     };
@@ -208,12 +206,18 @@ export default function AntiScreenshotShield({ children }) {
     };
 
     const handlePointerDown = (e) => {
+      // Top edge pointer check
+      if (e.clientY <= 45) {
+        activePointers.clear();
+        activateShield(0, '⚠️ System drawer gesture detected.');
+        return;
+      }
       activePointers.add(e.pointerId);
       if (activePointers.size >= 2) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
         activePointers.clear();
-        activateShield(0, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.', true);
+        activateShield(0, '⚠️ Multi-touch gesture blocked! Screen capture is prohibited.');
       }
     };
 
@@ -226,7 +230,6 @@ export default function AntiScreenshotShield({ children }) {
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
-    window.addEventListener('pagehide', handlePageHide);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
@@ -234,7 +237,7 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('dragstart', handleDragStart);
     window.addEventListener('copy', handleCopy);
 
-    // Touch & Pointer listeners with capture: true & passive: false to cancel 3-finger screenshot swipes
+    // Touch & Pointer listeners with capture: true & passive: false to cancel multi-touch and drawer swipes
     window.addEventListener('touchstart', handleTouch, { passive: false, capture: true });
     window.addEventListener('touchmove', handleTouch, { passive: false, capture: true });
     window.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
@@ -253,7 +256,6 @@ export default function AntiScreenshotShield({ children }) {
       if (shieldTimerRef.current) clearTimeout(shieldTimerRef.current);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
@@ -277,15 +279,11 @@ export default function AntiScreenshotShield({ children }) {
     };
   }, []);
 
-  const handleResumePortal = (e) => {
-    if (e) e.stopPropagation();
-    // Prevent accidental finger releases or immediate taps from dismissing the shield
+  const handleShieldOverlayClick = () => {
+    // Prevent accidental finger taps from immediately dismissing the shield
     const elapsed = Date.now() - shieldActiveTimeRef.current;
     if (elapsed < 1200) return;
     setIsShieldActive(false);
-    try {
-      window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
-    } catch (_) {}
   };
 
   return (
@@ -316,7 +314,7 @@ export default function AntiScreenshotShield({ children }) {
       <div
         className="anti-screenshot-protected"
         style={{
-          filter: isShieldActive ? 'blur(50px)' : 'none',
+          filter: isShieldActive ? 'blur(60px)' : 'none',
           opacity: isShieldActive ? 0 : 1,
           visibility: isShieldActive ? 'hidden' : 'visible',
           pointerEvents: isShieldActive ? 'none' : 'auto',
@@ -327,10 +325,10 @@ export default function AntiScreenshotShield({ children }) {
         {children}
       </div>
 
-      {/* Security Privacy Overlay shown when window is blurred or screenshot detected */}
+      {/* Security Privacy Overlay shown when window is blurred or screenshot/screen-recording detected */}
       {isShieldActive && (
         <div
-          onClick={handleResumePortal}
+          onClick={handleShieldOverlayClick}
           style={{
             position: 'fixed',
             inset: 0,
@@ -388,12 +386,17 @@ export default function AntiScreenshotShield({ children }) {
               lineHeight: 1.55,
             }}
           >
-            Screenshots and window-switching are restricted on the student gate pass portal to prevent unauthorized pass sharing.
+            Screen recording, screenshots, and window-switching are restricted on the student gate pass portal to prevent unauthorized pass sharing.
           </p>
 
           <button
             type="button"
-            onClick={handleResumePortal}
+            onClick={(e) => {
+              e.stopPropagation();
+              const elapsed = Date.now() - shieldActiveTimeRef.current;
+              if (elapsed < 800) return;
+              setIsShieldActive(false);
+            }}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
