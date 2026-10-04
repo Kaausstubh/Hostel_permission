@@ -43,9 +43,14 @@ export default function AntiScreenshotShield({ children }) {
     }
   };
 
-  const activateShield = (duration = 3500, message = '') => {
+  const activateShield = (duration = 3500, message = '', persistent = false) => {
     setIsShieldActive(true);
     shieldActiveTimeRef.current = Date.now();
+
+    // Broadcast shield activation to unmount or reset any active QR hold states immediately
+    try {
+      window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
+    } catch (_) {}
 
     if (message) {
       notifyRestricted(message);
@@ -54,29 +59,42 @@ export default function AntiScreenshotShield({ children }) {
     // Clear any previous countdown so rapid/frequent swipes always renew and keep shield up
     if (shieldTimerRef.current) {
       clearTimeout(shieldTimerRef.current);
+      shieldTimerRef.current = null;
     }
 
-    shieldTimerRef.current = setTimeout(() => {
-      setIsShieldActive(false);
-    }, duration);
+    // Only set auto-dismiss timer for momentary warnings, NEVER for window-switch, blur, or recording
+    if (!persistent && duration > 0) {
+      shieldTimerRef.current = setTimeout(() => {
+        // Only dismiss if the document is actually active and focused
+        if (!document.hidden && document.hasFocus()) {
+          setIsShieldActive(false);
+        }
+      }, duration);
+    }
   };
 
   useEffect(() => {
     // ── 1. Window Blur / Focus Detection ──────────────────────────────────────
     const handleBlur = () => {
       if (window.__filePickerActive) return;
-      activateShield(3500);
+      // Persistent shield: Must NOT auto-dismiss while user is in notification bar or screen recorder!
+      activateShield(0, '⚠️ Window lost focus. Content hidden for security.', true);
     };
 
     const handleFocus = () => {
-      // When window regains focus, do not prematurely dismiss if a shield timer is running.
-      // Let the shieldTimerRef expire naturally or require explicit user resume.
+      // When window regains focus, do NOT prematurely dismiss if screen recording might be running.
+      // Require explicit user tap on "Resume Portal" button.
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        activateShield(3500);
+        // Persistent shield: Never auto-dismiss while hidden
+        activateShield(0, '⚠️ Content hidden for security while away from portal.', true);
       }
+    };
+
+    const handlePageHide = () => {
+      activateShield(0, '⚠️ Content hidden for security.', true);
     };
 
     // ── 2. Keyboard Shortcuts Interception ────────────────────────────────────
@@ -177,7 +195,7 @@ export default function AntiScreenshotShield({ children }) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
         activePointers.clear();
-        activateShield(3500, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.');
+        activateShield(0, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.', true);
         return false;
       }
     };
@@ -195,7 +213,7 @@ export default function AntiScreenshotShield({ children }) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
         activePointers.clear();
-        activateShield(3500, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.');
+        activateShield(0, '⚠️ Multi-finger screenshot gesture blocked! Screen capture is prohibited.', true);
       }
     };
 
@@ -208,6 +226,7 @@ export default function AntiScreenshotShield({ children }) {
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('pagehide', handlePageHide);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
@@ -234,6 +253,7 @@ export default function AntiScreenshotShield({ children }) {
       if (shieldTimerRef.current) clearTimeout(shieldTimerRef.current);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
@@ -257,12 +277,15 @@ export default function AntiScreenshotShield({ children }) {
     };
   }, []);
 
-  const handleShieldOverlayClick = () => {
-    // Prevent accidental finger releases from immediately dismissing the shield!
-    // Must wait at least 1.8 seconds after activation before dismissal is accepted
+  const handleResumePortal = (e) => {
+    if (e) e.stopPropagation();
+    // Prevent accidental finger releases or immediate taps from dismissing the shield
     const elapsed = Date.now() - shieldActiveTimeRef.current;
-    if (elapsed < 1800) return;
+    if (elapsed < 1200) return;
     setIsShieldActive(false);
+    try {
+      window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
+    } catch (_) {}
   };
 
   return (
@@ -307,7 +330,7 @@ export default function AntiScreenshotShield({ children }) {
       {/* Security Privacy Overlay shown when window is blurred or screenshot detected */}
       {isShieldActive && (
         <div
-          onClick={handleShieldOverlayClick}
+          onClick={handleResumePortal}
           style={{
             position: 'fixed',
             inset: 0,
@@ -370,7 +393,7 @@ export default function AntiScreenshotShield({ children }) {
 
           <button
             type="button"
-            onClick={() => setIsShieldActive(false)}
+            onClick={handleResumePortal}
             style={{
               display: 'inline-flex',
               alignItems: 'center',

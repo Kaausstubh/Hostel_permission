@@ -32,6 +32,7 @@ import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.png';
 import StudentAvatar from '../components/StudentAvatar';
 import AntiScreenshotShield from '../components/AntiScreenshotShield';
+import SecureGatePassQR from '../components/SecureGatePassQR';
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
 const USER = 'user';
@@ -559,6 +560,17 @@ export default function StudentDashboard() {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Automatically close any zoomed QR modal when security shield is activated
+  useEffect(() => {
+    const handleShieldActivated = () => {
+      setZoomedQR(null);
+    };
+    window.addEventListener('heimdall-shield-activated', handleShieldActivated);
+    return () => {
+      window.removeEventListener('heimdall-shield-activated', handleShieldActivated);
+    };
   }, []);
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
@@ -1653,43 +1665,20 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* QR image */}
+            {/* Secure Anti-Recording Gate Pass Presenter */}
             <div style={{
-              padding: 16, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', gap: 10,
-              cursor: 'zoom-in',
-            }} onClick={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}>
-              {m.meta.qrDataUrl ? (
-                <div style={{
-                  background: '#ffffff',
-                  padding: 12,
-                  borderRadius: 14,
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.18)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <img
-                    key={m.meta.qrToken || m.id}
-                    src={m.meta.qrDataUrl}
-                    alt="Gate pass QR code"
-                    style={{
-                      width: 210,
-                      height: 210,
-                      borderRadius: 0,
-                      display: 'block',
-                      imageRendering: 'pixelated',
-                    }}
-                  />
-                </div>
-              ) : (
-                <div style={{ width: 200, height: 200, background: 'var(--bg-input)',
-                  borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#8696a0', fontSize: 12 }}>Loading QR...</div>
-              )}
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
-                {pass.hint}
-              </div>
+              padding: 14, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', width: '100%',
+            }}>
+              <SecureGatePassQR
+                qrDataUrl={m.meta.qrDataUrl}
+                qrToken={m.meta.qrToken || m.id}
+                pass={pass}
+                user={user}
+                theme={theme}
+                isCompact={true}
+                onOpenModal={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}
+              />
             </div>
 
             {/* Instructions at downside */}
@@ -2724,123 +2713,16 @@ export default function StudentDashboard() {
               )}
             </div>
 
-            {/* Live verification status stamp */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '5px 14px',
-                borderRadius: 999,
-                background: theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid rgba(16, 185, 129, 0.45)',
-                color: theme === 'light' ? '#065f46' : '#34d399',
-                fontSize: 11.5,
-                fontWeight: 700,
-                letterSpacing: '0.02em',
-                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.15)',
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: '#10b981',
-                  boxShadow: '0 0 8px #10b981',
-                  display: 'inline-block',
-                }}
+            {/* Secure Anti-Recording Gate Presenter */}
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <SecureGatePassQR
+                qrDataUrl={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
+                qrToken={zoomedQR.qrToken || zoomedQR.qr_token}
+                pass={zoomedQR}
+                user={user}
+                theme={theme}
+                isCompact={false}
               />
-              <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
-            </div>
-
-            <div style={{
-              background: '#ffffff',
-              padding: 16,
-              borderRadius: 16,
-              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              overflow: 'hidden',
-              userSelect: 'none',
-              touchAction: 'none',
-              WebkitTouchCallout: 'none',
-            }}>
-              {/* Dynamic Animated Hologram Laser Scanner Beam */}
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 8,
-                  right: 8,
-                  height: 3,
-                  background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, #10b981 50%, rgba(16,185,129,0) 100%)',
-                  boxShadow: '0 0 12px 3px rgba(16, 185, 129, 0.75)',
-                  borderRadius: 2,
-                  pointerEvents: 'none',
-                  animation: 'laserScan 2.2s ease-in-out infinite alternate',
-                  zIndex: 2,
-                }}
-              />
-
-              {/* Dynamic Security Roll Number Watermark */}
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  pointerEvents: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transform: 'rotate(-25deg)',
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: '0.12em',
-                  color: 'rgba(0, 0, 0, 0.09)',
-                  textTransform: 'uppercase',
-                  userSelect: 'none',
-                  zIndex: 1,
-                  textAlign: 'center',
-                  lineHeight: 1.8,
-                }}
-              >
-                {user?.rollNo || 'IIIT PUNE'} • LIVE ACTIVE PASS • {user?.name || ''}
-              </div>
-
-              <img
-                src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
-                alt="Gate Pass QR"
-                onContextMenu={(e) => e.preventDefault()}
-                style={{
-                  width: isMobile ? 220 : 280,
-                  height: isMobile ? 220 : 280,
-                  borderRadius: 0,
-                  display: 'block',
-                  imageRendering: 'pixelated',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                  WebkitUserDrag: 'none',
-                }}
-              />
-            </div>
-
-            {/* Anti-screenshot notice */}
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: '#ef4444',
-                background: 'rgba(239, 68, 68, 0.08)',
-                padding: '4px 12px',
-                borderRadius: 999,
-                border: '1px solid rgba(239, 68, 68, 0.25)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-              }}
-            >
-              <span>🔒 Screenshots prohibited • Security accepts only live screen</span>
             </div>
 
             {/* Directional instruction banner at downside */}
