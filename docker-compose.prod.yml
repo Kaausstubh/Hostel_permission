@@ -1,0 +1,139 @@
+version: '3.9'
+
+# ─── HEIMDALL Smart Campus — Oracle Cloud Production Stack ─────────────────────
+# Services:
+#   - backend: Node.js Express + Socket.IO API (private port 5000)
+#   - mongo:   MongoDB 7 (private, persistent volume)
+#   - redis:   Redis 7 Alpine (private, persistent volume, LRU cache)
+#   - caddy:   Reverse proxy with automatic HTTPS & Let's Encrypt (ports 80 & 443)
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MongoDB 7 (Private - No public ports) ──────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: heimdall-mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - heimdall-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ── Redis 7 Alpine (Private - No public ports) ──────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: heimdall-redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - heimdall-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Backend API (Private port 5000, exposed only via Caddy) ─────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: heimdall-backend
+    restart: always
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/heimdall}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - qr_images:/app/public/qr
+    networks:
+      - heimdall-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "5"
+
+  # ── Caddy (Auto HTTPS, Let's Encrypt / ZeroSSL, Reverse Proxy & WebSockets) ─
+  caddy:
+    image: caddy:2-alpine
+    container_name: heimdall-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 QUIC
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    environment:
+      - API_DOMAIN=${API_DOMAIN:-api.YOURDOMAIN.com}
+    networks:
+      - heimdall-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  heimdall-net:
+    driver: bridge
+
+# ── Persistent Volumes ────────────────────────────────────────────────────────
+volumes:
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  qr_images:
+    driver: local

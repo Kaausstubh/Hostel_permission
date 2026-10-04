@@ -19,7 +19,7 @@ const hasQueueInfra = () => Boolean(REDIS_URL);
 const getConnection = () => {
   if (!hasQueueInfra()) return null;
   if (connection) return connection;
-  connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: true });
+  connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: false });
   connection.on('error', (err) => console.error('Queue Redis error:', err.message));
   return connection;
 };
@@ -60,7 +60,7 @@ const startWhatsAppWorker = () => {
       }
       throw new Error(`Unsupported WhatsApp job type: ${job.name}`);
     },
-    { connection: getConnection() }
+    { connection: getConnection().duplicate() }
   );
   worker.on('failed', (job, err) => {
     console.error(`WhatsApp job failed (${job?.id}):`, err.message);

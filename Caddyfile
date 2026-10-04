@@ -1,0 +1,26 @@
+# ─── Caddy Configuration for HEIMDALL API ────────────────────────────────────
+# Reverse proxy with automatic HTTPS (Let's Encrypt / ZeroSSL)
+# Supports both HTTP REST endpoints and Socket.io WebSockets (/socket.io/*)
+# ─────────────────────────────────────────────────────────────────────────────
+
+{$API_DOMAIN:api.YOURDOMAIN.com} {
+    # Reverse proxy to the backend container on port 5000
+    reverse_proxy backend:5000 {
+        # WebSocket support:
+        # Caddy v2 reverse_proxy natively detects and handles WebSocket upgrades
+        # (Connection: Upgrade, Upgrade: websocket) without extra configuration.
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Response compression
+    encode gzip zstd
+
+    # Structured logging to stdout (collected by Docker logging driver)
+    log {
+        output stdout
+        format console
+    }
+}

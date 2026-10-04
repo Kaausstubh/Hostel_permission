@@ -64,12 +64,31 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '10mb';
 
+// ── Trust Proxy ───────────────────────────────────────────────────────────────
+// Required behind reverse proxies (Caddy, Cloudflare, Nginx) so req.ip and protocol are accurate
+app.set('trust proxy', 1);
+
 // ── CORS configuration ────────────────────────────────────────────────────────
+const normalizeOrigin = (url) => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
 const parseOriginList = (...values) =>
-  values.flatMap((v) => (v || '').split(',')).map((v) => v.trim()).filter(Boolean);
+  values
+    .flatMap((v) => (v || '').split(','))
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .flatMap((v) => [v, normalizeOrigin(v)]);
 
 const configuredOrigins = new Set([
-  ...parseOriginList(process.env.FRONTEND_URL, process.env.FRONTEND_URLS),
+  ...parseOriginList(
+    process.env.FRONTEND_URL,
+    process.env.FRONTEND_URLS,
+    process.env.VERCEL_URL
+  ),
   'http://localhost:5173',
   'http://localhost:5174',
   'http://127.0.0.1:5173',
@@ -84,7 +103,15 @@ const shouldAllowOrigin = (origin) => {
   if (configuredOrigins.has(origin)) return true;
 
   try {
-    const { hostname, protocol } = new URL(origin);
+    const { hostname, protocol, origin: originUrl } = new URL(origin);
+    if (configuredOrigins.has(originUrl)) return true;
+
+    // Check if origin matches VERCEL_URL host
+    if (process.env.VERCEL_URL) {
+      const vercelHost = process.env.VERCEL_URL.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+      if (hostname === vercelHost) return true;
+    }
+
     if (allowVercelPreviews && protocol === 'https:' && hostname.endsWith('.vercel.app')) {
       return true;
     }
@@ -109,7 +136,11 @@ app.use(helmet({
       scriptSrc:      ["'self'"],
       styleSrc:       ["'self'", "'unsafe-inline'"],
       imgSrc:         ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com'],
-      connectSrc:     ["'self'", ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim())],
+      connectSrc:     [
+        "'self'",
+        ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim()),
+        ...(process.env.VERCEL_URL ? [normalizeOrigin(process.env.VERCEL_URL)] : []),
+      ],
       frameAncestors: ["'none'"],
     },
   },
@@ -237,7 +268,7 @@ app.use('/api/gatescan',   gateScanRoutes);
 app.use('/api/archive',    archiveRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
+const handleHealth = (req, res) => {
   res.set('Cache-Control', 'public, max-age=5');
   res.json({
     status: 'ok',
@@ -247,7 +278,10 @@ app.get('/api/health', (req, res) => {
     service: 'HEIMDALL Smart Campus API',
     uptime: process.uptime(),
   });
-});
+};
+
+app.get('/health', handleHealth);
+app.get('/api/health', handleHealth);
 
 app.get('/api/ready', async (req, res) => {
   const dbReady = mongoose.connection.readyState === 1;

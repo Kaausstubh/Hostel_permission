@@ -20,7 +20,7 @@ const hasQueueInfra = () => Boolean(REDIS_URL);
 const getConnection = () => {
   if (!hasQueueInfra()) return null;
   if (connection) return connection;
-  connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: true });
+  connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: false });
   connection.on('error', (err) => logger.error('[Archive Queue] Redis connection error:', { error: err.message }));
   return connection;
 };
@@ -69,7 +69,7 @@ const startArchiveWorker = () => {
       logger.info(`[Archive Worker] Processing job ${job.id}`, job.data);
       return processArchiveJob(job.data);
     },
-    { connection: getConnection() }
+    { connection: getConnection().duplicate() }
   );
 
   worker.on('failed', (job, err) => {

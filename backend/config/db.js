@@ -29,38 +29,29 @@ const connectDB = async () => {
     throw new Error('MONGODB_URI is not set — server cannot start without a database');
   }
 
-  // ── Detect free-tier M0 from URI ─────────────────────────────────────────
-  // Atlas M0 URIs contain "mongodb+srv" and free clusters are identifiable
-  // by the env var or by explicit opt-out. Default conservatively to 5.
-  const defaultPool = process.env.MONGODB_TIER === 'paid'
-    ? '20'   // M2+ paid tier default
-    : '5';   // M0 free tier default
+  // ── Detect cluster tier from URI ─────────────────────────────────────────
+  // Atlas M0 URIs contain "mongodb+srv". Self-hosted / Docker MongoDB has no M0 limit.
+  const isAtlasM0 = (process.env.MONGODB_URI || '').includes('mongodb+srv');
+  const defaultPool = process.env.MONGODB_TIER === 'paid' || !isAtlasM0
+    ? '50'   // Self-hosted Docker / paid cluster default
+    : '5';   // Atlas M0 free tier default
 
   const options = {
     // ── Connection Pool ───────────────────────────────────────────────────────
-    // CRITICAL: Atlas M0 only has 100 connections TOTAL across all clients.
-    // With Render free (single instance) use 5 — leaves 95 for Atlas monitoring
-    // and other operations. NEVER set >8 on M0.
     maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL_SIZE || defaultPool, 10),
     minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '1', 10),
 
-    // Close idle connections quickly — free tier hibernates
-    maxIdleTimeMS: 15_000,   // 15s idle → release connection back to pool
+    // Close idle connections quickly
+    maxIdleTimeMS: 15_000,
 
-    // ── Timeouts (tuned for free-tier latency) ────────────────────────────────
-    connectTimeoutMS:         15_000,  // Free tier can be slow on cold start
-    socketTimeoutMS:          30_000,  // More generous than paid — free is slower
-    serverSelectionTimeoutMS:  8_000,  // Give Atlas M0 time to respond
-    heartbeatFrequencyMS:     20_000,  // Less frequent → fewer background connections
+    // ── Timeouts ─────────────────────────────────────────────────────────────
+    connectTimeoutMS:         15_000,
+    socketTimeoutMS:          30_000,
+    serverSelectionTimeoutMS:  8_000,
+    heartbeatFrequencyMS:     20_000,
 
     // ── Write Concern ─────────────────────────────────────────────────────────
-    // w:1 (default) is fine for free tier — w:majority adds latency on shared clusters
-    writeConcern: { w: 1, j: false },  // Fast writes for scan logs on free tier
-
-    // ── Compression ───────────────────────────────────────────────────────────
-    // zlib compression on free tier reduces network bytes significantly
-    compressors: ['zlib'],
-    zlibCompressionLevel: 1,
+    writeConcern: { w: 1, j: false },
   };
 
   for (let attempt = 1; attempt <= MAX_CONNECT_ATTEMPTS; attempt++) {
@@ -72,7 +63,7 @@ const connectDB = async () => {
       logger.info(`[DB] ✅ MongoDB connected (pool=${poolSize})`, {
         host: conn.connection.host,
         pool: poolSize,
-        tier: process.env.MONGODB_TIER || 'free',
+        tier: process.env.MONGODB_TIER || (isAtlasM0 ? 'atlas-m0' : 'self-hosted'),
       });
 
       // Non-blocking background migration — runs after server is ready
@@ -86,7 +77,7 @@ const connectDB = async () => {
         mongoose.connection.db.collection('users').dropIndex('phone_1')
           .then(() => logger.info('[DB] Legacy unique index phone_1 dropped successfully'))
           .catch((err) => {
-            if (err.codeName !== 'IndexNotFound') {
+            if (err.codeName !== 'IndexNotFound' && err.codeName !== 'NamespaceNotFound') {
               logger.warn('[DB] Error dropping legacy phone index (non-critical)', { error: err.message });
             }
           });

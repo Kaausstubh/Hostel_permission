@@ -30,25 +30,32 @@ const initSocketIO = (httpServer) => {
   _io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
-        // Reuse the same CORS logic as Express
-        if (!origin) return callback(null, true);
+        const normalize = (u) => (!u ? '' : /^https?:\/\//i.test(u.trim()) ? u.trim() : `https://${u.trim()}`);
         const allowedOrigins = new Set([
           ...(process.env.FRONTEND_URL || '').split(',').map((s) => s.trim()).filter(Boolean),
           ...(process.env.FRONTEND_URLS || '').split(',').map((s) => s.trim()).filter(Boolean),
+          ...(process.env.VERCEL_URL ? [process.env.VERCEL_URL.trim(), normalize(process.env.VERCEL_URL)] : []),
           'http://localhost:5173',
           'http://localhost:5174',
           'http://127.0.0.1:5173',
           'http://127.0.0.1:5174',
         ]);
         if (allowedOrigins.has(origin)) return callback(null, true);
-        if ((process.env.ALLOW_VERCEL_PREVIEWS || 'true') === 'true') {
-          try {
-            const { hostname, protocol } = new URL(origin);
+        try {
+          const { hostname, protocol, origin: originUrl } = new URL(origin);
+          if (allowedOrigins.has(originUrl)) return callback(null, true);
+
+          if (process.env.VERCEL_URL) {
+            const vercelHost = process.env.VERCEL_URL.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+            if (hostname === vercelHost) return callback(null, true);
+          }
+
+          if ((process.env.ALLOW_VERCEL_PREVIEWS || 'true') === 'true') {
             if (protocol === 'https:' && hostname.endsWith('.vercel.app')) {
               return callback(null, true);
             }
-          } catch { /* ignore */ }
-        }
+          }
+        } catch { /* ignore */ }
         return callback(new Error(`Socket.IO CORS blocked: ${origin}`));
       },
       credentials: true,

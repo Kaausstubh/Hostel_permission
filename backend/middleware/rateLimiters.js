@@ -39,7 +39,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   validate: { xForwardedForHeader: false }, // Render uses a reverse proxy
   message: { success: false, message: 'Too many requests — please try again later.' },
-  skip: (req) => req.path === '/api/health', // Never rate-limit health check
+  skip: (req) => req.path === '/api/health' || req.path === '/health', // Never rate-limit health check
 });
 
 // ── Login Brute-Force Protection ─────────────────────────────────────────────
