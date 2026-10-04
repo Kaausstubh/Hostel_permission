@@ -77,11 +77,16 @@ export const AuthProvider = ({ children }) => {
 
   // ── Internal: clear all session state ───────────────────────────────────────
   const _clearSession = (currentUser) => {
-    if (currentUser?.role === 'student') {
-      const uid = currentUser.id || currentUser._id || currentUser.email;
-      const uidStr = typeof uid === 'object' ? uid.toString() : String(uid);
-      localStorage.removeItem(`student-dashboard-chat:${uidStr}`);
-    }
+    try {
+      const u = currentUser || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')) : null);
+      if (u?.role === 'student') {
+        const uid = u.id || u._id || u.email;
+        if (uid) {
+          const uidStr = typeof uid === 'object' ? uid.toString() : String(uid);
+          localStorage.removeItem(`student-dashboard-chat:${uidStr}`);
+        }
+      }
+    } catch {}
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);
@@ -143,13 +148,23 @@ export const AuthProvider = ({ children }) => {
 
   // ── logout ───────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
-    try {
-      // Best-effort server-side cache invalidation (non-blocking)
-      await api.post('/auth/logout').catch(() => {});
-    } finally {
-      _clearSession(user);
+    const currentToken = token || localStorage.getItem('token');
+    const currentUser = user;
+
+    // 1. Synchronously & immediately clear local credentials and state
+    _clearSession(currentUser);
+
+    // 2. Best-effort server-side cache invalidation in background (non-blocking)
+    if (currentToken) {
+      api
+        .post(
+          '/auth/logout',
+          {},
+          { headers: { Authorization: `Bearer ${currentToken}` } }
+        )
+        .catch(() => {});
     }
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── updateUser: update current user fields locally & in localStorage ──────────
   const updateUser = useCallback((updatedFields) => {

@@ -49,8 +49,9 @@ export default function Onboarding() {
       await logout();
     } catch (e) {
       console.error(e);
+    } finally {
+      navigate('/login', { replace: true });
     }
-    navigate('/login');
   };
 
   const autoMis = extractMisFromEmail(user?.email || '');

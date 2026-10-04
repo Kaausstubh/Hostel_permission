@@ -46,9 +46,10 @@ function PageLoader() {
 // ─── Protected Route Wrapper ──────────────────────────────────────────────────
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
+  const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'));
 
   if (loading) return <PageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user || !hasToken) return <Navigate to="/login" replace />;
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return (
@@ -110,6 +111,8 @@ const AppLayout = ({ children }) => {
 // ─── App Routes ───────────────────────────────────────────────────────────────
 function AppRoutes() {
   const { user } = useAuth();
+  const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'));
+  const isAuth = Boolean(user && hasToken);
 
   const defaultRedirect = () => {
     if (!user) return '/login';
@@ -124,7 +127,7 @@ function AppRoutes() {
         {/* ── Public routes ── */}
         <Route
           path="/login"
-          element={user ? <Navigate to={defaultRedirect()} replace /> : <Login />}
+          element={isAuth ? <Navigate to={defaultRedirect()} replace /> : <Login />}
         />
         {/* OAuth callback — must be public and unguarded */}
         <Route path="/auth/callback" element={<OAuthCallback />} />

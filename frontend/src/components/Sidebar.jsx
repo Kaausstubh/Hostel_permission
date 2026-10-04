@@ -34,10 +34,13 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
 
   const navItems = ['warden', 'admin'].includes(user?.role) ? wardenNav : securityNav;
 
-  const handleLogout = () => {
-    logout();
-    toast.success('Logged out successfully');
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      toast.success('Logged out successfully');
+      navigate('/login', { replace: true });
+    }
   };
 
   return (

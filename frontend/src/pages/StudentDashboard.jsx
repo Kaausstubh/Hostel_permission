@@ -1591,9 +1591,13 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      toast.success('Logged out successfully');
+      navigate('/login', { replace: true });
+    }
   };
 
   const downloadQR = (dataUrl, filename = 'gate-pass.png') => {

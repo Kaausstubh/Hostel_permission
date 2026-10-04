@@ -73,12 +73,15 @@ export default function Login() {
   const { initiateGoogleOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [selectedPortal, setSelectedPortal] = useState('student');
+  const [loggingIn, setLoggingIn] = useState(false);
 
   useEffect(() => {
     prewarmApiConnection();
   }, []);
 
   const handleGoogleLogin = (portal) => {
+    if (loggingIn) return;
+    setLoggingIn(true);
     initiateGoogleOAuth(portal);
   };
 
@@ -251,6 +254,7 @@ export default function Login() {
             id={`login-${selectedPortal}-google`}
             type="button"
             className="login-google-btn"
+            disabled={loggingIn}
             onClick={() => handleGoogleLogin(selectedPortal)}
             style={{
               width: '100%',
@@ -266,26 +270,38 @@ export default function Login() {
               fontFamily: 'Space Grotesk, Inter, sans-serif',
               fontSize: '16px',
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: loggingIn ? 'wait' : 'pointer',
+              opacity: loggingIn ? 0.75 : 1,
               transition: 'all 0.25s ease',
               letterSpacing: '0.01em',
               boxShadow: `0 4px 24px ${currentPortal.glow}`,
             }}
             onMouseEnter={(e) => {
+              if (loggingIn) return;
               e.currentTarget.style.background = `${currentPortal.color}22`;
               e.currentTarget.style.borderColor = currentPortal.color;
               e.currentTarget.style.boxShadow = `0 8px 32px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'translateY(-2px)';
             }}
             onMouseLeave={(e) => {
+              if (loggingIn) return;
               e.currentTarget.style.background = `${currentPortal.color}0e`;
               e.currentTarget.style.borderColor = `${currentPortal.color}55`;
               e.currentTarget.style.boxShadow = `0 4px 24px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'none';
             }}
           >
-            <GoogleIcon />
-            {currentPortal.btnText}
+            {loggingIn ? (
+              <>
+                <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2, marginRight: 4 }} />
+                Redirecting to Google…
+              </>
+            ) : (
+              <>
+                <GoogleIcon />
+                {currentPortal.btnText}
+              </>
+            )}
           </button>
 
           <p style={{
