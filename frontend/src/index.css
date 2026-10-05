@@ -1475,6 +1475,222 @@ body {
 .btn-lg { padding: 14px 28px; font-size: 15px; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none; }
 
+/* ── Scan Logs Pill Toolbar (Matches Heimdall Portal Screenshot) ── */
+.btn-pill-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #e2e8f0;
+  color: #1e293b;
+  border: none;
+  border-radius: 9999px;
+  padding: 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.btn-pill-light:hover:not(:disabled) {
+  background: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+}
+
+.btn-pill-light:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-pill-light:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-pill-danger {
+  color: #ef4444 !important;
+}
+
+.btn-pill-danger svg {
+  color: #ef4444;
+}
+
+.btn-pill-danger:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #dc2626 !important;
+}
+
+.btn-pill-light-group {
+  display: inline-flex;
+  align-items: center;
+  background: #e2e8f0;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.btn-pill-light-group:hover {
+  background: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+}
+
+.btn-pill-light-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  color: #1e293b;
+  padding: 8px 6px 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-pill-light-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #475569;
+  padding: 8px 14px 8px 4px;
+  cursor: pointer;
+}
+
+.btn-pill-light-arrow:hover {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.btn-pill-dark {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  padding: 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.btn-pill-dark:hover:not(:disabled) {
+  background: #334155;
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.btn-pill-dark:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-pill-dark:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.excel-export-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 290px;
+  background: #1e1b4b;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), 0 0 15px rgba(139, 92, 246, 0.15);
+  z-index: 100;
+}
+
+[data-theme='light'] .excel-export-dropdown {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+.excel-dropdown-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+
+[data-theme='light'] .excel-dropdown-header {
+  border-bottom-color: #f1f5f9;
+}
+
+.excel-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-primary);
+}
+
+.excel-dropdown-item:hover {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+[data-theme='light'] .excel-dropdown-item:hover {
+  background: #f1f5f9;
+}
+
+.excel-item-icon {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.excel-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.excel-item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.excel-dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 6px 4px;
+}
+
+[data-theme='light'] .excel-dropdown-divider {
+  background: #f1f5f9;
+}
+
+
 /* ── Form Elements ────────────────────────────── */
 .form-group { margin-bottom: 18px; }
 .form-label {

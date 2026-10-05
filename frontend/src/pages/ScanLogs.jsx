@@ -1,13 +1,15 @@
 /**
  * Scan Logs Page — In/Out history table (Warden & Security)
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHistory, MdRefresh, MdPictureAsPdf, MdDeleteOutline } from 'react-icons/md';
+import { MdHistory, MdRefresh, MdDeleteOutline } from 'react-icons/md';
+import { RiFilePdf2Line, RiFileExcel2Line, RiArrowDownSFill, RiDeleteBinLine } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
+import { downloadGateRecordsExcel } from '../utils/excelReportGenerator';
 import StudentAvatar from '../components/StudentAvatar';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
@@ -124,6 +126,66 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [excelMenuOpen, setExcelMenuOpen] = useState(false);
+  const excelMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (excelMenuRef.current && !excelMenuRef.current.contains(e.target)) {
+        setExcelMenuOpen(false);
+      }
+    };
+    if (excelMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [excelMenuOpen]);
+
+  const handleExportExcel = async (exportScope = 'current') => {
+    try {
+      setExportingExcel(true);
+      setExcelMenuOpen(false);
+
+      const currentRecords = activeTab === 'gate' ? logs : homeLogs;
+      if (exportScope === 'current' && (!currentRecords || currentRecords.length === 0)) {
+        toast.error(`No ${activeTab === 'gate' ? 'gate scan' : 'home visit'} records available to export`);
+        return;
+      }
+      if (exportScope === 'gate' && logs.length === 0) {
+        toast.error('No gate scan records found to export');
+        return;
+      }
+      if (exportScope === 'home' && homeLogs.length === 0) {
+        toast.error('No home visit records found to export');
+        return;
+      }
+      if (exportScope === 'all' && logs.length === 0 && homeLogs.length === 0) {
+        toast.error('No scan or visit records found to export');
+        return;
+      }
+
+      await downloadGateRecordsExcel({
+        gateLogs: logs,
+        homeLogs,
+        user,
+        dateFilter,
+        activeTab,
+        exportScope,
+      });
+
+      const label = exportScope === 'csv'
+        ? 'CSV file'
+        : (exportScope === 'all' ? 'Complete Master Excel workbook' : 'Excel spreadsheet');
+      toast.success(`${label} downloaded successfully!`);
+    } catch (err) {
+      console.error('[Excel Export] Error:', err);
+      toast.error(err.message || 'Failed to generate Excel export');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   const [clearing, setClearing] = useState(false);
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -148,11 +210,11 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               {activeTab === 'gate' ? logs.length : homeLogs.length} record(s)
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {isWarden && activeTab === 'gate' && logs.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {isWarden && activeTab === 'gate' && (
               <button
-                className="btn btn-outline btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
+                type="button"
+                className="btn-pill-light btn-pill-danger"
                 onClick={() => {
                   setConfirmModal({
                     isOpen: true,
@@ -167,18 +229,18 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   });
                   setConfirmInput('');
                 }}
-                disabled={clearing || loading}
+                disabled={clearing || loading || logs.length === 0}
                 title="Delete all gate scan records"
               >
-                <MdDeleteOutline size={16} />
-                Delete All Gate Logs
+                <RiDeleteBinLine size={16} />
+                <span>Delete All Gate Logs</span>
               </button>
             )}
 
-            {isWarden && activeTab === 'home' && homeLogs.length > 0 && (
+            {isWarden && activeTab === 'home' && (
               <button
-                className="btn btn-outline btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
+                type="button"
+                className="btn-pill-light btn-pill-danger"
                 onClick={() => {
                   setConfirmModal({
                     isOpen: true,
@@ -193,25 +255,131 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   });
                   setConfirmInput('');
                 }}
-                disabled={clearing || loading}
+                disabled={clearing || loading || homeLogs.length === 0}
                 title="Delete all home visit records"
               >
-                <MdDeleteOutline size={16} />
-                Delete All Home Visits
+                <RiDeleteBinLine size={16} />
+                <span>Delete All Home Visits</span>
               </button>
             )}
 
             <button
-              className="btn btn-outline btn-sm"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#cbd5e1' }}
+              type="button"
+              className="btn-pill-light"
               onClick={handleExportPDF}
               disabled={exportingPdf || loading || clearing}
+              title="Export official PDF report"
             >
-              <MdPictureAsPdf size={16} color="#ef4444" />
-              {exportingPdf ? 'Exporting...' : 'Export PDF'}
+              <RiFilePdf2Line size={17} color="#ef4444" />
+              <span>{exportingPdf ? 'Exporting...' : 'Export PDF'}</span>
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => fetchLogs()} disabled={loading || clearing}>
-              <MdRefresh size={16} /> Refresh
+
+            <div ref={excelMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+              <div className="btn-pill-light-group">
+                <button
+                  type="button"
+                  className="btn-pill-light-main"
+                  onClick={() => handleExportExcel('current')}
+                  disabled={exportingExcel || loading || clearing}
+                  title="Download Excel spreadsheet for current view"
+                >
+                  <RiFileExcel2Line size={17} color="#10b981" />
+                  <span>{exportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-pill-light-arrow"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExcelMenuOpen((prev) => !prev);
+                  }}
+                  disabled={exportingExcel || loading || clearing}
+                  title="Export options"
+                  aria-expanded={excelMenuOpen}
+                >
+                  <RiArrowDownSFill size={16} color="#475569" />
+                </button>
+              </div>
+
+              {excelMenuOpen && (
+                <div className="excel-export-dropdown fade-in">
+                  <div className="excel-dropdown-header">Export Spreadsheet</div>
+                  <button
+                    type="button"
+                    className="excel-dropdown-item"
+                    onClick={() => handleExportExcel('current')}
+                  >
+                    <span className="excel-item-icon">⚡</span>
+                    <div className="excel-item-body">
+                      <div className="excel-item-title">Current View: {activeTab === 'gate' ? 'Gate Scan Logs' : 'Home Visit Records'}</div>
+                      <div className="excel-item-desc">
+                        {activeTab === 'gate' ? `${logs.length} filtered gate record(s)` : `${homeLogs.length} filtered home record(s)`} (.xlsx)
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="excel-dropdown-item"
+                    onClick={() => handleExportExcel('gate')}
+                  >
+                    <span className="excel-item-icon">📋</span>
+                    <div className="excel-item-body">
+                      <div className="excel-item-title">Gate Scan Logs Only</div>
+                      <div className="excel-item-desc">{logs.length} gate pass record(s) (.xlsx)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="excel-dropdown-item"
+                    onClick={() => handleExportExcel('home')}
+                  >
+                    <span className="excel-item-icon">🏠</span>
+                    <div className="excel-item-body">
+                      <div className="excel-item-title">Home Visit Records Only</div>
+                      <div className="excel-item-desc">{homeLogs.length} home pass record(s) (.xlsx)</div>
+                    </div>
+                  </button>
+
+                  <div className="excel-dropdown-divider" />
+
+                  <button
+                    type="button"
+                    className="excel-dropdown-item"
+                    onClick={() => handleExportExcel('all')}
+                  >
+                    <span className="excel-item-icon">📑</span>
+                    <div className="excel-item-body">
+                      <div className="excel-item-title">Complete Multi-Sheet Report</div>
+                      <div className="excel-item-desc">Gate + Home visits + Institutional Summary (.xlsx)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="excel-dropdown-item"
+                    onClick={() => handleExportExcel('csv')}
+                  >
+                    <span className="excel-item-icon">📄</span>
+                    <div className="excel-item-body">
+                      <div className="excel-item-title">Export as CSV</div>
+                      <div className="excel-item-desc">Direct CSV file for current tab (.csv)</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="btn-pill-dark"
+              onClick={() => fetchLogs()}
+              disabled={loading || clearing}
+              title="Refresh logs"
+            >
+              <MdRefresh size={17} />
+              <span>Refresh</span>
             </button>
           </div>
         </div>
