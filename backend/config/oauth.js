@@ -25,12 +25,32 @@ const STUDENT_ALLOWED_DOMAINS = [
   'mevd.iiitp.ac.in',
 ];
 
-// ── Warden email whitelist ────────────────────────────────────────────────────
-// Loaded from env (comma-separated). Empty = any authenticated account allowed.
-const WARDEN_ALLOWED_EMAILS = (process.env.WARDEN_ALLOWED_EMAILS || '')
+// ── Hostel Staff (Warden) email whitelist ─────────────────────────────────────
+// Authorized emails permitted to log in to the Hostel Staff Command Centre.
+const HOSTEL_STAFF_ALLOWED_EMAILS = [
+  'laxmanshinde@iiitp.ac.in',
+  'angadborge691@gmail.com',
+  'saurabhkumar78540@gmail.com',
+  'navinthakur@iiitp.ac.in',
+  'kirti.more@iiitp.ac.in',
+  'minakshi@iiitp.ac.in',
+  'kaaustubhkhandare@gmail.com',
+  'sjyotik2005@gmail.com',
+  'aniketwandre2914@gmail.com',
+  'parthrajsolanke@gmail.com',
+  'mohitmoksh810@gmail.com',
+  'mahesh.joshi@iiitp.ac.in',
+];
+
+// Loaded from env (comma-separated), falling back to HOSTEL_STAFF_ALLOWED_EMAILS.
+const envWardenEmails = (process.env.WARDEN_ALLOWED_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
+
+const WARDEN_ALLOWED_EMAILS = envWardenEmails.length > 0
+  ? envWardenEmails
+  : HOSTEL_STAFF_ALLOWED_EMAILS;
 
 // ── Security email whitelist ──────────────────────────────────────────────────
 // Loaded from env (comma-separated). Empty = any authenticated account allowed.
@@ -48,21 +68,23 @@ const SECURITY_ALLOWED_EMAILS = (process.env.SECURITY_ALLOWED_EMAILS || '')
  */
 const validateStudentEmail = (email) => {
   if (!email) return false;
-  const domain = email.split('@')[1]?.toLowerCase();
+  const normalized = email.trim().toLowerCase();
+  // Prevent hostel staff from logging in as students
+  if (WARDEN_ALLOWED_EMAILS.includes(normalized)) return false;
+  const domain = normalized.split('@')[1];
   return STUDENT_ALLOWED_DOMAINS.includes(domain);
 };
 
 /**
- * Returns true if the email is allowed to access the Warden Portal.
- * When WARDEN_ALLOWED_EMAILS is empty, any authenticated account is allowed EXCEPT student domains.
+ * Returns true if the email is allowed to access the Warden / Hostel Staff Portal.
+ * Strictly restricted to authorized hostel staff emails only.
  * @param {string} email
  * @returns {boolean}
  */
 const validateWardenEmail = (email) => {
   if (!email) return false;
-  if (validateStudentEmail(email)) return false; // Block student accounts
-  if (WARDEN_ALLOWED_EMAILS.length === 0) return true; // Open — any other authenticated account
-  return WARDEN_ALLOWED_EMAILS.includes(email.toLowerCase());
+  const normalized = email.trim().toLowerCase();
+  return WARDEN_ALLOWED_EMAILS.includes(normalized);
 };
 
 /**
@@ -99,7 +121,7 @@ const validatePortalAccess = (portal, email) => {
       const allowed = validateWardenEmail(email);
       return {
         allowed,
-        reason: allowed ? 'ok' : `Your account (${email}) is not authorized for the Warden Portal.`,
+        reason: allowed ? 'ok' : `Your account (${email}) is not authorized for the Hostel Staff Portal. Access is restricted to designated hostel staff members.`,
       };
     }
     case 'security': {

@@ -53,7 +53,7 @@ const PORTALS = {
     label:       'Hostel Staff',
     Icon:        MdAdminPanelSettings,
     description: 'Command your hostel block. Approve outpasses, monitor every movement, and keep your students safe — all from one powerful dashboard.',
-    restriction: 'Any authorized Google account.',
+    restriction: 'Restricted to authorized Hostel Staff accounts only.',
     btnText:     '🛡️ Enter Hostel Staff Command Centre',
     color:       '#10b981',
     glow:        'rgba(16, 185, 129, 0.3)',

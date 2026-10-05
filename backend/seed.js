@@ -32,13 +32,90 @@ const connectDB = require('./config/db');
 // Replace these with real institutional Google account emails.
 // Students are NOT seeded — they self-register via OAuth.
 const staffUsers = [
-  // ─── Wardens ──────────────────────────────────────────────────────────────
+  // ─── Hostel Staff (Wardens) ────────────────────────────────────────────────
   {
     name:          'Kaustubh Khandare',
     email:         'kaaustubhkhandare@gmail.com',
     role:          'warden',
     oauthProvider: 'google',
-    oauthId:       'seeded-warden-placeholder',
+    oauthId:       'seeded-staff-kaustubh',
+  },
+  {
+    name:          'Laxman Shinde',
+    email:         'laxmanshinde@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-laxman',
+  },
+  {
+    name:          'Angad Borge',
+    email:         'angadborge691@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-angad',
+  },
+  {
+    name:          'Saurabh Kumar',
+    email:         'saurabhkumar78540@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-saurabh',
+  },
+  {
+    name:          'Navin Thakur',
+    email:         'navinthakur@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-navin',
+  },
+  {
+    name:          'Kirti More',
+    email:         'kirti.more@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-kirti',
+  },
+  {
+    name:          'Minakshi',
+    email:         'minakshi@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-minakshi',
+  },
+  {
+    name:          'Sjyotik',
+    email:         'sjyotik2005@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-sjyotik',
+  },
+  {
+    name:          'Aniket Wandre',
+    email:         'aniketwandre2914@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-aniket',
+  },
+  {
+    name:          'Parthraj Solanke',
+    email:         'parthrajsolanke@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-parthraj',
+  },
+  {
+    name:          'Mohit Moksh',
+    email:         'mohitmoksh810@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-mohit',
+  },
+  {
+    name:          'Mahesh Joshi',
+    email:         'mahesh.joshi@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-mahesh',
   },
 
   // ─── Security Staff ────────────────────────────────────────────────────────
