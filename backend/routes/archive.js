@@ -551,13 +551,15 @@ router.post('/secure-purge', authorize('warden', 'admin'), async (req, res) => {
       trimmedPass.toLowerCase() === req.user.email.toLowerCase() ||
       trimmedPass === 'CONFIRM_PURGE' ||
       trimmedPass.toLowerCase() === 'warden' ||
+      trimmedPass.toLowerCase() === 'hostel staff' ||
+      trimmedPass.toLowerCase() === 'hostelstaff' ||
       trimmedPass.toLowerCase() === 'heimdall' ||
       Boolean(req.user.role === 'warden' || req.user.role === 'admin');
 
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid Warden security passphrase. Deletion aborted.',
+        message: 'Invalid Hostel Staff security passphrase. Deletion aborted.',
       });
     }
 

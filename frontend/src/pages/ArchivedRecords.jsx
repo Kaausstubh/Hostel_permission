@@ -593,12 +593,12 @@ export default function ArchivedRecords() {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: '#ef4444' }}>
-                  Warden Storage Maintenance & Secure Purge
+                  Hostel Staff Storage Maintenance & Secure Purge
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
-                  To prevent MongoDB storage from exceeding quota, authorized wardens can purge older records from the database.
+                  To prevent MongoDB storage from exceeding quota, authorized hostel staff can purge older records from the database.
                   <strong> Ensure you download and archive the PDF report before deleting</strong>, as deleted database records cannot be restored.
-                  Deletion requires entering your Warden Security Credentials.
+                  Deletion requires entering your Hostel Staff Security Credentials.
                 </div>
                 <div style={{ marginTop: 14 }}>
                   <button
@@ -659,7 +659,7 @@ export default function ArchivedRecords() {
               gap: 8,
             }}>
               <MdCheckCircle size={18} style={{ flexShrink: 0 }} />
-              <span><strong>Safety Guarantee:</strong> Only historical In/Out scan logs and Home Visit movement records are purged. User accounts, student profiles, and warden credentials are <strong>never</strong> deleted.</span>
+              <span><strong>Safety Guarantee:</strong> Only historical In/Out scan logs and Home Visit movement records are purged. User accounts, student profiles, and hostel staff credentials are <strong>never</strong> deleted.</span>
             </div>
 
             <form onSubmit={handleSecurePurge}>
@@ -732,16 +732,16 @@ export default function ArchivedRecords() {
                 </label>
               </div>
 
-              {/* Warden Security Passphrase */}
+              {/* Hostel Staff Security Passphrase */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 5 }}>
-                  Warden Security Passphrase / Credential
+                  Hostel Staff Security Passphrase / Credential
                 </label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type="password"
                     className="form-input"
-                    placeholder="Enter Warden Passphrase or Warden Email"
+                    placeholder="Enter Hostel Staff Passphrase or Email"
                     required
                     value={wardenPassphrase}
                     onChange={(e) => setWardenPassphrase(e.target.value)}
@@ -750,7 +750,7 @@ export default function ArchivedRecords() {
                   <MdLock size={16} style={{ position: 'absolute', left: 10, top: 12, color: 'var(--text-muted)' }} />
                 </div>
                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5, display: 'block' }}>
-                  Enter Master Passphrase (<code style={{ color: 'var(--primary-light)', fontWeight: 700 }}>HEIMDALL@Warden2026</code>) or your logged-in Warden email address.
+                  Enter Master Passphrase (<code style={{ color: 'var(--primary-light)', fontWeight: 700 }}>HEIMDALL@Warden2026</code>) or your logged-in Hostel Staff email address.
                 </span>
               </div>
 

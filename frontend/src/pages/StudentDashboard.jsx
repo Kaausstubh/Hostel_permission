@@ -856,7 +856,7 @@ export default function StudentDashboard() {
       setComplaintNote('');
       setStep(STEPS.CPL_PHOTO);
       botSay(
-        `📸 *Snap or Upload Photo Evidence*\n\nCategory: *${typeLabel}*\n\nPlease take a photo with your camera or select an image of the issue so the warden and maintenance staff can inspect it:`,
+        `📸 *Snap or Upload Photo Evidence*\n\nCategory: *${typeLabel}*\n\nPlease take a photo with your camera or select an image of the issue so the hostel staff and maintenance staff can inspect it:`,
         'complaint_photo',
         {
           complaintType: id,
@@ -1013,7 +1013,7 @@ export default function StudentDashboard() {
 
       await api.post('/student/home-visit', data);
       botSay(
-        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The warden will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
+        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The hostel staff will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
       );
       setHvData({});
       goToMainMenu();
@@ -1096,7 +1096,7 @@ export default function StudentDashboard() {
     }
     setIsCompressingPhoto(true);
     setLoading(true);
-    const toastId = toast.loading('Uploading photo & sending complaint to warden...');
+    const toastId = toast.loading('Uploading photo & sending complaint to hostel staff...');
     try {
       const dataUrl = await compressImageForUpload(file, 960, 960, 0.8);
       setComplaintPhoto(dataUrl);
@@ -1114,9 +1114,9 @@ export default function StudentDashboard() {
         photo: dataUrl,
       });
 
-      toast.success('Complaint submitted to warden! ✓', { id: toastId });
+      toast.success('Complaint submitted to hostel staff! ✓', { id: toastId });
       botSay(
-        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: *Evidence attached & received*\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`,
+        `✅ *Complaint Submitted to Hostel Staff!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: *Evidence attached & received*\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the hostel staff. Maintenance staff will be notified.`,
         'text',
         { photo: dataUrl }
       );
@@ -1139,7 +1139,7 @@ export default function StudentDashboard() {
 
   const submitComplaintWithPhoto = async (photoData, noteText) => {
     setLoading(true);
-    const toastId = toast.loading('Submitting complaint to warden...');
+    const toastId = toast.loading('Submitting complaint to hostel staff...');
     try {
       const category = hvData.complaint_type || 'others';
       const typeLabel = hvData.complaint_type_label || 'Others';
@@ -1153,9 +1153,9 @@ export default function StudentDashboard() {
         photo: finalPhoto,
       });
 
-      toast.success('Complaint submitted to warden! ✓', { id: toastId });
+      toast.success('Complaint submitted to hostel staff! ✓', { id: toastId });
       botSay(
-        `✅ *Complaint Submitted to Warden!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: ${finalPhoto ? '*Evidence attached & received*' : 'None'}\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the warden. Maintenance staff will be notified.`,
+        `✅ *Complaint Submitted to Hostel Staff!*\n\n🏷️ Category: *${typeLabel}*\n📸 Photo: ${finalPhoto ? '*Evidence attached & received*' : 'None'}\n🏢 Hostel: *${user?.hostel || 'Hostel'}*\n${desc ? `📝 Note: "${desc}"\n` : ''}\nYour complaint has been forwarded to the hostel staff. Maintenance staff will be notified.`,
         'text',
         { photo: finalPhoto }
       );
@@ -1192,7 +1192,7 @@ export default function StudentDashboard() {
         photo: complaintPhoto || null,
       });
       botSay(
-        `✅ *Complaint Filed with Warden!*\n\n🏷️ Category: *${typeLabelMap[category] || 'Others'}*\n📝 "${text.substring(0, 80)}${text.length > 80 ? '…' : ''}"\n\nThe warden will review it shortly.`
+        `✅ *Complaint Filed with Hostel Staff!*\n\n🏷️ Category: *${typeLabelMap[category] || 'Others'}*\n📝 "${text.substring(0, 80)}${text.length > 80 ? '…' : ''}"\n\nThe hostel staff will review it shortly.`
       );
       setComplaintPhoto(null);
       setComplaintNote('');
@@ -2002,7 +2002,7 @@ export default function StudentDashboard() {
                     <span className="loading-spinner" style={{ width: 16, height: 16 }} />
                   ) : (
                     <>
-                      <MdSend size={16} /> Submit Complaint to Warden
+                      <MdSend size={16} /> Submit Complaint to Hostel Staff
                     </>
                   )}
                 </button>
@@ -2027,7 +2027,7 @@ export default function StudentDashboard() {
                   <div style={{ textAlign: 'center', padding: '16px 0' }}>
                     <div className="loading-spinner" style={{ width: 24, height: 24, margin: '0 auto 8px' }} />
                     <span style={{ fontSize: 13, color: 'var(--primary-light)', fontWeight: 600 }}>
-                      Uploading photo & sending complaint to warden...
+                      Uploading photo & sending complaint to hostel staff...
                     </span>
                   </div>
                 ) : (
@@ -2073,7 +2073,7 @@ export default function StudentDashboard() {
                         boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
                       }}
                     >
-                      <MdPhotoCamera size={18} /> 📸 Click Photo & Send to Warden
+                      <MdPhotoCamera size={18} /> 📸 Click Photo & Send to Hostel Staff
                     </button>
 
                     <button
@@ -2098,7 +2098,7 @@ export default function StudentDashboard() {
                         cursor: 'pointer',
                       }}
                     >
-                      <MdUpload size={18} /> 📁 Upload Photo & Send to Warden
+                      <MdUpload size={18} /> 📁 Upload Photo & Send to Hostel Staff
                     </button>
                   </>
                 )}

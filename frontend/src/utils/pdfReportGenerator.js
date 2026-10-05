@@ -85,7 +85,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setTextColor(30, 58, 138); // Navy-800
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('OFFICE OF THE CHIEF WARDEN & HOSTEL ADMINISTRATION', headerTextX, 47);
+  doc.text('OFFICE OF HOSTEL ADMINISTRATION & STAFF', headerTextX, 47);
 
   // Official Report Title
   doc.setTextColor(67, 56, 202); // Indigo-700
@@ -317,23 +317,23 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setTextColor(100, 116, 139);
   doc.text('Campus Security Gate — Main Security Post', 32, lineY + 19);
 
-  // Box 2: Hostel Warden
+  // Box 2: Hostel Staff
   doc.line(310, lineY, 490, lineY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.8);
   doc.setTextColor(30, 41, 59);
-  doc.text('Resident Hostel Warden', 310, lineY + 10);
+  doc.text('Resident Hostel Staff', 310, lineY + 10);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Council of Wardens (BH1 / BH2 / GH), IIIT Pune', 310, lineY + 19);
+  doc.text('Hostel Staff Administration (BH1 / BH2 / GH), IIIT Pune', 310, lineY + 19);
 
-  // Box 3: Chief Warden
+  // Box 3: Hostel Administration
   doc.line(600, lineY, 780, lineY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.8);
   doc.setTextColor(30, 41, 59);
-  doc.text('Office of the Chief Warden', 600, lineY + 10);
+  doc.text('Office of Hostel Administration', 600, lineY + 10);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);

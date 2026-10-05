@@ -129,7 +129,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Home visit request submitted. Warden will call your parent to confirm.',
+      message: 'Home visit request submitted. Hostel staff will call your parent to confirm.',
       visit,
     });
   } catch (error) {
@@ -218,7 +218,7 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
     if (!visit) return res.status(404).json({ success: false, message: 'Visit request not found' });
 
     if (visit.warden_status !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Warden already responded' });
+      return res.status(400).json({ success: false, message: 'Hostel staff already responded' });
     }
 
     visit.warden_status = action === 'approve' ? 'approved' : 'rejected';
@@ -240,19 +240,19 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
       // Send QR to student via WhatsApp
       await enqueueWhatsAppMessage({
         to: student.phone,
-        body: `✅ *Home Visit Approved!*\n\nWarden has confirmed permission via parent call.\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nYour QR gate pass is ready.\n\nQR Token (for dashboard scan): ${token.substring(0, 30)}...\nQR Image (if accessible): ${qrPublicUrl || '(configured locally)'}`,
+        body: `✅ *Home Visit Approved!*\n\nHostel staff has confirmed permission via parent call.\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nYour QR gate pass is ready.\n\nQR Token (for dashboard scan): ${token.substring(0, 30)}...\nQR Image (if accessible): ${qrPublicUrl || '(configured locally)'}`,
       });
     } else {
       visit.overall_status = 'rejected';
       await enqueueWhatsAppMessage({
         to: student.phone,
-        body: `❌ Your home visit request has been *rejected by the warden*.\nDates: ${visit.leave_date} → ${visit.return_date}`,
+        body: `❌ Your home visit request has been *rejected by the hostel staff*.\nDates: ${visit.leave_date} → ${visit.return_date}`,
       });
     }
 
     await visit.save();
 
-    res.json({ success: true, message: `Warden ${action}d the request`, visit });
+    res.json({ success: true, message: `Hostel staff ${action}d the request`, visit });
   } catch (error) {
     console.error('Warden approve error:', error);
     res.status(500).json({ success: false, message: error.message });

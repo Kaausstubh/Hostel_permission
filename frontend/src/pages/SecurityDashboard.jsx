@@ -1296,7 +1296,7 @@ export default function SecurityDashboard() {
                 )}
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 3 }}>
-                Home requests appear when submitted; scannable QR after warden approves on Home Visits page
+                Home requests appear when submitted; scannable QR after hostel staff approves on Home Visits page
               </div>
             </div>
             <button
@@ -1335,7 +1335,7 @@ export default function SecurityDashboard() {
               );
               const homeAwaiting = matchesSearch(
                 pendingQRs.filter(
-                  (q) => isHome(q) && (q.scanType === 'AWAITING WARDEN' || q.scanType === 'QR ERROR' || !q.token)
+                  (q) => isHome(q) && (['AWAITING WARDEN', 'AWAITING HOSTEL STAFF'].includes(q.scanType) || q.scanType === 'QR ERROR' || !q.token)
                 ),
                 searchByColumn.homeAwaiting
               );
@@ -1454,9 +1454,9 @@ export default function SecurityDashboard() {
                               <div className="security-pending-card-main" style={{ flex: 1, minWidth: 0 }}>
                                 <div className="security-pending-card-name">
                                   {qr.studentName || 'Unknown'}
-                                  {qr.scanType === 'AWAITING WARDEN' && (
+                                  {['AWAITING WARDEN', 'AWAITING HOSTEL STAFF'].includes(qr.scanType) && (
                                     <span className="security-pending-awaiting">
-                                      awaiting warden
+                                      awaiting hostel staff
                                     </span>
                                   )}
                                 </div>
@@ -1531,7 +1531,7 @@ export default function SecurityDashboard() {
                   />
                   <Column
                     title="Home Visit (awaiting)"
-                    subtitle="Submitted — not scannable until warden approves"
+                    subtitle="Submitted — not scannable until hostel staff approves"
                     items={homeAwaiting}
                     tone="danger"
                     searchKey="homeAwaiting"

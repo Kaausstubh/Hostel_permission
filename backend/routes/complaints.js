@@ -121,7 +121,7 @@ router.patch('/:id/resolve', protect, authorize('warden'), async (req, res) => {
         status: 'resolved',
         resolvedAt: new Date(),
         resolvedBy: req.user._id,
-        resolutionNote: resolutionNote || 'Resolved by warden',
+        resolutionNote: resolutionNote || 'Resolved by hostel staff',
       },
       { new: true }
     ).populate('student_id', 'name');

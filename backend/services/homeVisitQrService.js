@@ -173,14 +173,14 @@ const listPendingHomeVisitPasses = async (limit = 500) => {
     if (visit.return_date < today) continue;
 
     const statusNote = visit.overall_status === 'parent_approved'
-      ? 'Parent OK — warden must approve to enable QR scan'
+      ? 'Parent OK — hostel staff must approve to enable QR scan'
       : visit.parent_call_confirmed
-        ? 'Call confirmed — warden must approve'
-        : 'Waiting for warden (call parent & approve)';
+        ? 'Call confirmed — hostel staff must approve'
+        : 'Waiting for hostel staff (call parent & approve)';
 
     items.push(
       buildPassMeta(visit, null, {
-        scanType: 'AWAITING WARDEN',
+        scanType: 'AWAITING HOSTEL STAFF',
         scannable: false,
         statusNote,
       })

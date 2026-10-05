@@ -50,11 +50,11 @@ const PORTALS = {
     glow:        'rgba(59, 130, 246, 0.35)',
   },
   warden: {
-    label:       'Warden',
+    label:       'Hostel Staff',
     Icon:        MdAdminPanelSettings,
     description: 'Command your hostel block. Approve outpasses, monitor every movement, and keep your students safe — all from one powerful dashboard.',
     restriction: 'Any authorized Google account.',
-    btnText:     '🛡️ Enter Warden Command Centre',
+    btnText:     '🛡️ Enter Hostel Staff Command Centre',
     color:       '#10b981',
     glow:        'rgba(16, 185, 129, 0.3)',
   },

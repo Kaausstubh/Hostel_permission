@@ -74,7 +74,7 @@ export default function WardenDashboard() {
 
   return (
     <div className="fade-in">
-      <Navbar title="Warden Dashboard" />
+      <Navbar title="Hostel Staff Dashboard" />
       <div className="page-area">
 
         <div className="section-header">

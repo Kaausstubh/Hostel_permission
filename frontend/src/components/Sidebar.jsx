@@ -89,7 +89,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           </div>
           <div className="user-info">
             <div className="user-name">{user?.name}</div>
-            <div className="user-role">{user?.role}</div>
+            <div className="user-role">{user?.role === 'warden' ? 'Hostel Staff' : user?.role}</div>
           </div>
           <MdLogout style={{ color: 'var(--text-muted)', fontSize: '18px', flexShrink: 0 }} />
         </div>

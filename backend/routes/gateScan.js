@@ -77,7 +77,7 @@ router.get('/pending-qrs', async (req, res) => {
   const dailyOut = capped.filter((i) => i.requestType === 'inout_request' && i.scanType === 'OUT').length;
   const dailyIn = capped.filter((i) => i.requestType === 'inout_request' && i.scanType === 'IN').length;
   const homeAwaiting = capped.filter(
-    (i) => i.qrType === 'home_visit' && (i.scanType === 'AWAITING WARDEN' || !i.token)
+    (i) => i.qrType === 'home_visit' && (['AWAITING WARDEN', 'AWAITING HOSTEL STAFF'].includes(i.scanType) || !i.token)
   ).length;
   const homeOut = capped.filter((i) => i.qrType === 'home_visit' && i.scanType === 'HOME OUT').length;
   const homeIn = capped.filter((i) => i.qrType === 'home_visit' && i.scanType === 'HOME IN').length;
@@ -127,7 +127,7 @@ const resolveScanPayload = async (token) => {
     overall_status: { $in: ['pending', 'parent_approved'] },
   }).lean();
   if (pendingHome) {
-    return { error: 'Home visit not approved yet — warden must approve first' };
+    return { error: 'Home visit not approved yet — hostel staff must approve first' };
   }
 
   const { valid, payload, error } = validateQR(token);

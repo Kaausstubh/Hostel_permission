@@ -51,7 +51,7 @@ export default function ComplaintDashboard() {
   const handleResolve = async (id) => {
     setResolving(id);
     try {
-      await api.patch(`/complaints/${id}/resolve`, { resolutionNote: 'Resolved by warden' });
+      await api.patch(`/complaints/${id}/resolve`, { resolutionNote: 'Resolved by hostel staff' });
       toast.success('Complaint resolved');
       fetchComplaints();
     } catch (err) {
