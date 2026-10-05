@@ -14,21 +14,38 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import './index.css';
 
-// ─── Lazy page imports (code splitting) ───────────────────────────────────────
-const Login               = lazy(() => import('./pages/Login'));
-const OAuthCallback       = lazy(() => import('./pages/OAuthCallback'));
-const StudentDashboard    = lazy(() => import('./pages/StudentDashboard'));
-const WardenDashboard     = lazy(() => import('./pages/WardenDashboard'));
-const SecurityDashboard   = lazy(() => import('./pages/SecurityDashboard'));
-const NotReturned         = lazy(() => import('./pages/NotReturned'));
-const HomeVisits          = lazy(() => import('./pages/HomeVisits'));
-const ComplaintDashboard  = lazy(() => import('./pages/ComplaintDashboard'));
-const ScanLogs            = lazy(() => import('./pages/ScanLogs'));
-const StudentsOut         = lazy(() => import('./pages/StudentsOut'));
-const WardenStudents      = lazy(() => import('./pages/WardenStudents'));
-const StudentSimulator    = lazy(() => import('./pages/StudentSimulator'));
-const ParentHomeVisitRespond = lazy(() => import('./pages/ParentHomeVisitRespond'));
-const Onboarding          = lazy(() => import('./pages/Onboarding'));
+// Helper to automatically retry or force refresh if a chunk fails to load due to a new deployment
+const lazyWithRetry = (componentImport) =>
+  lazy(async () => {
+    try {
+      return await componentImport();
+    } catch (error) {
+      const isForceRefreshed = sessionStorage.getItem('chunk_retry_refreshed');
+      if (!isForceRefreshed) {
+        sessionStorage.setItem('chunk_retry_refreshed', 'true');
+        window.location.reload();
+        return { default: () => null };
+      }
+      sessionStorage.removeItem('chunk_retry_refreshed');
+      throw error;
+    }
+  });
+
+// ─── Lazy page imports (code splitting with deployment chunk retry) ───────────
+const Login               = lazyWithRetry(() => import('./pages/Login'));
+const OAuthCallback       = lazyWithRetry(() => import('./pages/OAuthCallback'));
+const StudentDashboard    = lazyWithRetry(() => import('./pages/StudentDashboard'));
+const WardenDashboard     = lazyWithRetry(() => import('./pages/WardenDashboard'));
+const SecurityDashboard   = lazyWithRetry(() => import('./pages/SecurityDashboard'));
+const NotReturned         = lazyWithRetry(() => import('./pages/NotReturned'));
+const HomeVisits          = lazyWithRetry(() => import('./pages/HomeVisits'));
+const ComplaintDashboard  = lazyWithRetry(() => import('./pages/ComplaintDashboard'));
+const ScanLogs            = lazyWithRetry(() => import('./pages/ScanLogs'));
+const StudentsOut         = lazyWithRetry(() => import('./pages/StudentsOut'));
+const WardenStudents      = lazyWithRetry(() => import('./pages/WardenStudents'));
+const StudentSimulator    = lazyWithRetry(() => import('./pages/StudentSimulator'));
+const ParentHomeVisitRespond = lazyWithRetry(() => import('./pages/ParentHomeVisitRespond'));
+const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
 
 // Layout
 import Sidebar from './components/Sidebar';
