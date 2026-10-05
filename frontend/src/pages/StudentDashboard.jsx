@@ -539,70 +539,7 @@ export default function StudentDashboard() {
   const complaintCameraRef = useRef(null);
   const complaintFileRef = useRef(null);
 
-  // Anti-Screen Recording QR Reveal state (Hold-to-Reveal Gate Pass)
-  const [isQrRevealed, setIsQrRevealed] = useState(false);
-  const qrRevealTimeoutRef = useRef(null);
 
-  const handleRevealStart = useCallback((e) => {
-    if (e && e.cancelable) e.preventDefault();
-    setIsQrRevealed(true);
-    if (navigator.vibrate) {
-      try { navigator.vibrate(35); } catch (_) {}
-    }
-    if (qrRevealTimeoutRef.current) clearTimeout(qrRevealTimeoutRef.current);
-    // Security timeout: Automatically re-mask after 12s so it can't be left open indefinitely
-    qrRevealTimeoutRef.current = setTimeout(() => {
-      setIsQrRevealed(false);
-    }, 12000);
-  }, []);
-
-  const handleRevealEnd = useCallback(() => {
-    setIsQrRevealed(false);
-    if (qrRevealTimeoutRef.current) {
-      clearTimeout(qrRevealTimeoutRef.current);
-      qrRevealTimeoutRef.current = null;
-    }
-  }, []);
-
-  // Whenever zoomedQR changes or closes, ensure QR is masked
-  useEffect(() => {
-    setIsQrRevealed(false);
-    if (qrRevealTimeoutRef.current) clearTimeout(qrRevealTimeoutRef.current);
-  }, [zoomedQR]);
-
-  // Window blur, tab switch, pagehide, touchcancel, upper menu exit, or security shield activation MUST immediately mask QR
-  useEffect(() => {
-    const handleImmediateMask = () => {
-      setIsQrRevealed(false);
-      if (qrRevealTimeoutRef.current) {
-        clearTimeout(qrRevealTimeoutRef.current);
-        qrRevealTimeoutRef.current = null;
-      }
-    };
-
-    window.addEventListener('blur', handleImmediateMask);
-    window.addEventListener('shield-activated', handleImmediateMask);
-    window.addEventListener('heimdall-shield-activated', handleImmediateMask);
-    const handleVis = () => {
-      if (document.hidden) handleImmediateMask();
-    };
-    document.addEventListener('visibilitychange', handleVis);
-    window.addEventListener('pagehide', handleImmediateMask);
-    window.addEventListener('touchcancel', handleImmediateMask);
-    window.addEventListener('pointercancel', handleImmediateMask);
-    window.addEventListener('resize', handleImmediateMask);
-
-    return () => {
-      window.removeEventListener('blur', handleImmediateMask);
-      window.removeEventListener('shield-activated', handleImmediateMask);
-      window.removeEventListener('heimdall-shield-activated', handleImmediateMask);
-      document.removeEventListener('visibilitychange', handleVis);
-      window.removeEventListener('pagehide', handleImmediateMask);
-      window.removeEventListener('touchcancel', handleImmediateMask);
-      window.removeEventListener('pointercancel', handleImmediateMask);
-      window.removeEventListener('resize', handleImmediateMask);
-    };
-  }, []);
 
   // Automatically sync verified student registration photo if missing from local state
   useEffect(() => {
@@ -1719,66 +1656,42 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Secure Pass Presentation Card (Anti-Screen Recording Shielded) */}
+            {/* QR image */}
             <div style={{
-              padding: '16px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 12,
-              cursor: 'pointer',
-              background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.03)',
-              borderRadius: 14,
-              margin: '8px 12px 12px',
-              border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+              padding: 16, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 10,
+              cursor: 'zoom-in',
             }} onClick={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}>
-              <div style={{
-                width: 60,
-                height: 60,
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(16, 185, 129, 0.2) 100%)',
-                border: '2px solid rgba(99, 102, 241, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 0 20px rgba(99, 102, 241, 0.25)',
-              }}>
-                <MdQrCode2 size={32} color="#6366f1" />
-              </div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  ✅ Active Gate Pass Ready
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-                  Protected by Anti-Screen-Record Shield
-                </div>
-              </div>
-
-              <button
-                type="button"
-                style={{
+              {m.meta.qrDataUrl ? (
+                <div style={{
+                  background: '#ffffff',
+                  padding: 12,
+                  borderRadius: 14,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.18)',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 7,
-                  padding: '9px 18px',
-                  borderRadius: 999,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  border: 'none',
-                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)',
-                  cursor: 'pointer',
-                  pointerEvents: 'none',
-                }}
-              >
-                <MdLock size={15} />
-                <span>Present at Gate (Tap to Open)</span>
-              </button>
-
-              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'center' }}>
-                🔒 Tap to open full-screen live pass for gate security
+                  justifyContent: 'center',
+                }}>
+                  <img
+                    key={m.meta.qrToken || m.id}
+                    src={m.meta.qrDataUrl}
+                    alt="Gate pass QR code"
+                    style={{
+                      width: 210,
+                      height: 210,
+                      borderRadius: 0,
+                      display: 'block',
+                      imageRendering: 'pixelated',
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ width: 200, height: 200, background: 'var(--bg-input)',
+                  borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#8696a0', fontSize: 12 }}>Loading QR...</div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+                {pass.hint}
               </div>
             </div>
 
@@ -2844,207 +2757,34 @@ export default function StudentDashboard() {
               <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
             </div>
 
-            {/* QR Box: Shielded by default, revealed only while holding */}
+            {/* QR image */}
             <div style={{
-              width: isMobile ? 240 : 290,
-              height: isMobile ? 240 : 290,
-              borderRadius: 18,
-              background: isQrRevealed ? '#ffffff' : (theme === 'light' ? '#f8fafc' : '#0b0f19'),
-              padding: isQrRevealed ? 16 : 20,
-              boxShadow: isQrRevealed ? '0 8px 32px rgba(16, 185, 129, 0.35)' : '0 8px 30px rgba(0,0,0,0.25)',
-              border: isQrRevealed
-                ? '2px solid #10b981'
-                : (theme === 'light' ? '2px dashed #cbd5e1' : '2px dashed rgba(99, 102, 241, 0.4)'),
-              display: 'flex',
-              flexDirection: 'column',
+              background: '#ffffff',
+              padding: 16,
+              borderRadius: 16,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+              display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               position: 'relative',
-              overflow: 'hidden',
               userSelect: 'none',
-              touchAction: 'none',
               WebkitTouchCallout: 'none',
-              transition: 'background 0.15s ease, border 0.15s ease',
             }}>
-              {isQrRevealed ? (
-                <>
-                  {/* Dynamic Animated Hologram Laser Scanner Beam */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: 8,
-                      right: 8,
-                      height: 3,
-                      background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, #10b981 50%, rgba(16,185,129,0) 100%)',
-                      boxShadow: '0 0 12px 3px rgba(16, 185, 129, 0.75)',
-                      borderRadius: 2,
-                      pointerEvents: 'none',
-                      animation: 'laserScan 2.2s ease-in-out infinite alternate',
-                      zIndex: 2,
-                    }}
-                  />
-
-                  {/* Dynamic Security Roll Number Watermark */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      pointerEvents: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transform: 'rotate(-25deg)',
-                      fontSize: 10,
-                      fontWeight: 800,
-                      letterSpacing: '0.12em',
-                      color: 'rgba(0, 0, 0, 0.09)',
-                      textTransform: 'uppercase',
-                      userSelect: 'none',
-                      zIndex: 1,
-                      textAlign: 'center',
-                      lineHeight: 1.8,
-                    }}
-                  >
-                    {user?.rollNo || 'IIIT PUNE'} • LIVE ACTIVE PASS • {user?.name || ''}
-                  </div>
-
-                  <img
-                    src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
-                    alt="Gate Pass QR"
-                    onContextMenu={(e) => e.preventDefault()}
-                    style={{
-                      width: isMobile ? 208 : 258,
-                      height: isMobile ? 208 : 258,
-                      borderRadius: 0,
-                      display: 'block',
-                      imageRendering: 'pixelated',
-                      pointerEvents: 'none',
-                      userSelect: 'none',
-                      WebkitUserDrag: 'none',
-                    }}
-                  />
-                </>
-              ) : (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  gap: 10,
-                  padding: 8,
-                }}>
-                  <div style={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.18) 0%, rgba(16, 185, 129, 0.18) 100%)',
-                    border: '1.5px solid rgba(99, 102, 241, 0.45)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#6366f1',
-                    boxShadow: '0 0 20px rgba(99, 102, 241, 0.2)',
-                  }}>
-                    <MdSecurity size={34} />
-                  </div>
-                  <div style={{
-                    fontSize: 13,
-                    fontWeight: 800,
-                    letterSpacing: '0.04em',
-                    color: 'var(--text-primary)',
-                    textTransform: 'uppercase',
-                  }}>
-                    🔒 Pass Shielded
-                  </div>
-                  <div style={{
-                    fontSize: 11,
-                    color: 'var(--text-secondary)',
-                    maxWidth: 190,
-                    lineHeight: 1.45,
-                  }}>
-                    Press & hold the button below to display QR for security scanner
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Hold-to-Scan Gate Button */}
-            <button
-              type="button"
-              onPointerDown={handleRevealStart}
-              onPointerUp={handleRevealEnd}
-              onPointerLeave={handleRevealEnd}
-              onPointerCancel={handleRevealEnd}
-              onTouchStart={handleRevealStart}
-              onTouchEnd={handleRevealEnd}
-              onTouchCancel={handleRevealEnd}
-              onMouseDown={handleRevealStart}
-              onMouseUp={handleRevealEnd}
-              onMouseLeave={handleRevealEnd}
-              onContextMenu={(e) => e.preventDefault()}
-              style={{
-                width: '100%',
-                padding: '15px 20px',
-                borderRadius: 14,
-                background: isQrRevealed
-                  ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
-                  : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                color: '#ffffff',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 9,
-                fontSize: 13.5,
-                fontWeight: 800,
-                letterSpacing: '0.02em',
-                cursor: 'pointer',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                touchAction: 'none',
-                boxShadow: isQrRevealed
-                  ? '0 0 24px rgba(16, 185, 129, 0.6)'
-                  : '0 4px 18px rgba(99, 102, 241, 0.4)',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {isQrRevealed ? (
-                <>
-                  <span style={{
-                    width: 9,
-                    height: 9,
-                    borderRadius: '50%',
-                    background: '#ffffff',
-                    boxShadow: '0 0 10px #ffffff',
-                    display: 'inline-block',
-                  }} />
-                  <span>SCANNING ACTIVE • KEEP HOLDING</span>
-                </>
-              ) : (
-                <>
-                  <MdTouchApp size={20} />
-                  <span>👆 PRESS & HOLD TO SCAN AT GATE</span>
-                </>
-              )}
-            </button>
-
-            {/* Anti-screenshot notice */}
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: '#ef4444',
-                background: 'rgba(239, 68, 68, 0.08)',
-                padding: '4px 12px',
-                borderRadius: 999,
-                border: '1px solid rgba(239, 68, 68, 0.25)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-              }}
-            >
-              <span>🔒 Screen recording blocked • Hold screen to scan</span>
+              <img
+                src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
+                alt="Gate Pass QR"
+                onContextMenu={(e) => e.preventDefault()}
+                style={{
+                  width: isMobile ? 220 : 280,
+                  height: isMobile ? 220 : 280,
+                  borderRadius: 0,
+                  display: 'block',
+                  imageRendering: 'pixelated',
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  WebkitUserDrag: 'none',
+                }}
+              />
             </div>
 
             {/* Directional instruction banner at downside */}

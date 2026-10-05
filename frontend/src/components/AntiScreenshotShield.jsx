@@ -118,7 +118,7 @@ export default function AntiScreenshotShield({ children }) {
 
   // ── 2. Screenshot, Screen Record, Menu Slide & Visibility Listeners ───────
   useEffect(() => {
-    // Window Blur: ONLY triggers if the entire window lost focus.
+    // Window Blur: ONLY triggers if the entire window lost focus (e.g. app switcher, notification shade).
     // Clicking buttons inside the portal NEVER triggers this because document.hasFocus() stays true.
     const handleBlur = () => {
       if (window.__filePickerActive) return;
@@ -126,9 +126,9 @@ export default function AntiScreenshotShield({ children }) {
 
       blurCheckTimerRef.current = setTimeout(() => {
         if (typeof document !== 'undefined' && !document.hasFocus()) {
-          activateShield(0, '⚠️ Window lost focus — screen capture protection active.');
+          activateShield(0, '⚠️ System overlay active — content hidden for security.');
         }
-      }, 180);
+      }, 40);
     };
 
     const handleFocus = () => {
@@ -141,8 +141,12 @@ export default function AntiScreenshotShield({ children }) {
     // Triggered when switching apps, pulling down notification tray, or taking OS screenshot
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        activateShield(0, '⚠️ Background switch detected — screen security active.');
+        activateShield(0, '⚠️ Background switch detected — content hidden for security.');
       }
+    };
+
+    const handlePageHide = () => {
+      activateShield(0, '⚠️ System switch detected — content hidden for security.');
     };
 
     // ── Mobile Slide Down/Up Menu & 3-Finger Screenshot Gesture ──────────────
@@ -161,11 +165,13 @@ export default function AntiScreenshotShield({ children }) {
       touchStartYRef.current = touch.clientY;
       isMenuSlideRef.current = false;
 
-      // Detect start at extreme top edge (sliding down notification/quick settings shade)
-      // or extreme bottom edge (sliding up control center)
-      if (touch.clientY <= 18) {
+      const screenHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+
+      // Detect start at top edge (sliding down notification/quick settings shade with screenshot/recording buttons)
+      // or bottom edge (sliding up app switcher / gesture navigation bar / control center)
+      if (touch.clientY <= 65) {
         isMenuSlideRef.current = 'down';
-      } else if (touch.clientY >= window.innerHeight - 18) {
+      } else if (touch.clientY >= screenHeight - 80) {
         isMenuSlideRef.current = 'up';
       }
     };
@@ -184,15 +190,15 @@ export default function AntiScreenshotShield({ children }) {
       const touch = touches[0];
       const deltaY = touch.clientY - touchStartYRef.current;
 
-      // Sliding down from the very top edge (opening notification shade with Screenshot / Screen record button)
-      if (isMenuSlideRef.current === 'down' && deltaY > 15) {
-        activateShield(0, '⚠️ Menu pull-down detected — screen security active.');
+      // Sliding down from top (opening notification shade with Screenshot / Screen record button)
+      if (isMenuSlideRef.current === 'down' && deltaY > 12) {
+        activateShield(0, '⚠️ Menu pull-down detected — content hidden for security.');
         isMenuSlideRef.current = false;
       }
 
-      // Sliding up from the very bottom edge (opening control center)
-      if (isMenuSlideRef.current === 'up' && deltaY < -15) {
-        activateShield(0, '⚠️ Control center gesture detected — screen security active.');
+      // Sliding up from bottom (opening recent apps overview / control center)
+      if (isMenuSlideRef.current === 'up' && deltaY < -12) {
+        activateShield(0, '⚠️ System gesture detected — content hidden for security.');
         isMenuSlideRef.current = false;
       }
     };
@@ -308,6 +314,7 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     window.addEventListener('contextmenu', handleContextMenu);
@@ -324,6 +331,7 @@ export default function AntiScreenshotShield({ children }) {
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('contextmenu', handleContextMenu);
@@ -338,7 +346,7 @@ export default function AntiScreenshotShield({ children }) {
   const handleResumePortal = (e) => {
     e?.stopPropagation();
     const elapsed = Date.now() - shieldActiveTimeRef.current;
-    if (elapsed < 800) return;
+    if (elapsed < 350) return;
 
     setIsShieldActive(false);
     window.dispatchEvent(new CustomEvent('shield-deactivated'));
