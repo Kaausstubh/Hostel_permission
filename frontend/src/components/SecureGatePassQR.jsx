@@ -144,27 +144,33 @@ export default function SecureGatePassQR({
       }
     };
 
-    window.addEventListener('blur', handleGlobalCancel);
+    window.addEventListener('blur', handleGlobalCancel, true);
+    window.addEventListener('focusout', handleGlobalCancel, true);
     window.addEventListener('focus', handleGlobalCancel);
-    document.addEventListener('visibilitychange', handleGlobalCancel);
+    document.addEventListener('visibilitychange', handleGlobalCancel, true);
+    document.documentElement.addEventListener('mouseleave', handleGlobalCancel, true);
     window.addEventListener('pointerup', handleGlobalCancel);
     window.addEventListener('pointercancel', handleGlobalCancel);
     window.addEventListener('touchend', handleGlobalCancel);
     window.addEventListener('touchcancel', handleGlobalCancel);
     window.addEventListener('touchstart', handleTouchCancel, { passive: true });
     window.addEventListener('heimdall-shield-activated', handleShieldEvent);
+    window.addEventListener('shield-activated', handleShieldEvent);
 
     return () => {
       cancelHold();
-      window.removeEventListener('blur', handleGlobalCancel);
+      window.removeEventListener('blur', handleGlobalCancel, true);
+      window.removeEventListener('focusout', handleGlobalCancel, true);
       window.removeEventListener('focus', handleGlobalCancel);
-      document.removeEventListener('visibilitychange', handleGlobalCancel);
+      document.removeEventListener('visibilitychange', handleGlobalCancel, true);
+      document.documentElement.removeEventListener('mouseleave', handleGlobalCancel, true);
       window.removeEventListener('pointerup', handleGlobalCancel);
       window.removeEventListener('pointercancel', handleGlobalCancel);
       window.removeEventListener('touchend', handleGlobalCancel);
       window.removeEventListener('touchcancel', handleGlobalCancel);
       window.removeEventListener('touchstart', handleTouchCancel);
       window.removeEventListener('heimdall-shield-activated', handleShieldEvent);
+      window.removeEventListener('shield-activated', handleShieldEvent);
     };
   }, [cancelHold]);
 

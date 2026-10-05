@@ -311,23 +311,34 @@ export default function SecurityDashboard() {
         SCANNER_ELEMENT_ID,
         {
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          useBarCodeDetectorIfSupported: false,
+          useBarCodeDetectorIfSupported: true,
           verbose: false,
         }
       );
 
       const scanConfig = {
-        fps: 25,
+        fps: 30,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
           const minDim = Math.min(viewfinderWidth, viewfinderHeight);
-          const size = Math.min(360, Math.max(220, Math.floor(minDim * 0.78)));
+          const size = Math.min(480, Math.max(260, Math.floor(minDim * 0.88)));
           return { width: size, height: size };
         },
         aspectRatio: 1.0,
         disableFlip: cameraFacing !== 'front',
         videoConstraints: useDeviceId
-          ? { deviceId: desiredCameraId }
-          : { facingMode },
+          ? {
+              deviceId: desiredCameraId,
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+              facingMode: { ideal: facingMode },
+              frameRate: { ideal: 30, max: 60 },
+            }
+          : {
+              facingMode,
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+              frameRate: { ideal: 30, max: 60 },
+            },
       };
 
       const onScanSuccess = async (decodedText) => {
@@ -580,7 +591,6 @@ export default function SecurityDashboard() {
     if (shouldIgnoreRecentScan(normalized)) return;
 
     isProcessingScanRef.current = true;
-    await pauseLiveScanner();
     setLoading(true);
     setResult(null);
     let feedbackTone = 'idle';
@@ -607,8 +617,6 @@ export default function SecurityDashboard() {
       setManualToken('');
       setSelectedQR(null);
       fetchPendingQRs();
-      // Resume scanner immediately — don't block queue on feedback timer
-      await resumeLiveScanner();
     } catch (err) {
       const msg = err.response?.data?.message || 'Scan failed';
       if (err.response?.status !== 409) {
@@ -626,7 +634,6 @@ export default function SecurityDashboard() {
       } else {
         toast.error(msg, { duration: 3000 });
       }
-      await resumeLiveScanner();
     } finally {
       isProcessingScanRef.current = false;
       setLoading(false);

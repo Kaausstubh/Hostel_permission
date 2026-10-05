@@ -570,7 +570,7 @@ export default function StudentDashboard() {
     if (qrRevealTimeoutRef.current) clearTimeout(qrRevealTimeoutRef.current);
   }, [zoomedQR]);
 
-  // Window blur, tab switch, pagehide, touchcancel, or security shield activation MUST immediately mask QR
+  // Window blur, tab switch, pagehide, touchcancel, upper menu exit, or security shield activation MUST immediately mask QR
   useEffect(() => {
     const handleImmediateMask = () => {
       setIsQrRevealed(false);
@@ -580,24 +580,34 @@ export default function StudentDashboard() {
       }
     };
 
-    window.addEventListener('blur', handleImmediateMask);
+    window.addEventListener('blur', handleImmediateMask, true);
+    window.addEventListener('focusout', handleImmediateMask, true);
+    document.addEventListener('focusout', handleImmediateMask, true);
     window.addEventListener('shield-activated', handleImmediateMask);
+    window.addEventListener('heimdall-shield-activated', handleImmediateMask);
+    document.documentElement.addEventListener('mouseleave', handleImmediateMask, true);
+    window.addEventListener('mouseout', handleImmediateMask, true);
     const handleVis = () => {
       if (document.hidden) handleImmediateMask();
     };
-    document.addEventListener('visibilitychange', handleVis);
-    window.addEventListener('pagehide', handleImmediateMask);
-    window.addEventListener('touchcancel', handleImmediateMask);
-    window.addEventListener('pointercancel', handleImmediateMask);
+    document.addEventListener('visibilitychange', handleVis, true);
+    window.addEventListener('pagehide', handleImmediateMask, true);
+    window.addEventListener('touchcancel', handleImmediateMask, true);
+    window.addEventListener('pointercancel', handleImmediateMask, true);
     window.addEventListener('resize', handleImmediateMask);
 
     return () => {
-      window.removeEventListener('blur', handleImmediateMask);
+      window.removeEventListener('blur', handleImmediateMask, true);
+      window.removeEventListener('focusout', handleImmediateMask, true);
+      document.removeEventListener('focusout', handleImmediateMask, true);
       window.removeEventListener('shield-activated', handleImmediateMask);
-      document.removeEventListener('visibilitychange', handleVis);
-      window.removeEventListener('pagehide', handleImmediateMask);
-      window.removeEventListener('touchcancel', handleImmediateMask);
-      window.removeEventListener('pointercancel', handleImmediateMask);
+      window.removeEventListener('heimdall-shield-activated', handleImmediateMask);
+      document.documentElement.removeEventListener('mouseleave', handleImmediateMask, true);
+      window.removeEventListener('mouseout', handleImmediateMask, true);
+      document.removeEventListener('visibilitychange', handleVis, true);
+      window.removeEventListener('pagehide', handleImmediateMask, true);
+      window.removeEventListener('touchcancel', handleImmediateMask, true);
+      window.removeEventListener('pointercancel', handleImmediateMask, true);
       window.removeEventListener('resize', handleImmediateMask);
     };
   }, []);

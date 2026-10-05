@@ -366,8 +366,8 @@ router.get('/my', protect, authorize('student'), async (req, res) => {
   }
 });
 
-// ─── Delete Individual Home Visit Record (Warden/Admin/Security) ─────────────
-router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Delete Individual Home Visit Record (Warden/Admin) ─────────────────────
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const visit = await HomeVisitLog.findByIdAndDelete(req.params.id);
     if (!visit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
@@ -378,8 +378,8 @@ router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (
   }
 });
 
-// ─── Delete All Home Visit Records (Warden/Admin/Security) ───────────────────
-router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Delete All Home Visit Records (Warden/Admin) ───────────────────────────
+router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const result = await HomeVisitLog.deleteMany({});
     logger.info('[HomeVisit] Cleared all home visits', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
@@ -389,8 +389,8 @@ router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req
   }
 });
 
-// ─── Bulk Purge Home Visits by Cutoff Date (Warden/Admin/Security) ────────────
-router.post('/purge', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Bulk Purge Home Visits by Cutoff Date (Warden/Admin) ────────────────────
+router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const { cutoffDate } = req.body;
     if (!cutoffDate) {

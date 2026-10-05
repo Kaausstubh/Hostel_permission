@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { MdSecurity, MdLock } from 'react-icons/md';
+import { MdSecurity, MdLock, MdFiberPin } from 'react-icons/md';
 import toast from 'react-hot-toast';
 
 /**
@@ -7,18 +7,31 @@ import toast from 'react-hot-toast';
  *
  * Robust multi-layer protection against screenshots and screen captures
  * on the Student Portal:
- * 1. Mobile 3-Finger Gesture Blocker (Android swipe down gesture) with managed reset timer
- * 2. Window Blur Shield (intercepts macOS Cmd+Shift+3/4/5 & Windows Win+Shift+S snipping tools)
- * 3. Keyboard shortcut prevention (PrintScreen, Cmd+Shift+3/4/5, Ctrl+P, Cmd+P, Ctrl+S, Cmd+S)
- * 4. Clipboard wipe on screen-capture attempts
- * 5. Context-menu & drag-and-drop prevention
- * 6. CSS Print-blocker (@media print)
+ * 1. Upper Menu & Browser Toolbar Interception (Edge Web Capture, Chrome 3-dots screenshot, extension capture, OS menu bars)
+ * 2. Mobile Notification Drawer & Control Center Pull-Down Interception (Android Quick Settings Screen Recorder & Screenshot tiles)
+ * 3. Screen Recording API Neutralizer (intercepts and blocks navigator.mediaDevices.getDisplayMedia, canvas/media captureStream)
+ * 4. Window Blur & Focusout Shield (capture-phase listeners for instant blanking before screenshot buffers capture)
+ * 5. Keyboard shortcut interception (PrintScreen, Cmd+Shift+3/4/5/6, Ctrl+Shift+S, Win+Shift+S, Win+Alt+R, Win+G, F12, DevTools)
+ * 6. Clipboard wiping on screen-capture attempts
+ * 7. Context-menu & drag-and-drop prevention
+ * 8. CSS Print-blocker (@media print)
+ * 9. Persistent security lock — never auto-dismisses while capture utilities are open
  */
 export default function AntiScreenshotShield({ children }) {
   const [isShieldActive, setIsShieldActive] = useState(false);
+  const [liveTimestamp, setLiveTimestamp] = useState(() => new Date().toLocaleTimeString('en-US', { hour12: false }));
   const toastCooldownRef = useRef(0);
-  const shieldTimerRef = useRef(null);
   const shieldActiveTimeRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const activePointersRef = useRef(new Set());
+
+  // Keep live timestamp ticking for anti-recording verification
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveTimestamp(new Date().toLocaleTimeString('en-US', { hour12: false }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const notifyRestricted = (message = '⚠️ Screenshots and screen captures are prohibited on the student portal for gate security.') => {
     const now = Date.now();
@@ -37,65 +50,220 @@ export default function AntiScreenshotShield({ children }) {
       });
     }
 
-    // Overwrite clipboard if a screenshot was attempted
+    // Overwrite clipboard immediately if a screenshot was attempted
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText('⚠️ Screenshots of Heimdall student gate passes are restricted for campus security.').catch(() => {});
     }
   };
 
   const activateShield = (duration = 0, message = '') => {
+    // If file picker is open (e.g. student uploading complaint photo), ignore
+    if (window.__filePickerActive) return;
+
     setIsShieldActive(true);
     shieldActiveTimeRef.current = Date.now();
 
-    // Broadcast shield activation so sensitive components (like gate pass QR) immediately mask
+    // Broadcast shield activation to all sensitive components (like gate pass QR)
     window.dispatchEvent(new CustomEvent('shield-activated'));
+    window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
 
     if (message) {
       notifyRestricted(message);
     }
-
-    // Clear any previous countdown
-    if (shieldTimerRef.current) {
-      clearTimeout(shieldTimerRef.current);
-      shieldTimerRef.current = null;
-    }
-
-    // Only set auto-dismiss if duration > 0 (for keyboard shortcuts).
-    // Blur, visibilitychange, and gestures remain persistently locked until user resumes!
-    if (duration > 0) {
-      shieldTimerRef.current = setTimeout(() => {
-        setIsShieldActive(false);
-      }, duration);
-    }
+    // Note: All security locks remain PERSISTENT until the student explicitly clicks Resume Portal
   };
 
+  // ── 1. Screen Recording APIs Interception ─────────────────────────────────
   useEffect(() => {
-    // ── 1. Window Blur / Focus Detection ──────────────────────────────────────
+    // Intercept getDisplayMedia (browser screen / tab recording API)
+    let origGetDisplayMedia = null;
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+      origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getDisplayMedia = async function (...args) {
+        activateShield(0, '⚠️ Screen recording is strictly prohibited on the student portal.');
+        throw new DOMException('Screen recording is prohibited for gate security.', 'NotAllowedError');
+      };
+    }
+
+    // Intercept captureStream on Canvas and Media elements
+    let origCanvasCapture = null;
+    if (typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype.captureStream) {
+      origCanvasCapture = HTMLCanvasElement.prototype.captureStream;
+      HTMLCanvasElement.prototype.captureStream = function () {
+        activateShield(0, '⚠️ Canvas recording is prohibited on the student portal.');
+        throw new DOMException('Canvas capture is disabled for security.', 'NotAllowedError');
+      };
+    }
+
+    let origMediaCapture = null;
+    if (typeof HTMLMediaElement !== 'undefined' && HTMLMediaElement.prototype.captureStream) {
+      origMediaCapture = HTMLMediaElement.prototype.captureStream;
+      HTMLMediaElement.prototype.captureStream = function () {
+        activateShield(0, '⚠️ Media stream capture is prohibited on the student portal.');
+        throw new DOMException('Media capture is disabled for security.', 'NotAllowedError');
+      };
+    }
+
+    // Intercept requestPictureInPicture
+    let origPiP = null;
+    if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
+      origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
+      HTMLVideoElement.prototype.requestPictureInPicture = function () {
+        activateShield(0, '⚠️ Picture-in-picture screen capture blocked.');
+        throw new DOMException('Picture-in-picture is disabled.', 'NotAllowedError');
+      };
+    }
+
+    return () => {
+      if (origGetDisplayMedia && navigator.mediaDevices) {
+        navigator.mediaDevices.getDisplayMedia = origGetDisplayMedia;
+      }
+      if (origCanvasCapture && typeof HTMLCanvasElement !== 'undefined') {
+        HTMLCanvasElement.prototype.captureStream = origCanvasCapture;
+      }
+      if (origMediaCapture && typeof HTMLMediaElement !== 'undefined') {
+        HTMLMediaElement.prototype.captureStream = origMediaCapture;
+      }
+      if (origPiP && typeof HTMLVideoElement !== 'undefined') {
+        HTMLVideoElement.prototype.requestPictureInPicture = origPiP;
+      }
+    };
+  }, []);
+
+  // ── 2. Upper Menu, Focus, Blur, Gestures & Shortcut Listeners ─────────────
+  useEffect(() => {
+    // ── Window Blur & Focusout Detection (Capture phase for 0ms blanking) ────
     const handleBlur = () => {
       if (window.__filePickerActive) return;
-      // Persistently shield window on blur — no auto-dismissal
       activateShield(0, '⚠️ Window lost focus — screen capture protection active.');
-    };
-
-    const handleFocus = () => {
-      // Window regained focus. Shield remains active until user clicks Resume Portal.
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // Persistently shield window when backgrounded
         activateShield(0, '⚠️ Background app switch detected.');
       }
     };
 
-    // ── 2. Keyboard Shortcuts Interception ────────────────────────────────────
+    // ── Upper Menu & Top Toolbar Proximity Interception (Desktop) ───────────
+    const handleMouseMove = (e) => {
+      if (window.__filePickerActive) return;
+      // If cursor approaches within 12px of the very top edge (heading towards browser toolbar/Edge Web capture/Chrome menu/tabs)
+      if (e.clientY <= 12) {
+        activateShield(0, '⚠️ Upper menu proximity detected — screen security active.');
+      }
+    };
+
+    const handleMouseLeave = (e) => {
+      if (window.__filePickerActive) return;
+      // Cursor left the document window through top or outside viewport
+      if (e.clientY <= 0 || !e.relatedTarget || e.clientY <= 15) {
+        activateShield(0, '⚠️ Cursor left viewport — screen security active.');
+      }
+    };
+
+    const handleMouseOut = (e) => {
+      if (window.__filePickerActive) return;
+      // relatedTarget === null means cursor completely exited the browser window into the browser chrome / OS
+      if (!e.relatedTarget && (e.clientY <= 15 || e.clientX <= 0 || e.clientX >= window.innerWidth)) {
+        activateShield(0, '⚠️ Focus moved to browser menu — portal content shielded.');
+      }
+    };
+
+    // ── Mobile Gestures & Notification Drawer Pull-Down Interception ────────
+    const handleTouchStart = (e) => {
+      if (window.__filePickerActive) return;
+      const touches = e.touches || e.targetTouches;
+      if (!touches || !touches[0]) return;
+
+      const firstTouch = touches[0];
+      touchStartYRef.current = firstTouch.clientY;
+
+      // Top edge touch: Intercepts notification drawer & control center pull-downs for screen recording / screenshots
+      if (firstTouch.clientY <= 75) {
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Upper menu gesture detected — screen security active.');
+        return;
+      }
+
+      // Multi-touch gesture (2 or more fingers)
+      if (touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Multi-finger gesture blocked! Screen capture is prohibited.');
+        return false;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (window.__filePickerActive) return;
+      const touches = e.touches || e.targetTouches;
+      if (!touches || !touches[0]) return;
+
+      const firstTouch = touches[0];
+
+      // Finger moving in top zone
+      if (firstTouch.clientY <= 75) {
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Upper menu gesture detected — screen security active.');
+        return;
+      }
+
+      // Downward pull from upper area (swiping down notification drawer / quick settings)
+      if (touchStartYRef.current <= 120 && (firstTouch.clientY - touchStartYRef.current > 20)) {
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Notification drawer pull-down detected — screen security active.');
+        return;
+      }
+
+      // Multi-touch check
+      if (touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Multi-finger gesture blocked! Screen capture is prohibited.');
+        return false;
+      }
+    };
+
+    const handleTouchEnd = (e) => {
+      const remaining = e.touches ? e.touches.length : 0;
+      if (remaining <= 1) {
+        activePointersRef.current.clear();
+      }
+    };
+
+    const handlePointerDown = (e) => {
+      if (window.__filePickerActive) return;
+      if (e.clientY <= 75) {
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ System gesture detected — screen security active.');
+        return;
+      }
+      activePointersRef.current.add(e.pointerId);
+      if (activePointersRef.current.size >= 2) {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+        activePointersRef.current.clear();
+        activateShield(0, '⚠️ Multi-touch gesture blocked! Screen capture is prohibited.');
+      }
+    };
+
+    const handlePointerUp = (e) => {
+      activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size <= 1) {
+        activePointersRef.current.clear();
+      }
+    };
+
+    // ── Keyboard Shortcuts Interception ────────────────────────────────────
     const handleKeyDown = (e) => {
       const isMac = navigator.platform?.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
       // 1. Instantly trigger when Cmd+Shift or Ctrl+Shift are pressed
       if (cmdOrCtrl && e.shiftKey) {
-        activateShield(3000, '⚠️ Screen capture shortcuts are blocked on the student portal.');
+        activateShield(0, '⚠️ Screen capture shortcuts are blocked on the student portal.');
         e.preventDefault();
         e.stopPropagation();
         return false;
@@ -109,31 +277,55 @@ export default function AntiScreenshotShield({ children }) {
       ) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(3000, '⚠️ PrintScreen blocked! Gate passes cannot be screen-captured.');
+        activateShield(0, '⚠️ PrintScreen blocked! Gate passes cannot be screen-captured.');
         return false;
       }
 
-      // 3. Digit keys with modifiers or symbols (# is Shift+3, $ is Shift+4, % is Shift+5)
+      // 3. Digit keys with modifiers (macOS Cmd+Shift+3/4/5/6)
       const isScreenshotKey =
         e.code === 'Digit3' ||
         e.code === 'Digit4' ||
         e.code === 'Digit5' ||
+        e.code === 'Digit6' ||
         e.code === 'KeyS' ||
         e.key === '#' ||
         e.key === '$' ||
         e.key === '%' ||
+        e.key === '^' ||
         e.key === '3' ||
         e.key === '4' ||
-        e.key === '5';
+        e.key === '5' ||
+        e.key === '6';
 
       if (cmdOrCtrl && isScreenshotKey) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(3000, '⚠️ Screenshot shortcut blocked!');
+        activateShield(0, '⚠️ Screenshot shortcut blocked!');
         return false;
       }
 
-      // 4. Print page (Cmd+P / Ctrl+P)
+      // 4. Windows Game Bar Screen Recording (Win+Alt+R / Alt+R / Alt+Shift+R / Win+G)
+      if ((e.altKey && (e.code === 'KeyR' || e.key === 'r' || e.key === 'R')) ||
+          (e.metaKey && (e.code === 'KeyG' || e.key === 'g' || e.key === 'G'))) {
+        e.preventDefault();
+        e.stopPropagation();
+        activateShield(0, '⚠️ Screen recording shortcut blocked!');
+        return false;
+      }
+
+      // 5. DevTools interception (F12, Cmd+Option+I/J/C, Ctrl+Shift+I/J/C)
+      if (
+        e.key === 'F12' ||
+        e.code === 'F12' ||
+        ((e.metaKey || e.ctrlKey) && e.altKey && (e.code === 'KeyI' || e.code === 'KeyJ' || e.code === 'KeyC'))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        activateShield(0, '⚠️ Developer inspection tools are restricted for gate security.');
+        return false;
+      }
+
+      // 6. Print page (Cmd+P / Ctrl+P)
       if (cmdOrCtrl && (e.key === 'p' || e.key === 'P' || e.code === 'KeyP')) {
         e.preventDefault();
         e.stopPropagation();
@@ -141,7 +333,7 @@ export default function AntiScreenshotShield({ children }) {
         return false;
       }
 
-      // 5. Save page (Cmd+S / Ctrl+S)
+      // 7. Save page (Cmd+S / Ctrl+S)
       if (cmdOrCtrl && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
         e.preventDefault();
         e.stopPropagation();
@@ -158,7 +350,7 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
-    // ── 3. Right-Click Context Menu & Drag Protection ────────────────────────
+    // ── Context Menu, Drag & Copy Protection ───────────────────────────────
     const handleContextMenu = (e) => {
       e.preventDefault();
       notifyRestricted('⚠️ Right-click context menu is restricted on student gate passes.');
@@ -176,75 +368,34 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
-    // ── 4. Mobile Gestures & Screen Recording Drawer Interception ─────────────
-    const activePointers = new Set();
+    // Register all listeners with capture: true where applicable
+    window.addEventListener('blur', handleBlur, true);
+    window.addEventListener('focusout', handleBlur, true);
+    document.addEventListener('focusout', handleBlur, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange, true);
+    window.addEventListener('pagehide', handleBlur, true);
+    window.addEventListener('beforeunload', handleBlur, true);
 
-    const handleTouch = (e) => {
-      // Top edge touch: Intercepts notification drawer & control center pull-downs for screen recording
-      if (e.touches && e.touches[0] && e.touches[0].clientY <= 45) {
-        activePointers.clear();
-        activateShield(0, '⚠️ System gesture detected — screen security active.');
-        return;
-      }
+    // Mouse & Pointer events for upper menu proximity
+    document.addEventListener('mousemove', handleMouseMove, { passive: true, capture: true });
+    document.documentElement.addEventListener('mouseleave', handleMouseLeave, { passive: true, capture: true });
+    window.addEventListener('mouseout', handleMouseOut, { passive: true, capture: true });
 
-      const touchCount = (e.touches && e.touches.length) || (e.targetTouches && e.targetTouches.length) || 0;
-      // Triggers as soon as 2 or more fingers contact the screen
-      if (touchCount >= 2) {
-        if (e.cancelable) e.preventDefault();
-        e.stopPropagation();
-        activePointers.clear();
-        activateShield(0, '⚠️ Multi-finger gesture blocked! Screen capture is prohibited.');
-        return false;
-      }
-    };
-
-    const handleTouchEnd = (e) => {
-      const remaining = e.touches ? e.touches.length : 0;
-      if (remaining <= 1) {
-        activePointers.clear();
-      }
-    };
-
-    const handlePointerDown = (e) => {
-      // Top edge pointer check
-      if (e.clientY <= 45) {
-        activePointers.clear();
-        activateShield(0, '⚠️ System drawer gesture detected.');
-        return;
-      }
-      activePointers.add(e.pointerId);
-      if (activePointers.size >= 2) {
-        if (e.cancelable) e.preventDefault();
-        e.stopPropagation();
-        activePointers.clear();
-        activateShield(0, '⚠️ Multi-touch gesture blocked! Screen capture is prohibited.');
-      }
-    };
-
-    const handlePointerUp = (e) => {
-      activePointers.delete(e.pointerId);
-      if (activePointers.size <= 1) {
-        activePointers.clear();
-      }
-    };
-
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Keyboard & interaction
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
     window.addEventListener('contextmenu', handleContextMenu);
     window.addEventListener('dragstart', handleDragStart);
     window.addEventListener('copy', handleCopy);
 
-    // Touch & Pointer listeners with capture: true & passive: false to cancel multi-touch and drawer swipes
-    window.addEventListener('touchstart', handleTouch, { passive: false, capture: true });
-    window.addEventListener('touchmove', handleTouch, { passive: false, capture: true });
+    // Touch & Pointer listeners
+    window.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
     window.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
     window.addEventListener('touchcancel', handleTouchEnd, { passive: false, capture: true });
 
-    document.addEventListener('touchstart', handleTouch, { passive: false, capture: true });
-    document.addEventListener('touchmove', handleTouch, { passive: false, capture: true });
+    document.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
+    document.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
     document.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
     document.addEventListener('touchcancel', handleTouchEnd, { passive: false, capture: true });
 
@@ -253,23 +404,30 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('pointercancel', handlePointerUp, { capture: true });
 
     return () => {
-      if (shieldTimerRef.current) clearTimeout(shieldTimerRef.current);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur, true);
+      window.removeEventListener('focusout', handleBlur, true);
+      document.removeEventListener('focusout', handleBlur, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange, true);
+      window.removeEventListener('pagehide', handleBlur, true);
+      window.removeEventListener('beforeunload', handleBlur, true);
+
+      document.removeEventListener('mousemove', handleMouseMove, true);
+      document.documentElement.removeEventListener('mouseleave', handleMouseLeave, true);
+      window.removeEventListener('mouseout', handleMouseOut, true);
+
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('dragstart', handleDragStart);
       window.removeEventListener('copy', handleCopy);
 
-      window.removeEventListener('touchstart', handleTouch, true);
-      window.removeEventListener('touchmove', handleTouch, true);
+      window.removeEventListener('touchstart', handleTouchStart, true);
+      window.removeEventListener('touchmove', handleTouchMove, true);
       window.removeEventListener('touchend', handleTouchEnd, true);
       window.removeEventListener('touchcancel', handleTouchEnd, true);
 
-      document.removeEventListener('touchstart', handleTouch, true);
-      document.removeEventListener('touchmove', handleTouch, true);
+      document.removeEventListener('touchstart', handleTouchStart, true);
+      document.removeEventListener('touchmove', handleTouchMove, true);
       document.removeEventListener('touchend', handleTouchEnd, true);
       document.removeEventListener('touchcancel', handleTouchEnd, true);
 
@@ -279,11 +437,20 @@ export default function AntiScreenshotShield({ children }) {
     };
   }, []);
 
-  const handleShieldOverlayClick = () => {
-    // Prevent accidental finger taps from immediately dismissing the shield
+  const handleResumePortal = (e) => {
+    e?.stopPropagation();
     const elapsed = Date.now() - shieldActiveTimeRef.current;
-    if (elapsed < 1200) return;
+    if (elapsed < 800) return;
+
+    // Check if the window is currently focused
+    if (typeof document !== 'undefined' && !document.hasFocus()) {
+      notifyRestricted('⚠️ Click inside the window to focus before resuming.');
+      return;
+    }
+
     setIsShieldActive(false);
+    window.dispatchEvent(new CustomEvent('shield-deactivated'));
+    window.dispatchEvent(new CustomEvent('heimdall-shield-deactivated'));
   };
 
   return (
@@ -318,17 +485,47 @@ export default function AntiScreenshotShield({ children }) {
           opacity: isShieldActive ? 0 : 1,
           visibility: isShieldActive ? 'hidden' : 'visible',
           pointerEvents: isShieldActive ? 'none' : 'auto',
-          transition: 'none', // 0ms: instantaneous so camera frame buffer gets 0 pixels
+          transition: 'none', // 0ms: instantaneous blanking so camera buffer captures 0 pixels
           minHeight: '100%',
+          position: 'relative',
         }}
       >
+        {/* Subtle Live Dynamic Watermark to defeat external video recording playback */}
+        <div
+          className="anti-record-live-watermark"
+          style={{
+            position: 'fixed',
+            top: 6,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 99999,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '3px 10px',
+            borderRadius: 999,
+            background: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(4px)',
+            border: '1px solid rgba(99, 102, 241, 0.25)',
+            color: 'rgba(255, 255, 255, 0.65)',
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+          }}
+        >
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 5px #10b981' }} />
+          <span>CAMPUS SECURITY • LIVE {liveTimestamp}</span>
+        </div>
+
         {children}
       </div>
 
-      {/* Security Privacy Overlay shown when window is blurred or screenshot/screen-recording detected */}
+      {/* Security Privacy Overlay shown when upper menu, screenshot tool, blur, or screen-recording is detected */}
       {isShieldActive && (
         <div
-          onClick={handleShieldOverlayClick}
+          onClick={handleResumePortal}
           style={{
             position: 'fixed',
             inset: 0,
@@ -386,17 +583,12 @@ export default function AntiScreenshotShield({ children }) {
               lineHeight: 1.55,
             }}
           >
-            Screen recording, screenshots, and window-switching are restricted on the student gate pass portal to prevent unauthorized pass sharing.
+            Screen recording, screenshots, upper-menu capture tools, and window-switching are restricted on the student gate pass portal to prevent unauthorized pass sharing.
           </p>
 
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              const elapsed = Date.now() - shieldActiveTimeRef.current;
-              if (elapsed < 800) return;
-              setIsShieldActive(false);
-            }}
+            onClick={handleResumePortal}
             style={{
               display: 'inline-flex',
               alignItems: 'center',

@@ -349,8 +349,8 @@ router.get('/history/:id', protect, async (req, res) => {
   }
 });
 
-// ─── Delete Individual Gate Log (Warden/Admin/Security) ──────────────────────
-router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Delete Individual Gate Log (Warden/Admin) ──────────────────────────────
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const log = await InOutLog.findByIdAndDelete(req.params.id);
     if (!log) return res.status(404).json({ success: false, message: 'Gate log record not found' });
@@ -361,8 +361,8 @@ router.delete('/:id', protect, authorize('warden', 'admin', 'security'), async (
   }
 });
 
-// ─── Delete All Gate Logs (Warden/Admin/Security) ────────────────────────────
-router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Delete All Gate Logs (Warden/Admin) ────────────────────────────────────
+router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const result = await InOutLog.deleteMany({});
     logger.info('[InOut] Cleared all gate logs', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
@@ -372,8 +372,8 @@ router.delete('/', protect, authorize('warden', 'admin', 'security'), async (req
   }
 });
 
-// ─── Bulk Purge Gate Logs by Cutoff Date (Warden/Admin/Security) ──────────────
-router.post('/purge', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+// ─── Bulk Purge Gate Logs by Cutoff Date (Warden/Admin) ──────────────────────
+router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const { cutoffDate } = req.body;
     if (!cutoffDate) {

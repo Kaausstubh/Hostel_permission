@@ -18,6 +18,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState(defaultTab);
   const { user } = useAuth();
+  const isWarden = ['warden', 'admin'].includes(user?.role);
 
   useEffect(() => {
     setActiveTab(defaultTab);
@@ -148,7 +149,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {activeTab === 'gate' && logs.length > 0 && (
+            {isWarden && activeTab === 'gate' && logs.length > 0 && (
               <button
                 className="btn btn-outline btn-sm"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
@@ -174,7 +175,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               </button>
             )}
 
-            {activeTab === 'home' && homeLogs.length > 0 && (
+            {isWarden && activeTab === 'home' && homeLogs.length > 0 && (
               <button
                 className="btn btn-outline btn-sm"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#fca5a5', color: '#ef4444' }}
@@ -280,7 +281,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>In Time</th>
                   <th>Returned</th>
                   <th>Scanned By</th>
-                  <th>Action</th>
+                  {isWarden && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -326,31 +327,33 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
                       {log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.scannedBy?.email || 'Duty Guard'}
                     </td>
-                    <td>
-                      <button
-                        className="btn btn-ghost btn-xs"
-                        style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
-                        title="Delete record"
-                        onClick={() => {
-                          const studentName = log.student_id?.name || log.name || 'Student';
-                          setConfirmModal({
-                            isOpen: true,
-                            title: 'Delete Gate Scan Record',
-                            description: `Delete gate scan record for ${studentName} (${log.status} on ${log.date})? This action cannot be undone.`,
-                            confirmTargetText: 'delete',
-                            onConfirm: async () => {
-                              await api.delete(`/inout/${log._id}`);
-                              toast.success('Gate record deleted successfully');
-                              await fetchLogs('gate');
-                            },
-                          });
-                          setConfirmInput('');
-                        }}
-                        disabled={clearing}
-                      >
-                        <MdDeleteOutline size={17} />
-                      </button>
-                    </td>
+                    {isWarden && (
+                      <td>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                          title="Delete record"
+                          onClick={() => {
+                            const studentName = log.student_id?.name || log.name || 'Student';
+                            setConfirmModal({
+                              isOpen: true,
+                              title: 'Delete Gate Scan Record',
+                              description: `Delete gate scan record for ${studentName} (${log.status} on ${log.date})? This action cannot be undone.`,
+                              confirmTargetText: 'delete',
+                              onConfirm: async () => {
+                                await api.delete(`/inout/${log._id}`);
+                                toast.success('Gate record deleted successfully');
+                                await fetchLogs('gate');
+                              },
+                            });
+                            setConfirmInput('');
+                          }}
+                          disabled={clearing}
+                        >
+                          <MdDeleteOutline size={17} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -372,7 +375,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                   <th>Status</th>
                   <th>Parent Phone</th>
                   <th>Scanned By</th>
-                  <th>Action</th>
+                  {isWarden && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -420,31 +423,33 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                        visit.parent_call_confirmed_by?.name ||
                        (visit.actual_in_time || visit.actual_out_time ? 'Duty Guard' : '—')}
                     </td>
-                    <td>
-                      <button
-                        className="btn btn-ghost btn-xs"
-                        style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
-                        title="Delete record"
-                        onClick={() => {
-                          const studentName = visit.student_id?.name || visit.name || 'Student';
-                          setConfirmModal({
-                            isOpen: true,
-                            title: 'Delete Home Visit Record',
-                            description: `Delete home visit record for ${studentName} (${visit.leave_date} to ${visit.return_date})? This action cannot be undone.`,
-                            confirmTargetText: 'delete',
-                            onConfirm: async () => {
-                              await api.delete(`/homevisit/${visit._id}`);
-                              toast.success('Home visit record deleted successfully');
-                              await fetchLogs('home');
-                            },
-                          });
-                          setConfirmInput('');
-                        }}
-                        disabled={clearing}
-                      >
-                        <MdDeleteOutline size={17} />
-                      </button>
-                    </td>
+                    {isWarden && (
+                      <td>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                          title="Delete record"
+                          onClick={() => {
+                            const studentName = visit.student_id?.name || visit.name || 'Student';
+                            setConfirmModal({
+                              isOpen: true,
+                              title: 'Delete Home Visit Record',
+                              description: `Delete home visit record for ${studentName} (${visit.leave_date} to ${visit.return_date})? This action cannot be undone.`,
+                              confirmTargetText: 'delete',
+                              onConfirm: async () => {
+                                await api.delete(`/homevisit/${visit._id}`);
+                                toast.success('Home visit record deleted successfully');
+                                await fetchLogs('home');
+                              },
+                            });
+                            setConfirmInput('');
+                          }}
+                          disabled={clearing}
+                        >
+                          <MdDeleteOutline size={17} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
