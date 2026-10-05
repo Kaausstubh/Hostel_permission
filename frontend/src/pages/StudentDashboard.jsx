@@ -537,6 +537,7 @@ export default function StudentDashboard() {
   const [complaintNote, setComplaintNote] = useState('');
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
   const complaintCameraRef = useRef(null);
+  const complaintFileRef = useRef(null);
   // Mobile pull-down-to-reload state
   const [pullY, setPullY] = useState(0);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);

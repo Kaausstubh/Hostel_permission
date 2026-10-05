@@ -50,22 +50,26 @@ export default class ErrorBoundary extends Component {
             An unexpected error occurred. Your data is safe. Try refreshing the
             page or clicking the button below.
           </p>
-          {import.meta.env.DEV && this.state.error && (
-            <pre
-              style={{
-                background: 'rgba(255,0,0,0.08)',
-                border: '1px solid rgba(255,0,0,0.2)',
-                borderRadius: 8,
-                padding: '12px 16px',
-                fontSize: 11,
-                color: '#f87171',
-                maxWidth: '90vw',
-                overflowX: 'auto',
-                textAlign: 'left',
-              }}
-            >
-              {this.state.error.toString()}
-            </pre>
+          {this.state.error && (
+            <details style={{ marginTop: 8, textAlign: 'left', maxWidth: '90vw' }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+                View error details
+              </summary>
+              <pre
+                style={{
+                  background: 'rgba(255,0,0,0.08)',
+                  border: '1px solid rgba(255,0,0,0.2)',
+                  borderRadius: 8,
+                  padding: '12px 16px',
+                  fontSize: 11,
+                  color: '#f87171',
+                  overflowX: 'auto',
+                  marginTop: 6,
+                }}
+              >
+                {this.state.error.toString()}
+              </pre>
+            </details>
           )}
           <button
             onClick={this.handleReset}
