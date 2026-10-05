@@ -2,6 +2,7 @@
  * Scan Logs Page — In/Out history table (Warden & Security)
  */
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -128,18 +129,56 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelMenuOpen, setExcelMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
   const excelMenuRef = useRef(null);
+  const buttonGroupRef = useRef(null);
+
+  const updateMenuPosition = () => {
+    if (buttonGroupRef.current) {
+      const rect = buttonGroupRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 8,
+        right: Math.max(16, window.innerWidth - rect.right),
+      });
+    }
+  };
+
+  const toggleExcelMenu = (e) => {
+    e.stopPropagation();
+    if (!excelMenuOpen) {
+      updateMenuPosition();
+      setExcelMenuOpen(true);
+    } else {
+      setExcelMenuOpen(false);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (excelMenuRef.current && !excelMenuRef.current.contains(e.target)) {
+      if (
+        excelMenuRef.current &&
+        !excelMenuRef.current.contains(e.target) &&
+        buttonGroupRef.current &&
+        !buttonGroupRef.current.contains(e.target)
+      ) {
         setExcelMenuOpen(false);
       }
     };
+
+    const handleScrollOrResize = () => {
+      setExcelMenuOpen(false);
+    };
+
     if (excelMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      window.addEventListener('resize', handleScrollOrResize);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
   }, [excelMenuOpen]);
 
   const handleExportExcel = async (exportScope = 'current') => {
@@ -274,8 +313,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               <span>{exportingPdf ? 'Exporting...' : 'Export PDF'}</span>
             </button>
 
-            <div ref={excelMenuRef} style={{ position: 'relative', display: 'inline-flex', zIndex: excelMenuOpen ? 200 : 1 }}>
-              <div className="btn-pill-light-group">
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <div ref={buttonGroupRef} className="btn-pill-light-group">
                 <button
                   type="button"
                   className="btn-pill-light-main"
@@ -289,10 +328,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                 <button
                   type="button"
                   className="btn-pill-light-arrow"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExcelMenuOpen((prev) => !prev);
-                  }}
+                  onClick={toggleExcelMenu}
                   disabled={exportingExcel || loading || clearing}
                   title="Export options"
                   aria-expanded={excelMenuOpen}
@@ -301,8 +337,18 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                 </button>
               </div>
 
-              {excelMenuOpen && (
-                <div className="excel-export-dropdown fade-in">
+              {excelMenuOpen && typeof document !== 'undefined' && createPortal(
+                <div
+                  ref={excelMenuRef}
+                  className="excel-export-dropdown fade-in"
+                  style={{
+                    position: 'fixed',
+                    top: `${menuPosition.top}px`,
+                    right: `${menuPosition.right}px`,
+                    zIndex: 99999999,
+                    pointerEvents: 'auto',
+                  }}
+                >
                   <div className="excel-dropdown-header">Export Spreadsheet</div>
                   <button
                     type="button"
@@ -367,7 +413,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                       <div className="excel-item-desc">Direct CSV file for current tab (.csv)</div>
                     </div>
                   </button>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
 
