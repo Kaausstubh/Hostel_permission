@@ -118,24 +118,15 @@ export default function AntiScreenshotShield({ children }) {
 
   // ── 2. Screenshot, Screen Record, Menu Slide & Visibility Listeners ───────
   useEffect(() => {
-    // Window Blur: ONLY triggers if the entire window lost focus (e.g. app switcher, notification shade).
-    // Clicking buttons inside the portal NEVER triggers this because document.hasFocus() stays true.
+    // Window Blur: Triggered when notification shade / quick settings is pulled down,
+    // app switcher is opened, or when window loses focus.
     const handleBlur = () => {
       if (window.__filePickerActive) return;
-      if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
-
-      blurCheckTimerRef.current = setTimeout(() => {
-        if (typeof document !== 'undefined' && !document.hasFocus()) {
-          activateShield(0, '⚠️ System overlay active — content hidden for security.');
-        }
-      }, 40);
+      activateShield(0, '⚠️ System overlay active — content hidden for security.');
     };
 
     const handleFocus = () => {
-      if (blurCheckTimerRef.current) {
-        clearTimeout(blurCheckTimerRef.current);
-        blurCheckTimerRef.current = null;
-      }
+      // Window regained focus
     };
 
     // Triggered when switching apps, pulling down notification tray, or taking OS screenshot
@@ -169,7 +160,7 @@ export default function AntiScreenshotShield({ children }) {
 
       // Detect start at top edge (sliding down notification/quick settings shade with screenshot/recording buttons)
       // or bottom edge (sliding up app switcher / gesture navigation bar / control center)
-      if (touch.clientY <= 65) {
+      if (touch.clientY <= 75) {
         isMenuSlideRef.current = 'down';
       } else if (touch.clientY >= screenHeight - 80) {
         isMenuSlideRef.current = 'up';
@@ -191,19 +182,27 @@ export default function AntiScreenshotShield({ children }) {
       const deltaY = touch.clientY - touchStartYRef.current;
 
       // Sliding down from top (opening notification shade with Screenshot / Screen record button)
-      if (isMenuSlideRef.current === 'down' && deltaY > 12) {
+      if (isMenuSlideRef.current === 'down' && deltaY > 10) {
         activateShield(0, '⚠️ Menu pull-down detected — content hidden for security.');
         isMenuSlideRef.current = false;
       }
 
       // Sliding up from bottom (opening recent apps overview / control center)
-      if (isMenuSlideRef.current === 'up' && deltaY < -12) {
+      if (isMenuSlideRef.current === 'up' && deltaY < -10) {
         activateShield(0, '⚠️ System gesture detected — content hidden for security.');
         isMenuSlideRef.current = false;
       }
     };
 
     const handleTouchEnd = () => {
+      isMenuSlideRef.current = false;
+    };
+
+    const handleTouchCancel = () => {
+      // If a touch that started in top 90px was cancelled, it means the OS consumed it to open the notification tray!
+      if (touchStartYRef.current <= 90) {
+        activateShield(0, '⚠️ Notification drawer opened — content hidden for security.');
+      }
       isMenuSlideRef.current = false;
     };
 
@@ -324,10 +323,9 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
     window.addEventListener('touchend', handleTouchEnd, { passive: true });
-    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchCancel, { passive: true });
 
     return () => {
-      if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -339,7 +337,7 @@ export default function AntiScreenshotShield({ children }) {
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
-      window.removeEventListener('touchcancel', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, []);
 

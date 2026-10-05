@@ -27,7 +27,7 @@ import {
   MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
   MdCalendarMonth, MdChevronRight, MdExitToApp,
   MdPhotoCamera, MdUpload, MdClose, MdCheckCircle,
-  MdLock, MdSecurity, MdTouchApp,
+  MdLock, MdSecurity, MdTouchApp, MdRefresh,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.png';
@@ -537,8 +537,51 @@ export default function StudentDashboard() {
   const [complaintNote, setComplaintNote] = useState('');
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
   const complaintCameraRef = useRef(null);
-  const complaintFileRef = useRef(null);
+  // Mobile pull-down-to-reload state
+  const [pullY, setPullY] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const pullStartYRef = useRef(0);
+  const messagesScrollRef = useRef(null);
 
+  const handlePullStart = (e) => {
+    if (!e.touches || !e.touches[0]) return;
+    const clientY = e.touches[0].clientY;
+    // Only engage if touch starts inside the page content (below header, > 75px)
+    // and messages container is scrolled to the top
+    if (clientY > 75 && messagesScrollRef.current && messagesScrollRef.current.scrollTop <= 2) {
+      pullStartYRef.current = clientY;
+    } else {
+      pullStartYRef.current = 0;
+    }
+  };
+
+  const handlePullMove = (e) => {
+    if (!pullStartYRef.current || !e.touches || !e.touches[0]) return;
+    const clientY = e.touches[0].clientY;
+    const delta = clientY - pullStartYRef.current;
+    if (delta > 0 && messagesScrollRef.current && messagesScrollRef.current.scrollTop <= 2) {
+      // Gentle dampening
+      const damped = Math.min(85, delta * 0.42);
+      setPullY(damped);
+    } else {
+      setPullY(0);
+    }
+  };
+
+  const handlePullEnd = () => {
+    if (pullY >= 50) {
+      setIsPullRefreshing(true);
+      if (navigator.vibrate) {
+        try { navigator.vibrate(30); } catch (_) {}
+      }
+      setTimeout(() => {
+        window.location.reload();
+      }, 350);
+    } else {
+      setPullY(0);
+    }
+    pullStartYRef.current = 0;
+  };
 
 
   // Automatically sync verified student registration photo if missing from local state
@@ -2244,7 +2287,7 @@ export default function StudentDashboard() {
       </aside>
 
       {/* ── Chat Area ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
 
         {/* Header */}
         {isMobile ? (
@@ -2517,13 +2560,64 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* Visual Pull to Reload Banner */}
+        {(pullY > 0 || isPullRefreshing) && (
+          <div style={{
+            position: 'absolute',
+            top: isMobile ? 86 : 74,
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 100,
+            pointerEvents: 'none',
+            transition: pullY === 0 ? 'all 0.2s ease' : 'none',
+          }}>
+            <div style={{
+              background: theme === 'light' ? '#ffffff' : '#1e1b4b',
+              color: 'var(--text-primary)',
+              borderRadius: 999,
+              padding: '6px 16px',
+              fontSize: 12,
+              fontWeight: 700,
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(99, 102, 241, 0.35)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              transform: `translateY(${pullY * 0.7}px)`,
+              opacity: Math.min(1, pullY / 30),
+            }}>
+              <MdRefresh
+                size={16}
+                style={{
+                  color: '#6366f1',
+                  transform: `rotate(${pullY * 4.5}deg)`,
+                  animation: isPullRefreshing ? 'spin 0.8s linear infinite' : 'none',
+                }}
+              />
+              <span>
+                {isPullRefreshing ? 'Reloading...' : pullY >= 50 ? 'Release to reload' : 'Pull down to reload'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Messages */}
-        <div style={{
-          flex: 1, overflowY: 'auto', padding: isMobile ? '12px 10px' : '20px 32px',
-          display: 'flex', flexDirection: 'column', gap: 8,
-          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)',
-          overscrollBehavior: 'contain',
-        }}>
+        <div
+          ref={messagesScrollRef}
+          onTouchStart={handlePullStart}
+          onTouchMove={handlePullMove}
+          onTouchEnd={handlePullEnd}
+          onTouchCancel={handlePullEnd}
+          style={{
+            flex: 1, overflowY: 'auto', padding: isMobile ? '12px 10px' : '20px 32px',
+            display: 'flex', flexDirection: 'column', gap: 8,
+            backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)',
+            overscrollBehaviorY: 'auto',
+          }}
+        >
           {messages.map((m) => (
             <div key={m.id} style={{
               display: 'flex',

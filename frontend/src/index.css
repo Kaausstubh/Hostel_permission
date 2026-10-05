@@ -618,8 +618,7 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.4s ease, color 0.4s ease;
-  overflow: hidden;
-  overscroll-behavior: none;
+  overscroll-behavior-y: auto;
 }
 
 html {
@@ -629,7 +628,6 @@ html {
 
 body {
   overflow-x: hidden;
-  position: fixed;
 }
 
 /* ── Scrollbar ─────────────────────────────── */
