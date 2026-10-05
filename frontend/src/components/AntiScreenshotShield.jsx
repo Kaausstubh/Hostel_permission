@@ -6,30 +6,22 @@ import toast from 'react-hot-toast';
  * AntiScreenshotShield
  *
  * Dedicated protection against phone screenshots and screen recording:
- * 1. Mobile 3-Finger Gesture Blocker (Android 3-finger swipe screenshot)
- * 2. Mobile & OS App-Switch / Hardware Button Interception (document.visibilitychange)
- * 3. Screen Recording API Neutralizer (navigator.mediaDevices.getDisplayMedia, canvas/media captureStream)
+ * 1. Menu Slide Down / Slide Up Blocker (detects sliding down top notification drawer or sliding up control center for screenshot / screen recording)
+ * 2. Android 3-Finger Gesture Blocker (Android 3-finger swipe screenshot)
+ * 3. Mobile & OS App-Switch / Hardware Button Interception (document.visibilitychange)
  * 4. True Window Blur detection (checks document.hasFocus() — NEVER triggers on button clicks)
- * 5. Hardware & keyboard screenshot shortcuts (PrintScreen, Cmd+Shift+3/4/5/6, Win+Shift+S, Win+Alt+R, Win+G, Ctrl+Shift+S)
- * 6. Clipboard wiping on screenshot keypress
- * 7. CSS Print Blocker (@media print)
+ * 5. Screen Recording API Neutralizer (blocks navigator.mediaDevices.getDisplayMedia, canvas/media captureStream)
+ * 6. Hardware & keyboard screenshot shortcuts (PrintScreen, Cmd+Shift+3/4/5/6, Win+Shift+S, Win+Alt+R, Win+G, Ctrl+Shift+S)
+ * 7. Clipboard wiping on screenshot keypress
+ * 8. CSS Print Blocker (@media print)
  */
 export default function AntiScreenshotShield({ children }) {
   const [isShieldActive, setIsShieldActive] = useState(false);
-  const [liveTimestamp, setLiveTimestamp] = useState(() =>
-    new Date().toLocaleTimeString('en-US', { hour12: false })
-  );
   const toastCooldownRef = useRef(0);
   const shieldActiveTimeRef = useRef(0);
   const blurCheckTimerRef = useRef(null);
-
-  // Keep live timestamp ticking for anti-recording verification
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setLiveTimestamp(new Date().toLocaleTimeString('en-US', { hour12: false }));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const touchStartYRef = useRef(0);
+  const isMenuSlideRef = useRef(false);
 
   const notifyRestricted = (message = '⚠️ Screenshots and screen captures are prohibited on the student portal for gate security.') => {
     const now = Date.now();
@@ -48,20 +40,17 @@ export default function AntiScreenshotShield({ children }) {
       });
     }
 
-    // Overwrite clipboard immediately if a screenshot was attempted
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText('⚠️ Screenshots of Heimdall student gate passes are restricted for campus security.').catch(() => {});
     }
   };
 
   const activateShield = (duration = 0, message = '') => {
-    // If file picker is open (e.g. student uploading complaint photo), ignore
     if (window.__filePickerActive) return;
 
     setIsShieldActive(true);
     shieldActiveTimeRef.current = Date.now();
 
-    // Broadcast shield activation to pass QR components
     window.dispatchEvent(new CustomEvent('shield-activated'));
     window.dispatchEvent(new CustomEvent('heimdall-shield-activated'));
 
@@ -127,7 +116,7 @@ export default function AntiScreenshotShield({ children }) {
     };
   }, []);
 
-  // ── 2. Screenshot, Screen Record, and Visibility Listeners ─────────────────
+  // ── 2. Screenshot, Screen Record, Menu Slide & Visibility Listeners ───────
   useEffect(() => {
     // Window Blur: ONLY triggers if the entire window lost focus.
     // Clicking buttons inside the portal NEVER triggers this because document.hasFocus() stays true.
@@ -156,17 +145,60 @@ export default function AntiScreenshotShield({ children }) {
       }
     };
 
-    // ── Mobile 3-Finger Screenshot Gesture (Android phones) ──────────────────
-    const handleTouch = (e) => {
-      // Android phones use 3 fingers dragging down for screenshots.
-      // Normal UI interactions (taps, scrolling, clicks) use 1 or 2 fingers and are completely allowed!
-      const touchCount = (e.touches && e.touches.length) || 0;
-      if (touchCount >= 3) {
+    // ── Mobile Slide Down/Up Menu & 3-Finger Screenshot Gesture ──────────────
+    const handleTouchStart = (e) => {
+      const touches = e.touches;
+      if (!touches || !touches[0]) return;
+
+      // 3-Finger swipe screenshot gesture (Android phones)
+      if (touches.length >= 3) {
         if (e.cancelable) e.preventDefault();
-        e.stopPropagation();
         activateShield(0, '⚠️ 3-finger screenshot gesture blocked! Screen capture is prohibited.');
-        return false;
+        return;
       }
+
+      const touch = touches[0];
+      touchStartYRef.current = touch.clientY;
+      isMenuSlideRef.current = false;
+
+      // Detect start at extreme top edge (sliding down notification/quick settings shade)
+      // or extreme bottom edge (sliding up control center)
+      if (touch.clientY <= 18) {
+        isMenuSlideRef.current = 'down';
+      } else if (touch.clientY >= window.innerHeight - 18) {
+        isMenuSlideRef.current = 'up';
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      const touches = e.touches;
+      if (!touches || !touches[0]) return;
+
+      // 3-Finger swipe screenshot gesture
+      if (touches.length >= 3) {
+        if (e.cancelable) e.preventDefault();
+        activateShield(0, '⚠️ 3-finger screenshot gesture blocked!');
+        return;
+      }
+
+      const touch = touches[0];
+      const deltaY = touch.clientY - touchStartYRef.current;
+
+      // Sliding down from the very top edge (opening notification shade with Screenshot / Screen record button)
+      if (isMenuSlideRef.current === 'down' && deltaY > 15) {
+        activateShield(0, '⚠️ Menu pull-down detected — screen security active.');
+        isMenuSlideRef.current = false;
+      }
+
+      // Sliding up from the very bottom edge (opening control center)
+      if (isMenuSlideRef.current === 'up' && deltaY < -15) {
+        activateShield(0, '⚠️ Control center gesture detected — screen security active.');
+        isMenuSlideRef.current = false;
+      }
+    };
+
+    const handleTouchEnd = () => {
+      isMenuSlideRef.current = false;
     };
 
     // ── Keyboard Shortcuts (macOS, Windows, Chrome/Edge) ─────────────────────
@@ -174,7 +206,7 @@ export default function AntiScreenshotShield({ children }) {
       const isMac = navigator.platform?.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-      // 1. PrintScreen key (standard, Alt+PrintScreen, Win+PrintScreen)
+      // 1. PrintScreen key
       if (
         e.key === 'PrintScreen' ||
         e.code === 'PrintScreen' ||
@@ -281,9 +313,11 @@ export default function AntiScreenshotShield({ children }) {
     window.addEventListener('contextmenu', handleContextMenu);
     window.addEventListener('dragstart', handleDragStart);
 
-    // Only intercept 3-finger touches (Android screenshot gesture) — never blocks normal 1-finger taps/clicks
-    window.addEventListener('touchstart', handleTouch, { passive: false });
-    window.addEventListener('touchmove', handleTouch, { passive: false });
+    // Touch listeners: Intercepts sliding down menu part, sliding up bottom panel, or 3-finger gesture
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
     return () => {
       if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
@@ -294,8 +328,10 @@ export default function AntiScreenshotShield({ children }) {
       window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('dragstart', handleDragStart);
-      window.removeEventListener('touchstart', handleTouch);
-      window.removeEventListener('touchmove', handleTouch);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, []);
 
@@ -346,35 +382,6 @@ export default function AntiScreenshotShield({ children }) {
           position: 'relative',
         }}
       >
-        {/* Subtle Live Dynamic Watermark to defeat external video recording playback */}
-        <div
-          className="anti-record-live-watermark"
-          style={{
-            position: 'fixed',
-            top: 6,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 99999,
-            pointerEvents: 'none',
-            userSelect: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '3px 10px',
-            borderRadius: 999,
-            background: 'rgba(15, 23, 42, 0.45)',
-            backdropFilter: 'blur(4px)',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
-            color: 'rgba(255, 255, 255, 0.65)',
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-          }}
-        >
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 5px #10b981' }} />
-          <span>CAMPUS SECURITY • LIVE {liveTimestamp}</span>
-        </div>
-
         {children}
       </div>
 
