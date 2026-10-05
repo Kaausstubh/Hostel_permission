@@ -109,25 +109,58 @@ const homeVisitPayloadFromRecord = (visit) => ({
 
 /** Resolve compact HV-*, IO-*, JWT, or DB token into a scan payload */
 const resolveScanPayload = async (token) => {
+  // 1. Ultra fast-path: Compact Daily In/Out Token (starts with IO-)
+  if (/^IO-/i.test(token)) {
+    const pendingCompact = await getPendingInOutRequestByToken(token);
+    if (pendingCompact) {
+      return {
+        payload: { type: 'inout_request', student_id: String(pendingCompact.studentId) },
+        pendingRequest: pendingCompact,
+      };
+    }
+  }
+
+  // 2. Ultra fast-path: Cryptographic Signed JWT (starts with eyJ)
+  if (token.startsWith('eyJ')) {
+    const { valid, payload, error } = validateQR(token);
+    if (valid && (payload?.type === 'inout_request' || payload?.type === 'inout' || payload?.type === 'home_visit')) {
+      return { payload };
+    }
+    if (error) {
+      return { error };
+    }
+  }
+
+  // 3. Ultra fast-path: Compact Home Visit Token (starts with HV-)
+  if (/^HV-/i.test(token)) {
+    const homeVisit = await findHomeVisitByScanToken(token);
+    if (homeVisit) {
+      return homeVisitPayloadFromRecord(homeVisit);
+    }
+
+    const usedHomeVisit = await HomeVisitLog.findOne({
+      qr_token: token,
+      qr_used_in: true,
+    }).lean();
+    if (usedHomeVisit) {
+      return { error: 'QR code already fully used' };
+    }
+
+    const pendingHome = await HomeVisitLog.findOne({
+      qr_token: token,
+      overall_status: { $in: ['pending', 'parent_approved'] },
+    }).lean();
+    if (pendingHome) {
+      return { error: 'Home visit not approved yet — hostel staff must approve first' };
+    }
+
+    return { error: 'Home visit pass not found or expired — student should open View My Status for a fresh QR' };
+  }
+
+  // 4. Fallback for untyped or legacy formats
   const homeVisit = await findHomeVisitByScanToken(token);
   if (homeVisit) {
     return homeVisitPayloadFromRecord(homeVisit);
-  }
-
-  const usedHomeVisit = await HomeVisitLog.findOne({
-    $or: [{ qr_token: token }, { qr_token: new RegExp(`^${String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }],
-    qr_used_in: true,
-  }).lean();
-  if (usedHomeVisit) {
-    return { error: 'QR code already fully used' };
-  }
-
-  const pendingHome = await HomeVisitLog.findOne({
-    $or: [{ qr_token: token }, { qr_token: new RegExp(`^${String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }],
-    overall_status: { $in: ['pending', 'parent_approved'] },
-  }).lean();
-  if (pendingHome) {
-    return { error: 'Home visit not approved yet — hostel staff must approve first' };
   }
 
   const { valid, payload, error } = validateQR(token);
@@ -146,43 +179,46 @@ const resolveScanPayload = async (token) => {
     };
   }
 
-  if (/^HV-/i.test(token)) {
-    return { error: 'Home visit pass not found or expired — student should open View My Status for a fresh QR' };
-  }
-
   return { error: error || 'Invalid or expired QR code' };
 };
 
 const tokensMatch = (a, b) => String(a || '').trim() === String(b || '').trim();
 
-const handleInOutScan = async (token, payload, req, scanStart) => {
-  // Parallelize both pending lookups — they hit different indices
-  const [byId, byToken] = await Promise.all([
-    getPendingInOutRequest(payload.student_id),
-    getPendingInOutRequestByToken(token),
-  ]);
-  const pendingRequest = byId || byToken;
+const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingRequest = null) => {
+  // Use preloaded pending request if already resolved to avoid redundant lookups
+  let pendingRequest = preloadedPendingRequest;
+  if (!pendingRequest) {
+    const [byId, byToken] = await Promise.all([
+      getPendingInOutRequest(payload.student_id),
+      getPendingInOutRequestByToken(token),
+    ]);
+    pendingRequest = byId || byToken;
+  }
 
   if (!pendingRequest || !tokensMatch(pendingRequest.token, token)) {
     return { status: 400, body: { success: false, message: 'Request not found or expired' } };
   }
 
-  // Fetch student in parallel with the pending request resolution already done
-  const student = await User.findById(payload.student_id).lean();
+  // Fetch student and active log concurrently in a single parallel roundtrip
+  const [student, activeLog] = await Promise.all([
+    User.findById(payload.student_id)
+      .select('name rollNo email phone parentPhone hostel studentPhoto picture')
+      .lean(),
+    InOutLog.findOne({
+      student_id: payload.student_id,
+      date: todayStr(),
+      returned: false,
+    })
+      .sort({ createdAt: -1 })
+      .lean(),
+  ]);
+
   if (!student) {
     return { status: 404, body: { success: false, message: 'Student not found' } };
   }
 
   const guardName = req.user?.name || req.user?.rollNo || req.user?.email || 'Security Guard';
   const effectiveStudentPhoto = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
-
-  const activeLog = await InOutLog.findOne({
-    student_id: payload.student_id,
-    date: todayStr(),
-    returned: false,
-  })
-    .sort({ createdAt: -1 })
-    .lean();
 
   const now = new Date();
   const scanType = pendingRequest.scanType;
@@ -543,7 +579,7 @@ router.post('/scan', async (req, res) => {
       const { payload } = resolved;
 
       if (payload.type === 'inout_request' || payload.type === 'inout') {
-        return handleInOutScan(token, payload, req, scanStart);
+        return handleInOutScan(token, payload, req, scanStart, resolved.pendingRequest);
       }
 
       if (payload.type === 'home_visit') {

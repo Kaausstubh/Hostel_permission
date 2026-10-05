@@ -2157,6 +2157,120 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   height: 100% !important;
 }
 
+#qr-shaded-region {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+#qr-shaded-region > div {
+  opacity: 0.15 !important;
+}
+
+/* ── High-Speed Scanner HUD Overlay ── */
+.scanner-hud-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  z-index: 10;
+}
+
+.scanner-hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.scanner-hud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #38bdf8;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, #10b981 30%, #34d399 50%, #10b981 70%, transparent 100%);
+  box-shadow: 0 0 12px #10b981, 0 0 4px #34d399;
+  animation: scanLaserAnim 1.8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes scanLaserAnim {
+  0%   { top: 14%; opacity: 0.5; }
+  50%  { opacity: 1; }
+  100% { top: 86%; opacity: 0.5; }
+}
+
+.scanner-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-color: rgba(56, 189, 248, 0.9);
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+}
+
+.scanner-corner-tl {
+  top: 12%; left: 12%;
+  border-top: 3px solid;
+  border-left: 3px solid;
+  border-top-left-radius: 6px;
+}
+
+.scanner-corner-tr {
+  top: 12%; right: 12%;
+  border-top: 3px solid;
+  border-right: 3px solid;
+  border-top-right-radius: 6px;
+}
+
+.scanner-corner-bl {
+  bottom: 12%; left: 12%;
+  border-bottom: 3px solid;
+  border-left: 3px solid;
+  border-bottom-left-radius: 6px;
+}
+
+.scanner-corner-br {
+  bottom: 12%; right: 12%;
+  border-bottom: 3px solid;
+  border-right: 3px solid;
+  border-bottom-right-radius: 6px;
+}
+
+.scanner-flash-success {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.5) 0%, rgba(16, 185, 129, 0) 72%);
+  animation: scanSuccessFlashAnim 0.35s ease-out forwards;
+  pointer-events: none;
+  z-index: 12;
+}
+
+@keyframes scanSuccessFlashAnim {
+  0%   { opacity: 0; transform: scale(0.92); }
+  35%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+
 /* Pending card touch ripple */
 .security-pending-card {
   position: relative;

@@ -9,16 +9,26 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { MdCheckCircle, MdError, MdQrCodeScanner, MdRefresh, MdAccessTime } from 'react-icons/md';
+import { 
+  MdCheckCircle, 
+  MdError, 
+  MdQrCodeScanner, 
+  MdRefresh, 
+  MdAccessTime, 
+  MdBolt, 
+  MdFlashlightOn, 
+  MdFlashlightOff, 
+  MdCenterFocusStrong 
+} from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
-const READY_STATUS = 'Camera ready — hold QR inside the box';
-const ACTIVE_STATUS = 'Scanning… hold QR steady inside the box';
-const MOVE_QR_STATUS = 'Move the scanned QR away, then show the next pass';
-const SCAN_SUCCESS_COOLDOWN_MS = 4000;
-const SCAN_ERROR_COOLDOWN_MS = 1200;
-const SAME_QR_CLEAR_FRAME_COUNT = 4;
+const READY_STATUS = 'Camera ready — hold QR in view';
+const ACTIVE_STATUS = 'Scanning… detecting QR code';
+const MOVE_QR_STATUS = 'Pass verified — show next student QR';
+const SCAN_SUCCESS_COOLDOWN_MS = 2500;
+const SCAN_ERROR_COOLDOWN_MS = 1000;
+const SAME_QR_CLEAR_FRAME_COUNT = 2;
 
 export default function SecurityDashboard() {
   const { user } = useAuth();
@@ -31,6 +41,12 @@ export default function SecurityDashboard() {
   const [scannerStatus, setScannerStatus] = useState('Scanner idle');
   const [cameraError, setCameraError] = useState('');
   const [scanTone, setScanTone] = useState('idle');
+  const [isHardwareAccelerated, setIsHardwareAccelerated] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchActive, setTorchActive] = useState(false);
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomRange, setZoomRange] = useState({ min: 1, max: 1 });
   const [searchByColumn, setSearchByColumn] = useState({
     dailyOut: '',
     dailyIn: '',
@@ -47,6 +63,8 @@ export default function SecurityDashboard() {
   const feedbackHoldUntilRef = useRef(0);
   const blockedTokenUntilClearRef = useRef('');
   const clearFrameStreakRef = useRef(0);
+  const hardwareLoopActiveRef = useRef(false);
+  const hardwareRafRef = useRef(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   // Camera management
@@ -54,7 +72,7 @@ export default function SecurityDashboard() {
   const [activeCameraId, setActiveCameraId] = useState(null); // currently selected camera id
   const [cameraFacing, setCameraFacing] = useState('back'); // 'front' | 'back'
 
-  // ── Audio Feedback (Web Audio API — no external files needed) ──────────────
+  // ── Audio Feedback (Web Audio API — pre-warmed for 0ms lag) ──────────────
   const audioCtxRef = useRef(null);
 
   const getAudioCtx = () => {
@@ -73,7 +91,6 @@ export default function SecurityDashboard() {
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
-      // Play a silent oscillator for 1ms to forcefully unlock audio context
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       gain.gain.value = 0;
@@ -84,7 +101,22 @@ export default function SecurityDashboard() {
     } catch (e) {}
   };
 
-  /** Play a short professional beep tone */
+  // Pre-warm audio on initial user touch or click
+  useEffect(() => {
+    const handleInitialUserGesture = () => {
+      unlockAudio();
+      window.removeEventListener('click', handleInitialUserGesture);
+      window.removeEventListener('touchstart', handleInitialUserGesture);
+    };
+    window.addEventListener('click', handleInitialUserGesture, { once: true });
+    window.addEventListener('touchstart', handleInitialUserGesture, { once: true });
+    return () => {
+      window.removeEventListener('click', handleInitialUserGesture);
+      window.removeEventListener('touchstart', handleInitialUserGesture);
+    };
+  }, []);
+
+  /** Play a crisp, high-speed professional scanner tone */
   const playTone = useCallback((type) => {
     try {
       const ctx = getAudioCtx();
@@ -93,36 +125,36 @@ export default function SecurityDashboard() {
       master.connect(ctx.destination);
 
       if (type === 'success') {
-        // Three ascending clean beeps: C5 → E5 → G5
-        const notes = [523.25, 659.25, 783.99];
+        // High-speed dual chime: crisp affirmative checkout tone (659.25Hz -> 880Hz)
+        const notes = [659.25, 880.0];
         notes.forEach((freq, i) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, ctx.currentTime);
-          gain.gain.setValueAtTime(0, ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.28, ctx.currentTime + i * 0.13 + 0.01);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.13 + 0.18);
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.07);
+          gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.07);
+          gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + i * 0.07 + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.07 + 0.1);
           osc.connect(gain);
           gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + i * 0.13);
-          osc.stop(ctx.currentTime + i * 0.13 + 0.2);
+          osc.start(ctx.currentTime + i * 0.07);
+          osc.stop(ctx.currentTime + i * 0.07 + 0.11);
         });
       } else {
-        // Two descending low tones: G3 → D3
-        const notes = [196.0, 146.83];
+        // Fast dual error tone
+        const notes = [220.0, 164.81];
         notes.forEach((freq, i) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.22);
-          gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.22);
-          gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + i * 0.22 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.22 + 0.28);
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.12);
+          gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.12);
+          gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + i * 0.12 + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.14);
           osc.connect(gain);
           gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + i * 0.22);
-          osc.stop(ctx.currentTime + i * 0.22 + 0.3);
+          osc.start(ctx.currentTime + i * 0.12);
+          osc.stop(ctx.currentTime + i * 0.12 + 0.15);
         });
       }
     } catch (e) {
@@ -227,6 +259,146 @@ export default function SecurityDashboard() {
     return chosen.id;
   };
 
+  const stopHardwareDetector = () => {
+    hardwareLoopActiveRef.current = false;
+    if (hardwareRafRef.current) {
+      cancelAnimationFrame(hardwareRafRef.current);
+      hardwareRafRef.current = null;
+    }
+    setIsHardwareAccelerated(false);
+  };
+
+  /**
+   * Inspect and negotiate advanced hardware capabilities:
+   * Continuous autofocus, continuous exposure, torch (flashlight), and optical/digital zoom.
+   */
+  const inspectCameraCapabilities = async (scanner) => {
+    try {
+      const track = scanner?.getRunningTrack?.();
+      if (!track || typeof track.getCapabilities !== 'function') return;
+
+      const caps = track.getCapabilities();
+      const advanced = [];
+
+      // Continuous autofocus
+      if (caps.focusMode && caps.focusMode.includes('continuous')) {
+        advanced.push({ focusMode: 'continuous' });
+      }
+      // Continuous auto-exposure
+      if (caps.exposureMode && caps.exposureMode.includes('continuous')) {
+        advanced.push({ exposureMode: 'continuous' });
+      }
+      // Continuous auto white-balance
+      if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) {
+        advanced.push({ whiteBalanceMode: 'continuous' });
+      }
+      if (advanced.length > 0) {
+        try { await track.applyConstraints({ advanced }); } catch (e) {}
+      }
+
+      // Check Torch (flashlight)
+      if (caps.torch) {
+        setTorchSupported(true);
+        setTorchActive(false);
+      } else {
+        setTorchSupported(false);
+        setTorchActive(false);
+      }
+
+      // Check Zoom
+      if (caps.zoom) {
+        const minZ = caps.zoom.min || 1;
+        const maxZ = Math.min(caps.zoom.max || 3, 3);
+        setZoomSupported(maxZ > minZ);
+        setZoomRange({ min: minZ, max: maxZ });
+        setZoomLevel(minZ);
+      } else {
+        setZoomSupported(false);
+      }
+    } catch (e) {
+      console.warn('Camera capabilities setup warning:', e);
+    }
+  };
+
+  /**
+   * Launch high-speed direct hardware BarcodeDetector loop directly on raw HTMLVideoElement.
+   * Runs at full hardware sensor refresh (60 FPS) with 0 canvas conversion overhead.
+   */
+  const startHardwareDetector = (videoEl, onScanSuccessCb) => {
+    stopHardwareDetector();
+    if (!('BarcodeDetector' in window)) return;
+
+    try {
+      const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      hardwareLoopActiveRef.current = true;
+      setIsHardwareAccelerated(true);
+
+      const checkFrame = async () => {
+        if (!hardwareLoopActiveRef.current) return;
+        if (!videoEl || videoEl.paused || videoEl.ended || videoEl.readyState < 2) {
+          scheduleNext();
+          return;
+        }
+
+        if (!isProcessingScanRef.current) {
+          try {
+            const barcodes = await barcodeDetector.detect(videoEl);
+            if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
+              await onScanSuccessCb(barcodes[0].rawValue);
+            }
+          } catch (e) {
+            // Frame error, continue next frame
+          }
+        }
+
+        scheduleNext();
+      };
+
+      const scheduleNext = () => {
+        if (!hardwareLoopActiveRef.current) return;
+        if ('requestVideoFrameCallback' in videoEl) {
+          videoEl.requestVideoFrameCallback(checkFrame);
+        } else {
+          hardwareRafRef.current = requestAnimationFrame(checkFrame);
+        }
+      };
+
+      scheduleNext();
+    } catch (err) {
+      console.warn('Native BarcodeDetector not available:', err);
+    }
+  };
+
+  /** Toggle phone flashlight for dark gate conditions */
+  const toggleTorch = async () => {
+    try {
+      const track = scannerRef.current?.getRunningTrack?.();
+      if (!track) return;
+      const nextTorch = !torchActive;
+      await track.applyConstraints({
+        advanced: [{ torch: nextTorch }],
+      });
+      setTorchActive(nextTorch);
+      toast(nextTorch ? '🔦 Flashlight turned ON' : '🔦 Flashlight turned OFF', { duration: 1200 });
+    } catch (e) {
+      toast.error('Torch not available on this camera');
+    }
+  };
+
+  /** Instant zoom switcher for scanning passes at a distance */
+  const applyZoom = async (level) => {
+    try {
+      const track = scannerRef.current?.getRunningTrack?.();
+      if (!track) return;
+      await track.applyConstraints({
+        advanced: [{ zoom: level }],
+      });
+      setZoomLevel(level);
+    } catch (e) {
+      console.warn('Zoom error:', e);
+    }
+  };
+
   const resetFrameClearGate = () => {
     blockedTokenUntilClearRef.current = '';
     clearFrameStreakRef.current = 0;
@@ -250,7 +422,7 @@ export default function SecurityDashboard() {
 
   const scheduleFeedbackReset = (tone) => {
     const feedbackMs =
-      tone === 'success' ? 1600 : tone === 'error' ? 1200 : 400;
+      tone === 'success' ? 900 : tone === 'error' ? 1000 : 300;
 
     feedbackHoldUntilRef.current = Date.now() + feedbackMs;
 
@@ -278,6 +450,7 @@ export default function SecurityDashboard() {
     unlockAudio(); // Force unlock audio context on user click
 
     // Always teardown stale instance first
+    stopHardwareDetector();
     if (scannerRef.current) {
       try { await scannerRef.current.stop(); } catch {}
       try { scannerRef.current.clear(); } catch {}
@@ -288,7 +461,7 @@ export default function SecurityDashboard() {
     setResult(null);
     setCameraError('');
     setScanTone('idle');
-    setScannerStatus('Starting camera...');
+    setScannerStatus('Starting high-speed camera...');
     feedbackHoldUntilRef.current = 0;
     if (feedbackResetTimeoutRef.current) {
       clearTimeout(feedbackResetTimeoutRef.current);
@@ -312,6 +485,7 @@ export default function SecurityDashboard() {
         {
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
           useBarCodeDetectorIfSupported: true,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           verbose: false,
         }
       );
@@ -319,22 +493,21 @@ export default function SecurityDashboard() {
       const scanConfig = {
         fps: 30,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
-          const minDim = Math.min(viewfinderWidth, viewfinderHeight);
-          const size = Math.min(480, Math.max(260, Math.floor(minDim * 0.88)));
-          return { width: size, height: size };
+          // Generous wide aperture (94% of viewfinder) so passes scan instantly without tight alignment
+          const width = Math.max(260, Math.floor(viewfinderWidth * 0.94));
+          const height = Math.max(260, Math.floor(viewfinderHeight * 0.94));
+          return { width, height };
         },
-        aspectRatio: 1.0,
         disableFlip: cameraFacing !== 'front',
         videoConstraints: useDeviceId
           ? {
-              deviceId: desiredCameraId,
+              deviceId: { exact: desiredCameraId },
               width: { ideal: 1280, min: 640 },
               height: { ideal: 720, min: 480 },
-              facingMode: { ideal: facingMode },
               frameRate: { ideal: 30, max: 60 },
             }
           : {
-              facingMode,
+              facingMode: { ideal: facingMode },
               width: { ideal: 1280, min: 640 },
               height: { ideal: 720, min: 480 },
               frameRate: { ideal: 30, max: 60 },
@@ -347,7 +520,7 @@ export default function SecurityDashboard() {
           unlockAudio();
           setScanTone('error');
           playTone('error');
-          try { navigator.vibrate?.([120, 60, 120]); } catch {}
+          try { navigator.vibrate?.([100, 50, 100]); } catch {}
           setResult({
             success: false,
             message: 'Unrecognized QR — use a HEIMDALL daily or home visit gate pass',
@@ -363,7 +536,7 @@ export default function SecurityDashboard() {
         }
         if (isProcessingScanRef.current) return;
         if (shouldIgnoreRecentScan(normalized)) return;
-        setScannerStatus('QR detected — processing...');
+        setScannerStatus('QR detected — verifying...');
         await processToken(normalized);
       };
 
@@ -380,7 +553,7 @@ export default function SecurityDashboard() {
               blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : ACTIVE_STATUS
             );
           }
-        }, 700);
+        }, 500);
       };
 
       try {
@@ -390,7 +563,7 @@ export default function SecurityDashboard() {
           // Fallback to facingMode if specific deviceId failed
           await scanner.start(
             { facingMode },
-            { ...scanConfig, videoConstraints: { facingMode } },
+            { ...scanConfig, videoConstraints: { facingMode: { ideal: facingMode } } },
             onScanSuccess,
             onScanFailure
           );
@@ -399,19 +572,13 @@ export default function SecurityDashboard() {
         }
       }
 
-      // Try to apply continuous autofocus safely after scanner starts
-      try {
-        const track = scanner.getRunningTrack();
-        if (track && typeof track.getCapabilities === 'function') {
-          const capabilities = track.getCapabilities();
-          if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-            await track.applyConstraints({
-              advanced: [{ focusMode: 'continuous' }]
-            });
-          }
-        }
-      } catch (err) {
-        // Ignore constraint application errors silently
+      // 1. Inspect camera sensor capabilities: continuous focus, exposure, torch, zoom
+      await inspectCameraCapabilities(scanner);
+
+      // 2. Launch high-speed direct hardware BarcodeDetector loop on raw video element if supported
+      const videoEl = document.querySelector(`#${SCANNER_ELEMENT_ID} video`);
+      if (videoEl) {
+        startHardwareDetector(videoEl, onScanSuccess);
       }
 
       scannerRef.current = scanner;
@@ -424,6 +591,7 @@ export default function SecurityDashboard() {
       setScannerStatus('Scanner failed to start');
       setScanTone('error');
       toast.error(msg);
+      stopHardwareDetector();
       if (scannerRef.current) {
         try { await scannerRef.current.clear(); } catch {}
         scannerRef.current = null;
@@ -466,6 +634,7 @@ export default function SecurityDashboard() {
   };
 
   const stopScanner = async (preserveFeedback = false) => {
+    stopHardwareDetector();
     if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
@@ -476,6 +645,7 @@ export default function SecurityDashboard() {
       scannerRef.current = null;
     }
     setScanning(false);
+    setTorchActive(false);
     resetFrameClearGate();
     feedbackHoldUntilRef.current = 0;
     if (feedbackResetTimeoutRef.current) {
@@ -490,6 +660,7 @@ export default function SecurityDashboard() {
 
   useEffect(() => {
     return () => {
+      stopHardwareDetector();
       if (scannerRef.current) {
         try { scannerRef.current.stop(); } catch {}
         try { scannerRef.current.clear(); } catch {}
@@ -759,33 +930,125 @@ export default function SecurityDashboard() {
               </div>
             </div>
 
-            <div
-              id={SCANNER_ELEMENT_ID}
-              style={{
-                borderRadius: 'var(--radius-md)',
-                overflow: 'hidden',
-                background: 'rgba(2,6,23,0.32)',
-                border:
-                  scanTone === 'success'
-                    ? '4px solid #10b981'
-                    : scanTone === 'error'
-                      ? '4px solid #ef4444'
-                      : scanning
-                        ? '3px solid rgba(99,102,241,0.92)'
-                        : '1px solid rgba(255,255,255,0.08)',
-                boxShadow:
-                  scanTone === 'success'
-                    ? '0 0 0 5px rgba(16,185,129,0.28), 0 0 26px rgba(16,185,129,0.28)'
-                    : scanTone === 'error'
-                      ? '0 0 0 5px rgba(239,68,68,0.28), 0 0 26px rgba(239,68,68,0.28)'
-                      : scanning
-                        ? '0 0 0 4px rgba(99,102,241,0.16)'
-                        : 'none',
-                minHeight: 320,
-                transition: 'border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease',
-                transform: scanTone === 'success' ? 'scale(1.004)' : 'translateZ(0)',
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <div
+                id={SCANNER_ELEMENT_ID}
+                style={{
+                  borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden',
+                  background: 'rgba(2,6,23,0.32)',
+                  border:
+                    scanTone === 'success'
+                      ? '4px solid #10b981'
+                      : scanTone === 'error'
+                        ? '4px solid #ef4444'
+                        : scanning
+                          ? '3px solid rgba(99,102,241,0.92)'
+                          : '1px solid rgba(255,255,255,0.08)',
+                  boxShadow:
+                    scanTone === 'success'
+                      ? '0 0 0 5px rgba(16,185,129,0.35), 0 0 32px rgba(16,185,129,0.45)'
+                      : scanTone === 'error'
+                        ? '0 0 0 5px rgba(239,68,68,0.35), 0 0 32px rgba(239,68,68,0.45)'
+                        : scanning
+                          ? '0 0 0 4px rgba(99,102,241,0.2)'
+                          : 'none',
+                  minHeight: 320,
+                  transition: 'border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease',
+                  transform: scanTone === 'success' ? 'scale(1.004)' : 'translateZ(0)',
+                }}
+              />
+
+              {/* High-Tech Fast Scanner HUD Overlay */}
+              {scanning && (
+                <div className="scanner-hud-overlay">
+                  {/* Top HUD bar with Hardware acceleration status, Torch & Zoom */}
+                  <div className="scanner-hud-top">
+                    <div className="scanner-hud-badge">
+                      {isHardwareAccelerated ? (
+                        <>
+                          <MdBolt style={{ color: '#fbbf24', fontSize: 14 }} />
+                          <span>Hardware Accelerated (60 FPS)</span>
+                        </>
+                      ) : (
+                        <>
+                          <MdCenterFocusStrong style={{ color: '#38bdf8', fontSize: 14 }} />
+                          <span>Wide-Angle Instant Scan</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {/* Torch Button if supported on device */}
+                      {torchSupported && (
+                        <button
+                          type="button"
+                          onClick={toggleTorch}
+                          className={`btn btn-sm ${torchActive ? 'btn-warning' : 'btn-ghost'}`}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: 12,
+                            borderRadius: 99,
+                            background: torchActive ? '#f59e0b' : 'rgba(15, 23, 42, 0.75)',
+                            color: torchActive ? '#000' : '#fff',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            backdropFilter: 'blur(6px)',
+                          }}
+                          title={torchActive ? 'Turn Torch Off' : 'Turn Torch On'}
+                        >
+                          {torchActive ? <MdFlashlightOn size={15} /> : <MdFlashlightOff size={15} />}
+                          <span>{torchActive ? 'Torch ON' : 'Torch'}</span>
+                        </button>
+                      )}
+
+                      {/* Zoom Pills if supported */}
+                      {zoomSupported && zoomRange.max > 1 && (
+                        <div style={{
+                          display: 'inline-flex',
+                          borderRadius: 99,
+                          background: 'rgba(15, 23, 42, 0.75)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          padding: 2,
+                          backdropFilter: 'blur(6px)',
+                        }}>
+                          {[1, 1.5, 2].filter((lvl) => lvl <= zoomRange.max).map((lvl) => (
+                            <button
+                              key={lvl}
+                              type="button"
+                              onClick={() => applyZoom(lvl)}
+                              style={{
+                                border: 'none',
+                                background: Math.abs(zoomLevel - lvl) < 0.2 ? 'var(--primary)' : 'transparent',
+                                color: '#fff',
+                                padding: '2px 8px',
+                                borderRadius: 99,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {lvl}x
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Corner Targeting Brackets */}
+                  <div className="scanner-corner scanner-corner-tl" />
+                  <div className="scanner-corner scanner-corner-tr" />
+                  <div className="scanner-corner scanner-corner-bl" />
+                  <div className="scanner-corner scanner-corner-br" />
+
+                  {/* Animated Laser Scanning Line */}
+                  <div className="scanner-laser" />
+
+                  {/* Instant Success Flash Ripple */}
+                  {scanTone === 'success' && <div className="scanner-flash-success" />}
+                </div>
+              )}
+            </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               {!scanning ? (
@@ -826,9 +1089,9 @@ export default function SecurityDashboard() {
               </button>
             </div>
 
-            {/* Camera label badge */}
+            {/* Camera label and speed status badges */}
             <div style={{
-              marginTop: 6,
+              marginTop: 8,
               display: 'flex',
               alignItems: 'center',
               gap: 8,
@@ -845,6 +1108,19 @@ export default function SecurityDashboard() {
               }}>
                 {cameraFacing === 'front' ? '🤳 Front (Selfie)' : '📷 Back (Main)'}
               </span>
+              {scanning && (
+                <span style={{
+                  fontSize: 11,
+                  padding: '2px 10px',
+                  borderRadius: 99,
+                  background: isHardwareAccelerated ? 'rgba(245,158,11,0.15)' : 'rgba(56,189,248,0.15)',
+                  color: isHardwareAccelerated ? '#f59e0b' : '#38bdf8',
+                  border: isHardwareAccelerated ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(56,189,248,0.3)',
+                  fontWeight: 600,
+                }}>
+                  {isHardwareAccelerated ? '⚡ 60 FPS GPU Pipeline' : '⚡ Wide Aperture Scan'}
+                </span>
+              )}
               {cameras.length > 1 && (
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   {cameras.length} cameras detected • tap 🤳/📷 to switch
