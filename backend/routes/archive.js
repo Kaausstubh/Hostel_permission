@@ -504,7 +504,7 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
       success: true,
       metadata: {
         generatedAt: new Date().toLocaleString('en-IN'),
-        generatedBy: `${req.user.name} (${req.user.role.toUpperCase()})`,
+        generatedBy: `${req.user.name} (${(req.user.role === 'warden' ? 'HOSTEL STAFF' : (req.user.role || 'staff')).toUpperCase()})`,
         period: month || (startDate && endDate ? `${startDate} to ${endDate}` : 'Recent Records'),
         recordType: type,
         hostelFilter: hostel || 'All Hostels',

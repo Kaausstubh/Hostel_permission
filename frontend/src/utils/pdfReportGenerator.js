@@ -147,7 +147,8 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'bold');
   doc.text('Issuing Officer:', 290, startY + 18);
   doc.setFont('helvetica', 'normal');
-  doc.text(String(metadata.generatedBy || 'Authorized Staff'), 365, startY + 18);
+  const cleanOfficer = String(metadata.generatedBy || 'Authorized Staff').replace(/\bWARDEN\b/gi, 'HOSTEL STAFF');
+  doc.text(cleanOfficer, 365, startY + 18);
 
   doc.setFont('helvetica', 'bold');
   doc.text('Generated On:', 290, startY + 35);
@@ -448,10 +449,11 @@ export const generatePDFFromLocalLogs = async ({
   const totalEntries = formattedRecords.filter((r) => r.status === 'IN').length;
   const notReturned = formattedRecords.filter((r) => r.status === 'OUT' && r.returned === 'No').length;
 
+  const officerRole = (user?.role === 'warden' ? 'HOSTEL STAFF' : (user?.role || 'staff')).toUpperCase();
   const reportData = {
     metadata: {
       generatedAt: new Date().toLocaleString('en-IN'),
-      generatedBy: `${user?.name || 'Authorized Staff'} (${(user?.role || 'staff').toUpperCase()})`,
+      generatedBy: `${user?.name || 'Authorized Staff'} (${officerRole})`,
       period,
       hostelFilter,
       totalCount: formattedRecords.length,
