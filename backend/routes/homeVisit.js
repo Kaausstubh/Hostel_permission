@@ -139,7 +139,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
 });
 
 // ─── Warden: Confirm parent call ───────────────────────────────────────────────
-router.post('/warden-confirm-call', protect, authorize('warden'), async (req, res) => {
+router.post('/warden-confirm-call', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const { visit_id } = req.body;
     if (!visit_id) return res.status(400).json({ success: false, message: 'visit_id is required' });
@@ -223,7 +223,7 @@ router.post('/parent-approve', async (req, res) => {
 });
 
 // ─── Warden: Approve or Reject ────────────────────────────────────────────────
-router.post('/warden-approve', protect, authorize('warden'), async (req, res) => {
+router.post('/warden-approve', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const { visit_id, action } = req.body; // action: 'approve' | 'reject'
 
