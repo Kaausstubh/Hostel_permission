@@ -377,34 +377,46 @@ const handleParentReply = async (phone, visitId, action) => {
     visit.overall_status = 'parent_approved';
     await visit.save();
 
+    const studentName = student?.name || visit.name || 'Student';
+    const studentRoll = student?.rollNo || student?.rollNumber || visit.rollNo || 'N/A';
+    const studentHostel = student?.hostel || 'N/A';
+    const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
+
     await sendWhatsAppMessage(
       phone,
-      `✅ You have *approved* ${student.name}'s home visit request.\nThe warden will now review it.`
+      `✅ You have *approved* ${studentName}'s home visit request.\nThe warden will now review it.`
     );
 
     // Notify student
-    await sendWhatsAppMessage(
-      student.phone,
-      `✅ Your parent has *approved* your home visit request!\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting warden approval...`
-    );
+    if (studentPhone) {
+      await sendWhatsAppMessage(
+        studentPhone,
+        `✅ Your parent has *approved* your home visit request!\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting warden approval...`
+      );
+    }
 
     // Notify warden
     const warden = await User.findOne({ role: 'warden' });
     if (warden && warden.phone) {
       await sendWhatsAppMessage(
         warden.phone,
-        `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNumber || 'N/A'})\nHostel: ${student.hostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`
+        `🏠 *Home Visit — Parent Approved*\n\nStudent: *${studentName}* (${studentRoll})\nHostel: ${studentHostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`
       );
     }
   } else {
     visit.overall_status = 'rejected';
     await visit.save();
 
-    await sendWhatsAppMessage(phone, `❌ You have *rejected* ${student.name}'s home visit request.`);
-    await sendWhatsAppMessage(
-      student.phone,
-      `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
-    );
+    const studentName = student?.name || visit.name || 'Student';
+    const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
+
+    await sendWhatsAppMessage(phone, `❌ You have *rejected* ${studentName}'s home visit request.`);
+    if (studentPhone) {
+      await sendWhatsAppMessage(
+        studentPhone,
+        `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
+      );
+    }
   }
 };
 
@@ -425,6 +437,8 @@ const handleWardenReply = async (phone, visitId, action) => {
   visit.warden_status = action === 'approve' ? 'approved' : 'rejected';
   visit.warden_response_time = new Date();
   const student = visit.student_id;
+  const studentName = student?.name || visit.name || 'Student';
+  const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
 
   if (action === 'approve') {
     visit.overall_status = 'approved';
@@ -436,29 +450,33 @@ const handleWardenReply = async (phone, visitId, action) => {
 
     await sendWhatsAppMessage(
       phone,
-      `✅ You have *approved* ${student.name}'s home visit request. QR code sent to student.`
+      `✅ You have *approved* ${studentName}'s home visit request. QR code sent to student.`
     );
 
-    // Send text first, then QR image
-    await sendWhatsAppMessage(
-      student.phone,
-      `🎉 *Home Visit APPROVED by Warden!*\n\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
-    );
-    await sendWhatsAppMediaMessage(
-      student.phone,
-      qrPublicUrl,
-      qrDataUrl,
-      `🏫 Home Visit Gate Pass\nStudent: ${student.name}\nDestination: ${visit.place || 'N/A'}\nLeave: ${visit.leave_date} → Return: ${visit.return_date}`
-    );
+    // Send text first, then QR image if phone available
+    if (studentPhone) {
+      await sendWhatsAppMessage(
+        studentPhone,
+        `🎉 *Home Visit APPROVED by Warden!*\n\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
+      );
+      await sendWhatsAppMediaMessage(
+        studentPhone,
+        qrPublicUrl,
+        qrDataUrl,
+        `🏫 Home Visit Gate Pass\nStudent: ${studentName}\nDestination: ${visit.place || 'N/A'}\nLeave: ${visit.leave_date} → Return: ${visit.return_date}`
+      );
+    }
   } else {
     visit.overall_status = 'rejected';
     await visit.save();
 
-    await sendWhatsAppMessage(phone, `❌ You have *rejected* ${student.name}'s home visit request.`);
-    await sendWhatsAppMessage(
-      student.phone,
-      `❌ Your home visit request has been *rejected by the warden*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
-    );
+    await sendWhatsAppMessage(phone, `❌ You have *rejected* ${studentName}'s home visit request.`);
+    if (studentPhone) {
+      await sendWhatsAppMessage(
+        studentPhone,
+        `❌ Your home visit request has been *rejected by the warden*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
+      );
+    }
   }
 };
 

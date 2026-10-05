@@ -182,22 +182,35 @@ router.post('/parent-approve', async (req, res) => {
     if (action === 'approve') {
       visit.overall_status = 'parent_approved';
 
-      // Notify warden
-      const student = visit.student_id;
-      const wardenUser = await User.findOne({ role: 'warden' });
-      if (wardenUser && wardenUser.phone) {
-        await enqueueWhatsAppMessage({
-          to: wardenUser.phone,
-          body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${student.name}* (${student.rollNo || 'N/A'})\nHostel: ${student.hostel || 'N/A'}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
-        });
+      // Notify warden (safe, non-blocking)
+      try {
+        const student = visit.student_id;
+        const studentName = student?.name || visit.name || 'Student';
+        const studentRoll = student?.rollNo || visit.rollNo || 'N/A';
+        const studentHostel = student?.hostel || 'N/A';
+        const wardenUser = await User.findOne({ role: 'warden' });
+        if (wardenUser && wardenUser.phone) {
+          await enqueueWhatsAppMessage({
+            to: wardenUser.phone,
+            body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${studentName}* (${studentRoll})\nHostel: ${studentHostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
+          });
+        }
+      } catch (msgErr) {
+        console.warn('[HomeVisit] Warden WhatsApp alert error (non-fatal):', msgErr.message);
       }
     } else {
       visit.overall_status = 'rejected';
-      // Notify student of rejection
-      await enqueueWhatsAppMessage({
-        to: visit.student_id.phone,
-        body: `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\nDates: ${visit.leave_date} → ${visit.return_date}`,
-      });
+      const studentPhone = visit.student_id?.phone || visit.student_phone || visit.phone || null;
+      if (studentPhone) {
+        try {
+          await enqueueWhatsAppMessage({
+            to: studentPhone,
+            body: `❌ Your home visit request has been *rejected by your parent*.\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\nDates: ${visit.leave_date} → ${visit.return_date}`,
+          });
+        } catch (msgErr) {
+          console.warn('[HomeVisit] Student rejection WhatsApp error (non-fatal):', msgErr.message);
+        }
+      }
     }
 
     await visit.save();
@@ -225,6 +238,7 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
     visit.warden_response_time = new Date();
 
     const student = visit.student_id;
+    const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
 
     if (action === 'approve') {
       if (!visit.parent_call_confirmed) {
@@ -237,17 +251,29 @@ router.post('/warden-approve', protect, authorize('warden'), async (req, res) =>
       const { token, qrPublicUrl } = await issueHomeVisitGatePass(visitLean);
       visit.qr_token = token;
 
-      // Send QR to student via WhatsApp
-      await enqueueWhatsAppMessage({
-        to: student.phone,
-        body: `✅ *Home Visit Approved!*\n\nHostel staff has confirmed permission via parent call.\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nYour QR gate pass is ready.\n\nQR Token (for dashboard scan): ${token.substring(0, 30)}...\nQR Image (if accessible): ${qrPublicUrl || '(configured locally)'}`,
-      });
+      // Send QR to student via WhatsApp if phone is present (non-blocking)
+      if (studentPhone) {
+        try {
+          await enqueueWhatsAppMessage({
+            to: studentPhone,
+            body: `✅ *Home Visit Approved!*\n\nHostel staff has confirmed permission via parent call.\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nYour QR gate pass is ready.\n\nQR Token (for dashboard scan): ${token.substring(0, 30)}...\nQR Image (if accessible): ${qrPublicUrl || '(configured locally)'}`,
+          });
+        } catch (msgErr) {
+          console.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
+        }
+      }
     } else {
       visit.overall_status = 'rejected';
-      await enqueueWhatsAppMessage({
-        to: student.phone,
-        body: `❌ Your home visit request has been *rejected by the hostel staff*.\nDates: ${visit.leave_date} → ${visit.return_date}`,
-      });
+      if (studentPhone) {
+        try {
+          await enqueueWhatsAppMessage({
+            to: studentPhone,
+            body: `❌ Your home visit request has been *rejected by the hostel staff*.\nDates: ${visit.leave_date} → ${visit.return_date}`,
+          });
+        } catch (msgErr) {
+          console.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
+        }
+      }
     }
 
     await visit.save();
@@ -309,7 +335,10 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     res.json({
       success: true,
       message: `Marked as ${scanResult}`,
-      student: { name: visit.student_id.name, rollNumber: visit.student_id.rollNo },
+      student: {
+        name: visit.student_id?.name || visit.name || 'Student',
+        rollNumber: visit.student_id?.rollNo || visit.rollNo || 'N/A',
+      },
       scanResult,
       timestamp: new Date(),
     });
