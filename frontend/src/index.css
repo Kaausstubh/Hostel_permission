@@ -1608,18 +1608,18 @@ body {
   top: calc(100% + 8px);
   right: 0;
   min-width: 290px;
-  background: #1e1b4b;
-  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: #110e2e;
+  border: 1px solid rgba(139, 92, 246, 0.45);
   border-radius: 14px;
   padding: 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), 0 0 15px rgba(139, 92, 246, 0.15);
-  z-index: 100;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 25px rgba(139, 92, 246, 0.3);
+  z-index: 99999;
 }
 
 [data-theme='light'] .excel-export-dropdown {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
 }
 
 .excel-dropdown-header {
@@ -2292,6 +2292,8 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   margin-bottom: 24px;
   flex-wrap: wrap;
   gap: 12px;
+  position: relative;
+  z-index: 50;
 }
 
 .section-title {

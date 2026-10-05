@@ -201,7 +201,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       <Navbar title="Scan Logs" />
       <div className="page-area">
 
-        <div className="section-header">
+        <div className="section-header" style={{ position: 'relative', zIndex: excelMenuOpen ? 150 : 20 }}>
           <div>
             <div className="section-title">
               <MdHistory /> {activeTab === 'gate' ? 'Gate Scan Logs' : 'Home Visit Records'}
@@ -274,7 +274,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               <span>{exportingPdf ? 'Exporting...' : 'Export PDF'}</span>
             </button>
 
-            <div ref={excelMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+            <div ref={excelMenuRef} style={{ position: 'relative', display: 'inline-flex', zIndex: excelMenuOpen ? 200 : 1 }}>
               <div className="btn-pill-light-group">
                 <button
                   type="button"
