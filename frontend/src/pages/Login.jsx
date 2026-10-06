@@ -62,7 +62,7 @@ const PORTALS = {
     label:       'Security',
     Icon:        MdSecurity,
     description: 'You are the last line of defense. Scan QR codes, verify student passes in seconds, and ensure every gate entry is legitimate.',
-    restriction: 'Any authorized Google account.',
+    restriction: 'Restricted to authorized Security personnel only.',
     btnText:     '🔍 Enter Security Control',
     color:       '#f59e0b',
     glow:        'rgba(245, 158, 11, 0.3)',

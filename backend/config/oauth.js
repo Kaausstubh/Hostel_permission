@@ -52,12 +52,25 @@ const WARDEN_ALLOWED_EMAILS = envWardenEmails.length > 0
   ? envWardenEmails
   : HOSTEL_STAFF_ALLOWED_EMAILS;
 
-// ── Security email whitelist ──────────────────────────────────────────────────
-// Loaded from env (comma-separated). Empty = any authenticated account allowed.
-const SECURITY_ALLOWED_EMAILS = (process.env.SECURITY_ALLOWED_EMAILS || '')
+// ── Security Guard email whitelist ────────────────────────────────────────────
+// Authorized emails permitted to log in to the Security Gate Portal.
+const SECURITY_GUARD_ALLOWED_EMAILS = [
+  'kaaustubhkhandare@gmail.com',
+  'sjyotik2005@gmail.com',
+  'aniketwandre2914@gmail.com',
+  'parthrajsolanke@gmail.com',
+  'mohitmoksh810@gmail.com',
+];
+
+// Loaded from env (comma-separated), falling back to SECURITY_GUARD_ALLOWED_EMAILS.
+const envSecurityEmails = (process.env.SECURITY_ALLOWED_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
+
+const SECURITY_ALLOWED_EMAILS = envSecurityEmails.length > 0
+  ? envSecurityEmails
+  : SECURITY_GUARD_ALLOWED_EMAILS;
 
 // ── Validators ────────────────────────────────────────────────────────────────
 
@@ -89,15 +102,14 @@ const validateWardenEmail = (email) => {
 
 /**
  * Returns true if the email is allowed to access the Security Portal.
- * When SECURITY_ALLOWED_EMAILS is empty, any authenticated account is allowed EXCEPT student domains.
+ * Strictly restricted to authorized security guard emails only.
  * @param {string} email
  * @returns {boolean}
  */
 const validateSecurityEmail = (email) => {
   if (!email) return false;
-  if (validateStudentEmail(email)) return false; // Block student accounts
-  if (SECURITY_ALLOWED_EMAILS.length === 0) return true; // Open — any other authenticated account
-  return SECURITY_ALLOWED_EMAILS.includes(email.toLowerCase());
+  const normalized = email.trim().toLowerCase();
+  return SECURITY_ALLOWED_EMAILS.includes(normalized);
 };
 
 /**
@@ -128,7 +140,9 @@ const validatePortalAccess = (portal, email) => {
       const allowed = validateSecurityEmail(email);
       return {
         allowed,
-        reason: allowed ? 'ok' : `Your account (${email}) is not authorized for the Security Portal.`,
+        reason: allowed
+          ? 'ok'
+          : `Your account (${email}) is not authorized for the Security Portal. Access is restricted to designated security personnel only.`,
       };
     }
     default:
