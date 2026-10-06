@@ -13,6 +13,16 @@ const WARNING_THRESHOLD_MB = 400; // 400 MB threshold
 const WARNING_THRESHOLD_PERCENT = 80; // 80% threshold
 const BYTES_PER_MB = 1024 * 1024;
 
+// ⚡ High-speed in-memory cache to prevent repeated database commands
+let cachedStats = null;
+let lastCacheTimestamp = 0;
+const CACHE_TTL_MS = 30 * 1000; // 30s cache
+
+const invalidateStorageCache = () => {
+  cachedStats = null;
+  lastCacheTimestamp = 0;
+};
+
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
@@ -33,6 +43,7 @@ const recordDeletionAudit = async ({
   metadata = {},
 }) => {
   try {
+    invalidateStorageCache();
     const audit = await LogDeletionAudit.create({
       deletedBy: user?._id || null,
       deletedByName: user?.name || user?.rollNo || user?.email || 'Authorized Staff',
@@ -64,7 +75,10 @@ const recordDeletionAudit = async ({
 /**
  * Get comprehensive log memory stats, quota percent, and deletion history
  */
-const getStorageStats = async () => {
+const getStorageStats = async ({ forceRefresh = false } = {}) => {
+  if (!forceRefresh && cachedStats && (Date.now() - lastCacheTimestamp < CACHE_TTL_MS)) {
+    return cachedStats;
+  }
   const [inOutCount, homeVisitCount] = await Promise.all([
     InOutLog.countDocuments().maxTimeMS(5000),
     HomeVisitLog.countDocuments().maxTimeMS(5000),
@@ -165,6 +179,10 @@ const getStorageStats = async () => {
       timestamp: a.timestamp,
     })),
   };
+
+  cachedStats = result;
+  lastCacheTimestamp = Date.now();
+  return result;
 };
 
 module.exports = {

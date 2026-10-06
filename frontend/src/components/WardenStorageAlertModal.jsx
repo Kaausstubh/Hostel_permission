@@ -27,12 +27,29 @@ export default function WardenStorageAlertModal() {
 
   const isWarden = ['warden', 'admin'].includes(user?.role);
 
-  const checkStorage = async () => {
+  const checkStorage = async (force = false) => {
     if (!isWarden) return;
     try {
+      if (!force) {
+        const cachedRaw = sessionStorage.getItem('storage_stats_cache');
+        const cachedTime = Number(sessionStorage.getItem('storage_stats_cache_time') || '0');
+        if (cachedRaw && Date.now() - cachedTime < 60000) {
+          const parsed = JSON.parse(cachedRaw);
+          setStats(parsed);
+          const reached80 = Boolean(parsed.total?.isOver80Percent || (parsed.total?.percentUsed >= 80) || (parsed.total?.sizeBytes >= 400 * 1024 * 1024));
+          const dismissed = sessionStorage.getItem('dismissed_storage_80_alert');
+          if (reached80 && !dismissed) {
+            setModalOpen(true);
+          }
+          return;
+        }
+      }
+
       const res = await api.get('/inout/storage-stats');
       if (res.data?.success) {
         setStats(res.data);
+        sessionStorage.setItem('storage_stats_cache', JSON.stringify(res.data));
+        sessionStorage.setItem('storage_stats_cache_time', String(Date.now()));
         const total = res.data.total;
         const reached80 = Boolean(total?.isOver80Percent || (total?.percentUsed >= 80) || (total?.sizeBytes >= 400 * 1024 * 1024));
         
@@ -49,14 +66,17 @@ export default function WardenStorageAlertModal() {
 
   useEffect(() => {
     checkStorage();
-    // Poll every 60s while warden is active
-    const timer = setInterval(checkStorage, 60000);
+    // Refresh storage stats at most every 2 minutes while active
+    const timer = setInterval(() => checkStorage(true), 120000);
     return () => clearInterval(timer);
   }, [user?.role]);
 
   // Listen for manual trigger events from scan logs / settings
   useEffect(() => {
-    const handleTrigger = () => setModalOpen(true);
+    const handleTrigger = () => {
+      checkStorage(true);
+      setModalOpen(true);
+    };
     window.addEventListener('open-storage-limit-modal', handleTrigger);
     return () => window.removeEventListener('open-storage-limit-modal', handleTrigger);
   }, []);

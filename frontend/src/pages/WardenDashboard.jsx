@@ -39,7 +39,14 @@ export default function WardenDashboard() {
   });
   const [loading, setLoading] = useState(!summary);
   const [slowServerWarning, setSlowServerWarning] = useState(false);
-  const [storageStats, setStorageStats] = useState(null);
+  const [storageStats, setStorageStats] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('storage_stats_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const fetchSummary = async () => {
     try {
@@ -56,6 +63,10 @@ export default function WardenDashboard() {
       }
       if (storageRes.status === 'fulfilled' && storageRes.value?.data?.success) {
         setStorageStats(storageRes.value.data);
+        try {
+          sessionStorage.setItem('storage_stats_cache', JSON.stringify(storageRes.value.data));
+          sessionStorage.setItem('storage_stats_cache_time', String(Date.now()));
+        } catch {}
       }
     } catch (err) {
       toast.error('Failed to load dashboard data');

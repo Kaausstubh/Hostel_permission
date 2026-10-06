@@ -63,6 +63,12 @@ export default defineConfig({
 
           if (id.includes('html5-qrcode') || id.includes('qrcode')) return 'qr';
 
+          if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
+
+          if (id.includes('xlsx')) return 'vendor-excel';
+
+          if (id.includes('@mediapipe')) return 'vendor-vision';
+
           if (id.includes('react-icons')) return 'icons';
 
           if (id.includes('react-hot-toast')) return 'toast';

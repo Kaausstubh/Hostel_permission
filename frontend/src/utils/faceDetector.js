@@ -8,8 +8,6 @@
  * 2. Google MediaPipe Tasks Vision BlazeFace AI model (cross-browser WebAssembly CPU)
  */
 
-import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
-
 let mediaPipeDetector = null;
 let mediaPipeLoadingPromise = null;
 
@@ -26,6 +24,8 @@ async function getMediaPipeDetector() {
 
   mediaPipeLoadingPromise = (async () => {
     try {
+      const { FaceDetector, FilesetResolver } = await import('@mediapipe/tasks-vision');
+
       // Initialize vision wasm fileset
       let vision;
       try {

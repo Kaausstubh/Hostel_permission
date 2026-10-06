@@ -13,8 +13,6 @@ import {
 } from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line, RiArrowDownSFill, RiDeleteBinLine } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
-import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
-import { downloadGateRecordsExcel } from '../utils/excelReportGenerator';
 import StudentAvatar from '../components/StudentAvatar';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
@@ -60,7 +58,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     setHomeLogs(filteredHomeLogs);
   };
 
-  const [storageStats, setStorageStats] = useState(null);
+  const [storageStats, setStorageStats] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('storage_stats_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [storageLoading, setStorageLoading] = useState(false);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [purgeModalOpen, setPurgeModalOpen] = useState(false);
@@ -74,6 +79,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       const res = await api.get('/inout/storage-stats');
       if (res.data?.success) {
         setStorageStats(res.data);
+        try {
+          sessionStorage.setItem('storage_stats_cache', JSON.stringify(res.data));
+          sessionStorage.setItem('storage_stats_cache_time', String(Date.now()));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to load storage stats:', err);
@@ -146,6 +155,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
     try {
       setExportingPdf(true);
+      const { downloadGateRecordsPDF, generatePDFFromLocalLogs } = await import('../utils/pdfReportGenerator');
       const params = new URLSearchParams({
         type: activeTab === 'gate' ? 'gate' : 'home',
       });
@@ -260,6 +270,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         return;
       }
 
+      const { downloadGateRecordsExcel } = await import('../utils/excelReportGenerator');
       await downloadGateRecordsExcel({
         gateLogs: logs,
         homeLogs,
