@@ -532,6 +532,19 @@ export default function StudentDashboard() {
   const msgIdRef = useRef(0);
   const [avatarImgError, setAvatarImgError] = useState(false);
 
+  // Dismiss zoomed pass immediately if portal is backgrounded or screen capture is detected
+  useEffect(() => {
+    const handleHidePass = () => {
+      setZoomedQR(null);
+    };
+    window.addEventListener('heimdall-screen-recording-detected', handleHidePass);
+    window.addEventListener('heimdall-portal-backgrounded', handleHidePass);
+    return () => {
+      window.removeEventListener('heimdall-screen-recording-detected', handleHidePass);
+      window.removeEventListener('heimdall-portal-backgrounded', handleHidePass);
+    };
+  }, []);
+
   // Complaint photo states
   const [complaintPhoto, setComplaintPhoto] = useState(null);
   const [complaintNote, setComplaintNote] = useState('');

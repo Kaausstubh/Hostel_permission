@@ -154,6 +154,8 @@ export default function SecureGatePassQR({
     window.addEventListener('touchstart', handleTouchCancel, { passive: true });
     window.addEventListener('heimdall-shield-activated', handleShieldEvent);
     window.addEventListener('shield-activated', handleShieldEvent);
+    window.addEventListener('heimdall-portal-backgrounded', handleShieldEvent);
+    window.addEventListener('heimdall-screen-recording-detected', handleShieldEvent);
 
     return () => {
       cancelHold();
@@ -167,6 +169,8 @@ export default function SecureGatePassQR({
       window.removeEventListener('touchstart', handleTouchCancel);
       window.removeEventListener('heimdall-shield-activated', handleShieldEvent);
       window.removeEventListener('shield-activated', handleShieldEvent);
+      window.removeEventListener('heimdall-portal-backgrounded', handleShieldEvent);
+      window.removeEventListener('heimdall-screen-recording-detected', handleShieldEvent);
     };
   }, [cancelHold]);
 
