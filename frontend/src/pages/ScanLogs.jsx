@@ -73,20 +73,17 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   };
 
   const fetchHomeLogs = async () => {
-    const homeRes = await api.get('/homevisit/list?limit=60');
-    const filteredHomeLogs = (homeRes.data?.visits || []).filter((visit) => {
-      const hasScanRecord = Boolean(visit.actual_out_time || visit.actual_in_time || visit.qr_used_out || visit.qr_used_in);
-      if (!hasScanRecord) return false;
-      if (statusFilter) {
-        if (statusFilter === 'OUT' && !visit.actual_out_time) return false;
-        if (statusFilter === 'IN' && !visit.actual_in_time) return false;
-      }
-      return hasMatchingDate(visit, dateFilter);
-    });
-    setHomeLogs(filteredHomeLogs);
+    const params = new URLSearchParams();
+    if (dateFilter) params.append('date', dateFilter);
+    if (statusFilter) params.append('scanStatus', statusFilter);
+    params.append('scannedOnly', 'true');
+    params.append('limit', '50');
+    const homeRes = await api.get(`/homevisit/list?${params.toString()}`);
+    const fetchedLogs = homeRes.data?.visits || [];
+    setHomeLogs(fetchedLogs);
     if (!dateFilter && !statusFilter) {
       try {
-        sessionStorage.setItem('heimdall_home_logs_cache', JSON.stringify(filteredHomeLogs));
+        sessionStorage.setItem('heimdall_home_logs_cache', JSON.stringify(fetchedLogs));
       } catch {}
     }
   };
@@ -131,14 +128,9 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       }
       if (tabToPrioritize === 'gate') {
         await fetchGateLogs();
-        setLoading(false);
-        fetchHomeLogs().catch(() => {});
       } else {
         await fetchHomeLogs();
-        setLoading(false);
-        fetchGateLogs().catch(() => {});
       }
-      fetchStorageStats().catch(() => {});
     } catch (err) {
       toast.error('Failed to load logs');
     } finally {
@@ -151,6 +143,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   useEffect(() => { 
     fetchLogs(activeTab);
   }, [dateFilter, statusFilter, activeTab]);
+
+  useEffect(() => {
+    // Only refresh storage stats if not cached or older than 60s
+    const lastTime = Number(sessionStorage.getItem('storage_stats_cache_time') || '0');
+    if (!storageStats || Date.now() - lastTime > 60000) {
+      fetchStorageStats();
+    }
+  }, []);
 
   const handlePurgeLogs = async () => {
     if (!purgeCutoffDate) {

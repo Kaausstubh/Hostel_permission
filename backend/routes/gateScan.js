@@ -25,6 +25,7 @@ const {
   removePendingInOutRequest,
 } = require('../services/inOutRequestService');
 const { withScanLock } = require('../services/scanLockService');
+const { invalidateLogsCache } = require('../services/logsCache');
 const {
   listPendingHomeVisitPasses,
   syncHomeVisitActiveQR,
@@ -588,6 +589,10 @@ router.post('/scan', async (req, res) => {
 
       return { status: 400, body: { success: false, message: 'Unsupported QR type' } };
     });
+
+    if (result.status === 200 || result.body?.success) {
+      invalidateLogsCache().catch(() => {});
+    }
 
     return res.status(result.status).json(result.body);
   } catch (error) {

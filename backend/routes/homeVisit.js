@@ -23,6 +23,7 @@ const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
 const logger = require('../utils/logger');
 const { recordDeletionAudit } = require('../services/storageStatsService');
+const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
 
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
@@ -352,24 +353,60 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 // ─── Warden/Security: List All Requests ───────────────────────────────────────
 router.get('/list', protect, authorize('warden', 'security'), async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, scanStatus, scannedOnly, date } = req.query;
     const { page, limit, skip } = getPagination(req.query, 50, 100);
-    const filter = status ? { overall_status: status } : {};
 
-    const [visits, count] = await Promise.all([
-      HomeVisitLog.find(filter)
-        .select('-student_photo')
-        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
-        .populate('scannedBy', 'name')
-        .populate('scanned_by_out', 'name')
-        .populate('scanned_by_in', 'name')
-        .populate('parent_call_confirmed_by', 'name')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      HomeVisitLog.countDocuments(filter),
-    ]);
+    const cacheKey = `logs:home:${status || 'all'}:${scanStatus || 'all'}:${scannedOnly || 'all'}:${date || 'all'}:${page}:${limit}`;
+    const cached = await getLogsCache(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...cached, cached: true });
+    }
+
+    const conditions = [];
+    if (status) conditions.push({ overall_status: status });
+    if (scannedOnly === 'true') {
+      conditions.push({
+        $or: [
+          { actual_out_time: { $ne: null } },
+          { actual_in_time: { $ne: null } },
+          { qr_used_out: true },
+          { qr_used_in: true },
+        ],
+      });
+    }
+    if (scanStatus === 'OUT') {
+      conditions.push({ actual_out_time: { $ne: null }, actual_in_time: null });
+    } else if (scanStatus === 'IN') {
+      conditions.push({ actual_in_time: { $ne: null } });
+    }
+    if (date) {
+      conditions.push({
+        $or: [
+          { leave_date: date },
+          { return_date: date },
+        ],
+      });
+    }
+
+    const filter = conditions.length > 1 ? { $and: conditions } : (conditions[0] || {});
+
+    const visits = await HomeVisitLog.find(filter)
+      .select('-student_photo')
+      .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
+      .populate('scannedBy', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    let count;
+    if (skip === 0 && visits.length < limit && conditions.length === 0) {
+      count = visits.length;
+    } else if (conditions.length === 0) {
+      count = await HomeVisitLog.estimatedDocumentCount();
+    } else {
+      count = await HomeVisitLog.countDocuments(filter);
+    }
 
     const sanitizedVisits = visits.map((visit) => {
       if (visit.student_id && visit.student_id._id) {
@@ -378,7 +415,10 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
       return visit;
     });
 
-    res.json({ success: true, count, page, limit, visits: sanitizedVisits });
+    const responsePayload = { count, page, limit, visits: sanitizedVisits };
+    await setLogsCache(cacheKey, responsePayload, 15);
+
+    res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -411,6 +451,7 @@ router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) =>
     if (!existingVisit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
 
     await HomeVisitLog.findByIdAndDelete(req.params.id);
+    await invalidateLogsCache();
 
     const studentName = existingVisit.name || existingVisit.student_id?.name || 'Student';
     const desc = `Deleted home visit pass for ${studentName} (${existingVisit.leave_date || 'N/A'} to ${existingVisit.return_date || 'N/A'})`;
@@ -436,6 +477,7 @@ router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const totalCountBefore = await HomeVisitLog.countDocuments();
     const result = await HomeVisitLog.deleteMany({});
+    await invalidateLogsCache();
     const deletedCount = result.deletedCount != null ? result.deletedCount : totalCountBefore;
 
     const desc = `Cleared all ${deletedCount} home visit pass records from database`;
@@ -476,6 +518,7 @@ router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) =>
         { actual_out_time: { $lte: cutoff } },
       ]
     });
+    await invalidateLogsCache();
 
     const deletedCount = result.deletedCount || 0;
     const desc = `Purged ${deletedCount} home visit records before ${cutoffDate}`;

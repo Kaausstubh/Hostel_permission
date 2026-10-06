@@ -17,6 +17,7 @@ const { createPendingInOutRequest } = require('../services/inOutRequestService')
 const { withScanLock } = require('../services/scanLockService');
 const logger = require('../utils/logger');
 const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
+const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
 const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -234,11 +235,18 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
   }
 });
 
-// ─── All Logs (Warden) ────────────────────────────────────────────────────────
+// ─── All Logs (Warden & Security) ─────────────────────────────────────────────
 router.get('/logs', protect, authorize('warden', 'security'), async (req, res) => {
   try {
     const { date, status } = req.query;
     const { page, limit, skip } = getPagination(req.query, 50, 200);
+
+    const cacheKey = `logs:gate:${date || 'all'}:${status || 'all'}:${page}:${limit}:${req.user.role}`;
+    const cached = await getLogsCache(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...cached, cached: true });
+    }
+
     const filter = {};
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
@@ -246,17 +254,24 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       ? 'name rollNo hostel'
       : 'name rollNo hostel phone parentPhone';
 
-    const [logs, count] = await Promise.all([
-      InOutLog.find(filter)
-        .select('-student_photo')
-        .populate('student_id', studentSelect)
-        .populate('scannedBy', 'name rollNo email')
-        .sort({ timestamp: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      InOutLog.countDocuments(filter),
-    ]);
+    const logs = await InOutLog.find(filter)
+      .select('-student_photo')
+      .populate('student_id', studentSelect)
+      .populate('scannedBy', 'name rollNo email')
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Fast count optimization: avoid full table scans when not strictly needed
+    let count;
+    if (skip === 0 && logs.length < limit && !date && !status) {
+      count = logs.length;
+    } else if (!date && !status) {
+      count = await InOutLog.estimatedDocumentCount();
+    } else {
+      count = await InOutLog.countDocuments(filter);
+    }
 
     const sanitizedLogs = logs.map((log) => {
       if (log.student_id && log.student_id._id) {
@@ -265,7 +280,10 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       return log;
     });
 
-    res.json({ success: true, count, page, limit, logs: sanitizedLogs });
+    const responsePayload = { count, page, limit, logs: sanitizedLogs };
+    await setLogsCache(cacheKey, responsePayload, 15);
+
+    res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -385,6 +403,7 @@ router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) =>
     if (!existingLog) return res.status(404).json({ success: false, message: 'Gate log record not found' });
 
     await InOutLog.findByIdAndDelete(req.params.id);
+    await invalidateLogsCache();
 
     const studentName = existingLog.name || existingLog.student_id?.name || 'Student';
     const desc = `Deleted gate log for ${studentName} (${existingLog.status || 'OUT'} on ${existingLog.date || 'unknown date'})`;
@@ -410,6 +429,7 @@ router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const totalCountBefore = await InOutLog.countDocuments();
     const result = await InOutLog.deleteMany({});
+    await invalidateLogsCache();
     const deletedCount = result.deletedCount != null ? result.deletedCount : totalCountBefore;
 
     const desc = `Cleared all ${deletedCount} gate scan logs from database`;
@@ -448,6 +468,7 @@ router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) =>
         { date: { $lte: cutoffDate } }
       ]
     });
+    await invalidateLogsCache();
 
     const deletedCount = result.deletedCount || 0;
     const desc = `Purged ${deletedCount} gate logs before ${cutoffDate}`;
