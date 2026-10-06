@@ -859,7 +859,7 @@ export default function Onboarding() {
             >
               Hostel Terms & Conditions
             </button>
-            , Curfew Rules (10:00 PM), mandatory biometric / QR gate scanning protocol, and student code of conduct.
+            , Curfew Rules (8:00 PM), mandatory biometric / QR gate scanning protocol, and student code of conduct.
           </label>
         </div>
 
@@ -959,7 +959,7 @@ export default function Onboarding() {
                   <strong>1. Contact Verification:</strong> Both student and primary/secondary parent contacts provided must be genuine and active Indian phone numbers.
                 </p>
                 <p>
-                  <strong>2. Curfew Policy:</strong> Daily campus entry curfew is strictly 10:00 PM. Gate exits and entries are recorded and monitored in real-time.
+                  <strong>2. Curfew Policy:</strong> Daily campus entry curfew is strictly 8:00 PM. Gate exits and entries are recorded and monitored in real-time.
                 </p>
                 <p>
                   <strong>3. Gate Scanning:</strong> Every movement through the institutional gate requires scanning your verified dynamic QR pass.

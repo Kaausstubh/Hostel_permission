@@ -307,7 +307,7 @@ export default function Register() {
               >
                 Hostel Terms & Conditions
               </button>
-              , Curfew Rules (10:00 PM), mandatory QR gate verification, and disciplinary policies.
+              , Curfew Rules (8:00 PM), mandatory QR gate verification, and disciplinary policies.
             </label>
           </div>
 
@@ -378,7 +378,7 @@ export default function Register() {
                   <strong>1. Accurate Contact Details:</strong> All submitted student and parent contact numbers must be valid, active Indian phone numbers and genuinely belong to parents/guardians. Providing false contacts is a serious disciplinary violation.
                 </p>
                 <p>
-                  <strong>2. Curfew Timings:</strong> Daily campus entry curfew is strictly enforced. Students returning after designated curfew timings without approved permission will be flagged as late or not returned.
+                  <strong>2. Curfew Timings:</strong> Daily campus entry curfew is strictly 8:00 PM. Students returning after 8:00 PM without approved permission will be flagged as late or not returned.
                 </p>
                 <p>
                   <strong>3. Gate Scanning:</strong> Every entry and exit through the hostel campus gate requires mandatory scanning of your personal dynamic QR code at the security checkpoint.
