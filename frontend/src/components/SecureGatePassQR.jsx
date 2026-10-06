@@ -572,18 +572,6 @@ export default function SecureGatePassQR({
                 <span>Open Full-Screen Gate Presenter</span>
               </button>
             )}
-
-            {/* Anti-Screen Recording Security Notice */}
-            <div
-              style={{
-                fontSize: 10,
-                color: isLight ? '#94a3b8' : 'rgba(255, 255, 255, 0.5)',
-                textAlign: 'center',
-                lineHeight: 1.4,
-              }}
-            >
-              🛡️ Zero-Pixel frame buffer protection: Screen recordings and screenshots cannot capture concealed passes.
-            </div>
           </div>
         </div>
       )}

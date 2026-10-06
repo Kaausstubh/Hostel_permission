@@ -23,7 +23,7 @@ export default function AntiScreenshotShield({ children }) {
   const touchStartYRef = useRef(0);
   const isMenuSlideRef = useRef(false);
 
-  const notifyRestricted = (message = '⚠️ Screenshots and screen captures are prohibited on the student portal for gate security.') => {
+  const notifyRestricted = (message = '⚠️ Content protected for gate security.') => {
     const now = Date.now();
     if (now - toastCooldownRef.current > 2000) {
       toastCooldownRef.current = now;
@@ -41,7 +41,7 @@ export default function AntiScreenshotShield({ children }) {
     }
 
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText('⚠️ Screenshots of Heimdall student gate passes are restricted for campus security.').catch(() => {});
+      navigator.clipboard.writeText('⚠️ Heimdall gate pass is protected for campus security.').catch(() => {});
     }
   };
 
@@ -66,8 +66,8 @@ export default function AntiScreenshotShield({ children }) {
     if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
       origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getDisplayMedia = async function (...args) {
-        activateShield(0, '⚠️ Screen recording is strictly prohibited on the student portal.');
-        throw new DOMException('Screen recording is prohibited for gate security.', 'NotAllowedError');
+        activateShield(0, '⚠️ Action prohibited on the student portal.');
+        throw new DOMException('Action prohibited for security.', 'NotAllowedError');
       };
     }
 
@@ -148,7 +148,7 @@ export default function AntiScreenshotShield({ children }) {
       // 3-Finger swipe screenshot gesture (Android phones)
       if (touches.length >= 3) {
         if (e.cancelable) e.preventDefault();
-        activateShield(0, '⚠️ 3-finger screenshot gesture blocked! Screen capture is prohibited.');
+        activateShield(0, '⚠️ Gesture detected — content hidden for security.');
         return;
       }
 
@@ -174,7 +174,7 @@ export default function AntiScreenshotShield({ children }) {
       // 3-Finger swipe screenshot gesture
       if (touches.length >= 3) {
         if (e.cancelable) e.preventDefault();
-        activateShield(0, '⚠️ 3-finger screenshot gesture blocked!');
+        activateShield(0, '⚠️ Gesture detected — content hidden for security.');
         return;
       }
 
@@ -219,7 +219,7 @@ export default function AntiScreenshotShield({ children }) {
       ) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(0, '⚠️ PrintScreen blocked! Gate passes cannot be screen-captured.');
+        activateShield(0, '⚠️ Content protected — capture blocked for gate security.');
         return false;
       }
 
@@ -241,7 +241,7 @@ export default function AntiScreenshotShield({ children }) {
       if (cmdOrCtrl && e.shiftKey && isMacScreenshotDigit) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(0, '⚠️ Screen capture shortcut blocked!');
+        activateShield(0, '⚠️ Shortcut blocked — content hidden for security.');
         return false;
       }
 
@@ -249,7 +249,7 @@ export default function AntiScreenshotShield({ children }) {
       if ((cmdOrCtrl || e.metaKey) && e.shiftKey && (e.code === 'KeyS' || e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(0, '⚠️ Snipping Tool / Web Capture blocked!');
+        activateShield(0, '⚠️ Shortcut blocked — content hidden for security.');
         return false;
       }
 
@@ -258,7 +258,7 @@ export default function AntiScreenshotShield({ children }) {
           (e.metaKey && (e.code === 'KeyG' || e.key === 'g' || e.key === 'G'))) {
         e.preventDefault();
         e.stopPropagation();
-        activateShield(0, '⚠️ Screen recording shortcut blocked!');
+        activateShield(0, '⚠️ Shortcut blocked — content hidden for security.');
         return false;
       }
 
@@ -294,7 +294,7 @@ export default function AntiScreenshotShield({ children }) {
     const handleKeyUp = (e) => {
       if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
         if (navigator.clipboard?.writeText) {
-          navigator.clipboard.writeText('⚠️ Screenshots are disabled on Heimdall student portal.').catch(() => {});
+          navigator.clipboard.writeText('⚠️ Content protected on Heimdall student portal.').catch(() => {});
         }
       }
     };
@@ -435,25 +435,13 @@ export default function AntiScreenshotShield({ children }) {
             style={{
               fontSize: 22,
               fontWeight: 800,
-              margin: '0 0 10px',
+              margin: '0 0 24px',
               color: '#ffffff',
               letterSpacing: '-0.02em',
             }}
           >
             🔒 Content Hidden for Security
           </h2>
-
-          <p
-            style={{
-              fontSize: 13.5,
-              color: '#cbd5e1',
-              maxWidth: 380,
-              margin: '0 0 24px',
-              lineHeight: 1.55,
-            }}
-          >
-            Screen recording and screenshots are restricted on the student gate pass portal to prevent unauthorized pass sharing.
-          </p>
 
           <button
             type="button"
