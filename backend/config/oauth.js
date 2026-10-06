@@ -61,6 +61,9 @@ const SECURITY_GUARD_ALLOWED_EMAILS = [
   'parthrajsolanke@gmail.com',
   'mohitmoksh810@gmail.com',
   'pallavideshpande842@gmail.com',
+  'maheshmali3577@gmail.com',
+  'dipalithorat757@gmail.com',
+  'debajeamol78@gmail.com',
 ];
 
 // Loaded from env (comma-separated), falling back to SECURITY_GUARD_ALLOWED_EMAILS.
