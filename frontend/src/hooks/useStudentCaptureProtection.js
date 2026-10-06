@@ -76,7 +76,7 @@ export default function useStudentCaptureProtection(contentRef) {
       clearTimeout(blurTimerRef.current);
       blurTimerRef.current = setTimeout(() => {
         if (!document.hasFocus()) directConceal();
-      }, 150);
+      }, 50);
     };
 
     const onFocus = () => {
