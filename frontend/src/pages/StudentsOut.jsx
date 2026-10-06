@@ -7,6 +7,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdPeople, MdRefresh } from 'react-icons/md';
 import StudentAvatar from '../components/StudentAvatar';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function StudentsOut() {
   const [students, setStudents] = useState([]);
@@ -89,7 +90,7 @@ export default function StudentsOut() {
                           </div>
                         </div>
                       </td>
-                      <td><span className="badge badge-out">{log.student_id?.hostel || '—'}</span></td>
+                      <td><span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span></td>
                       <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>
                         {exitTime.toLocaleTimeString('en-IN')}
                       </td>

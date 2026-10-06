@@ -3,6 +3,7 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdWarning, MdRefresh, MdPhone, MdAccessTime, MdInfoOutline } from 'react-icons/md';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function NotReturned() {
   const [students, setStudents] = useState([]);
@@ -176,7 +177,7 @@ export default function NotReturned() {
                         {student?.rollNo || '—'}
                       </td>
                       <td>
-                        <span className="badge badge-out">{student?.hostel || '—'}</span>
+                        <span className="badge badge-out">{getHostelLabel(student?.hostel)}</span>
                       </td>
                       <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#ef4444' }}>
                         {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—'}

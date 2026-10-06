@@ -72,10 +72,18 @@ const processMessage = async (from, body) => {
     }
   }
 
-  // ── Handle warden WhatsApp approval replies ────────────────────────────────
-  if (textLower.startsWith('warden_approve ') || textLower.startsWith('warden_reject ')) {
-    const parts = text.split(' ');
-    const action = textLower.startsWith('warden_approve') ? 'approve' : 'reject';
+  // ── Handle hostel staff WhatsApp approval replies ────────────────────────────
+  if (
+    textLower.startsWith('warden_approve ') ||
+    textLower.startsWith('warden_reject ') ||
+    textLower.startsWith('staff_approve ') ||
+    textLower.startsWith('staff_reject ') ||
+    textLower.startsWith('approve ') ||
+    textLower.startsWith('reject ')
+  ) {
+    const isApprove = textLower.startsWith('warden_approve') || textLower.startsWith('staff_approve') || textLower.startsWith('approve');
+    const action = isApprove ? 'approve' : 'reject';
+    const parts = text.trim().split(/\s+/);
     const visitId = parts[1];
     if (visitId && visitId.length === 24) {
       return await handleWardenReply(phone, visitId, action);
@@ -154,9 +162,13 @@ const processMessage = async (from, body) => {
 
     // ── Complaint ─────────────────────────────────────────────────────────────
     case 'COMPLAINT_HOSTEL':
-      const hostelUpper = text.toUpperCase();
+      let hostelUpper = text.trim().toUpperCase();
+      if (hostelUpper.includes('BRAHMAPUTRA')) hostelUpper = 'BH1';
+      else if (hostelUpper.includes('KRISHNA')) hostelUpper = 'BH2';
+      else if (hostelUpper.includes('INDRAYANI')) hostelUpper = 'GH';
+
       if (!['BH1', 'BH2', 'GH'].includes(hostelUpper)) {
-        return await sendWhatsAppMessage(phone, '❌ Invalid hostel. Please reply with *BH1*, *BH2*, or *GH*');
+        return await sendWhatsAppMessage(phone, '❌ Invalid hostel. Please reply with *BH1* (Brahmaputra), *BH2* (Krishna), or *GH* (Indrayani)');
       }
       await updateSession(phone, 'COMPLAINT_TEXT', { hostel: hostelUpper });
       return await sendWhatsAppMessage(phone, `📝 Please describe your complaint in detail:`);
@@ -206,7 +218,7 @@ const handleMenuChoice = async (phone, choice, user) => {
       await updateSession(phone, 'COMPLAINT_HOSTEL', {});
       return await sendWhatsAppMessage(
         phone,
-        `🧾 *File a Complaint*\n\nWhich hostel is your complaint for?\nReply with: *BH1*, *BH2*, or *GH*`
+        `🧾 *File a Complaint*\n\nWhich hostel is your complaint for?\nReply with: *BH1* (Brahmaputra), *BH2* (Krishna), or *GH* (Indrayani)`
       );
 
     case '4':
@@ -323,7 +335,7 @@ const finalizeComplaint = async (phone, text, user, session) => {
     await clearSession(phone);
     await sendWhatsAppMessage(
       phone,
-      `✅ *Complaint Filed Successfully!*\n\n🏢 Hostel: ${session.data.hostel}\n📝 Complaint: ${text}\n🔖 ID: ${complaint._id}\n📊 Status: *Pending*\n\nThe warden will review your complaint shortly.`
+      `✅ *Complaint Filed Successfully!*\n\n🏢 Hostel: ${session.data.hostel}\n📝 Complaint: ${text}\n🔖 ID: ${complaint._id}\n📊 Status: *Pending*\n\nThe hostel staff will review your complaint shortly.`
     );
   } catch (err) {
     await clearSession(phone);
@@ -384,14 +396,14 @@ const handleParentReply = async (phone, visitId, action) => {
 
     await sendWhatsAppMessage(
       phone,
-      `✅ You have *approved* ${studentName}'s home visit request.\nThe warden will now review it.`
+      `✅ You have *approved* ${studentName}'s home visit request.\nThe hostel staff will now review it.`
     );
 
     // Notify student
     if (studentPhone) {
       await sendWhatsAppMessage(
         studentPhone,
-        `✅ Your parent has *approved* your home visit request!\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting warden approval...`
+        `✅ Your parent has *approved* your home visit request!\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date} → Return: ${visit.return_date}\n\n⏳ Awaiting hostel staff approval...`
       );
     }
 
@@ -431,7 +443,7 @@ const handleWardenReply = async (phone, visitId, action) => {
   }
 
   if (visit.warden_status !== 'pending') {
-    return await sendWhatsAppMessage(phone, `ℹ️ This request has already been ${visit.warden_status} by the warden.`);
+    return await sendWhatsAppMessage(phone, `ℹ️ This request has already been ${visit.warden_status} by hostel staff.`);
   }
 
   visit.warden_status = action === 'approve' ? 'approved' : 'rejected';
@@ -457,7 +469,7 @@ const handleWardenReply = async (phone, visitId, action) => {
     if (studentPhone) {
       await sendWhatsAppMessage(
         studentPhone,
-        `🎉 *Home Visit APPROVED by Warden!*\n\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
+        `🎉 *Home Visit APPROVED by Hostel Staff!*\n\n📍 Destination: ${visit.place || 'N/A'}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\n📲 Your gate pass QR code is below — show it to the guard when leaving and returning.`
       );
       await sendWhatsAppMediaMessage(
         studentPhone,
@@ -474,7 +486,7 @@ const handleWardenReply = async (phone, visitId, action) => {
     if (studentPhone) {
       await sendWhatsAppMessage(
         studentPhone,
-        `❌ Your home visit request has been *rejected by the warden*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
+        `❌ Your home visit request has been *rejected by hostel staff*.\n📍 Destination: ${visit.place || 'N/A'}\nDates: ${visit.leave_date} → ${visit.return_date}`
       );
     }
   }

@@ -5,6 +5,7 @@ import api from '../services/api';
 import { resolvePhotoUrl } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import { MdReport, MdRefresh, MdCheckCircle, MdPhotoCamera, MdClose, MdZoomIn } from 'react-icons/md';
+import { getHostelLabel } from '../utils/hostel';
 
 const TYPE_CONFIG = {
   carpenter: { label: 'Carpenter', icon: '🔨', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
@@ -115,9 +116,9 @@ export default function ComplaintDashboard() {
             onChange={(e) => setHostelFilter(e.target.value)}
           >
             <option value="">All Hostels</option>
-            <option value="BH1">BH1</option>
-            <option value="BH2">BH2</option>
-            <option value="GH">GH</option>
+            <option value="BH1">Brahmaputra (BH1)</option>
+            <option value="BH2">Krishna (BH2)</option>
+            <option value="GH">Indrayani (GH)</option>
           </select>
 
           <select
@@ -193,7 +194,7 @@ export default function ComplaintDashboard() {
                           </div>
                         </div>
                       </td>
-                      <td><span className="badge badge-out">{c.hostel}</span></td>
+                      <td><span className="badge badge-out">{getHostelLabel(c.hostel)}</span></td>
                       <td>
                         <span style={{
                           display: 'inline-flex',
@@ -323,7 +324,7 @@ export default function ComplaintDashboard() {
                   📸 Complaint Photo Evidence
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {previewPhoto.title} · Hostel {previewPhoto.hostel} · {previewPhoto.date}
+                  {previewPhoto.title} · {getHostelLabel(previewPhoto.hostel)} · {previewPhoto.date}
                 </div>
               </div>
               <button

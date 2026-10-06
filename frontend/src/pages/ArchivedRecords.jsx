@@ -14,6 +14,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
+import { getHostelLabel, HOSTEL_NAME_MAP } from '../utils/hostel';
 import {
   MdPictureAsPdf,
   MdStorage,
@@ -135,7 +136,7 @@ export default function ArchivedRecords() {
         homeLogs: exportType === 'gate' ? [] : rawHome,
         user,
         period: selectedMonth || (startDate && endDate ? `${startDate} to ${endDate}` : 'All Records'),
-        hostelFilter: hostelFilter === 'all' ? 'All Hostels' : hostelFilter,
+        hostelFilter: hostelFilter === 'all' ? 'All Hostels (Brahmaputra, Krishna, Indrayani)' : (HOSTEL_NAME_MAP[hostelFilter] || hostelFilter),
       });
 
       toast.success('PDF report generated and downloaded successfully!', { id: toastId });
@@ -464,10 +465,10 @@ export default function ArchivedRecords() {
                 value={hostelFilter}
                 onChange={(e) => setHostelFilter(e.target.value)}
               >
-                <option value="all">All Hostels (BH1, BH2, GH)</option>
-                <option value="BH1">BH1 Boys Hostel</option>
-                <option value="BH2">BH2 Boys Hostel</option>
-                <option value="GH">GH Girls Hostel</option>
+                <option value="all">All Hostels (Brahmaputra, Krishna, Indrayani)</option>
+                <option value="BH1">Brahmaputra (BH1)</option>
+                <option value="BH2">Krishna (BH2)</option>
+                <option value="GH">Indrayani (GH)</option>
               </select>
             </div>
           </div>
@@ -750,7 +751,7 @@ export default function ArchivedRecords() {
                   <MdLock size={16} style={{ position: 'absolute', left: 10, top: 12, color: 'var(--text-muted)' }} />
                 </div>
                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5, display: 'block' }}>
-                  Enter Master Passphrase (<code style={{ color: 'var(--primary-light)', fontWeight: 700 }}>HEIMDALL@Warden2026</code>) or your logged-in Hostel Staff email address.
+                  Enter Master Passphrase (<code style={{ color: 'var(--primary-light)', fontWeight: 700 }}>HEIMDALL@HostelStaff2026</code>) or your logged-in Hostel Staff email address.
                 </span>
               </div>
 

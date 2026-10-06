@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { getHostelLabel } from '../utils/hostel';
 import {
   addDays,
   addMonths,
@@ -2280,7 +2281,7 @@ export default function StudentDashboard() {
                 {user?.name}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                {user?.rollNo} · {user?.hostel}
+                {user?.rollNo} · {getHostelLabel(user?.hostel)}
               </div>
             </div>
           </div>
@@ -3209,7 +3210,7 @@ export default function StudentDashboard() {
                   </div>
                   {scanAlertModal.rollNo && (
                     <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)' }}>
-                      {scanAlertModal.rollNo} {scanAlertModal.hostel ? `· ${scanAlertModal.hostel}` : ''}
+                      {scanAlertModal.rollNo} {scanAlertModal.hostel ? `· ${getHostelLabel(scanAlertModal.hostel)}` : ''}
                     </div>
                   )}
                 </div>

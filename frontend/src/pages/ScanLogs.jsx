@@ -14,6 +14,7 @@ import {
 import { RiFilePdf2Line, RiFileExcel2Line, RiArrowDownSFill, RiDeleteBinLine } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
   const [logs, setLogs] = useState(() => {
@@ -132,7 +133,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         await fetchHomeLogs();
       }
     } catch (err) {
-      toast.error('Failed to load logs');
+      console.warn('[ScanLogs] Fetch logs warning:', err.message);
+      if (err.response?.status !== 401) {
+        toast.error(err.response?.data?.message || 'Failed to load logs');
+      }
     } finally {
       setLoading(false);
     }
@@ -765,7 +769,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                 <span>
                   Last log deletion: <strong style={{ color: 'var(--text-primary)' }}>
                     {storageStats.recentAudits[0].deletedByName}
-                  </strong> ({storageStats.recentAudits[0].deletedByRole}) removed {storageStats.recentAudits[0].deletedCount} records on {new Date(storageStats.recentAudits[0].timestamp).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })} at {new Date(storageStats.recentAudits[0].timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
+                  </strong> ({String(storageStats.recentAudits[0].deletedByRole || 'HOSTEL STAFF').toUpperCase().replace(/WARDEN/gi, 'HOSTEL STAFF')}) removed {storageStats.recentAudits[0].deletedCount} records on {new Date(storageStats.recentAudits[0].timestamp).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })} at {new Date(storageStats.recentAudits[0].timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
                 </span>
               </div>
               <button
@@ -891,7 +895,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{log.student_id?.hostel || '—'}</span></td>
+                    <td><span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span></td>
                     <td>
                       <span className={`badge ${log.status === 'IN' ? 'badge-in' : 'badge-out'}`}>
                         {log.status === 'IN' ? '🚪 IN' : '🔓 OUT'}
@@ -985,7 +989,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{visit.student_id?.hostel || '—'}</span></td>
+                    <td><span className="badge badge-out">{getHostelLabel(visit.student_id?.hostel || visit.hostel)}</span></td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{visit.place || '—'}</td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={visit.reason}>
                       {visit.reason || '—'}
@@ -1485,7 +1489,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                                 color: audit.deletedByRole === 'admin' ? '#ef4444' : 'var(--primary-light, #818cf8)',
                                 textTransform: 'uppercase'
                               }}>
-                                {audit.deletedByRole || 'STAFF'}
+                                {String(audit.deletedByRole || 'HOSTEL STAFF').toUpperCase().replace(/WARDEN/gi, 'HOSTEL STAFF')}
                               </span>
                             </td>
                             <td style={{ padding: '10px 12px' }}>

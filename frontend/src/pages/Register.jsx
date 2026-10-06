@@ -384,7 +384,7 @@ export default function Register() {
                   <strong>3. Gate Scanning:</strong> Every entry and exit through the hostel campus gate requires mandatory scanning of your personal dynamic QR code at the security checkpoint.
                 </p>
                 <p>
-                  <strong>4. Home Visits & Parental Consent:</strong> Extended home leaves require warden authorization and verified guardian confirmation through phone calls or automated WhatsApp approval links.
+                  <strong>4. Home Visits & Parental Consent:</strong> Extended home leaves require hostel staff authorization and verified guardian confirmation through phone calls or automated WhatsApp approval links.
                 </p>
                 <p>
                   <strong>5. Disciplinary Actions:</strong> Violation of hostel norms or impersonation at security gates will lead to immediate revocation of hostel residency rights.

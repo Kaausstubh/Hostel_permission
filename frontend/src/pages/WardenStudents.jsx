@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function WardenStudents() {
   const { user } = useAuth();
@@ -53,10 +54,12 @@ export default function WardenStudents() {
   const countUnassigned = students.filter((s) => !s.hostel).length;
 
   const filteredStudents = students.filter((student) => {
+    const hostelLabel = getHostelLabel(student.hostel, '');
     const matchesSearch =
       student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.rollNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.hostel?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      hostelLabel.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.email?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesHostel =
@@ -134,11 +137,11 @@ export default function WardenStudents() {
             }}
             onClick={() => setSelectedHostel('BH1')}
           >
-            <div className="stat-label">Boys Hostel 1 (BH1)</div>
+            <div className="stat-label">Brahmaputra (BH1)</div>
             <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#3b82f6' }}>
               {loading ? '—' : countBH1}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in BH1</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Brahmaputra (BH1)</div>
           </div>
 
           <div
@@ -150,11 +153,11 @@ export default function WardenStudents() {
             }}
             onClick={() => setSelectedHostel('BH2')}
           >
-            <div className="stat-label">Boys Hostel 2 (BH2)</div>
+            <div className="stat-label">Krishna (BH2)</div>
             <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#6366f1' }}>
               {loading ? '—' : countBH2}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in BH2</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Krishna (BH2)</div>
           </div>
 
           <div
@@ -166,11 +169,11 @@ export default function WardenStudents() {
             }}
             onClick={() => setSelectedHostel('GH')}
           >
-            <div className="stat-label">Girls Hostel (GH)</div>
+            <div className="stat-label">Indrayani (GH)</div>
             <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#ec4899' }}>
               {loading ? '—' : countGH}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in GH</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Indrayani (GH)</div>
           </div>
 
           {countUnassigned > 0 && (
@@ -276,7 +279,7 @@ export default function WardenStudents() {
                         </td>
                         <td>
                           {student.hostel ? (
-                            <span className="badge badge-primary">{student.hostel}</span>
+                            <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>
                           )}

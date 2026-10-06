@@ -313,7 +313,7 @@ export default function WardenStorageAlertModal() {
                 padding: '12px',
               }}
             >
-              <strong>Notice for Warden:</strong> Active log memory has exceeded the <strong>80% (400 MB)</strong> capacity limit. To prevent database performance degradation or gate scan disruptions, please purge historical logs older than 30 or 60 days. Every purge records your staff credentials in the permanent audit trail.
+              <strong>Notice for Hostel Staff:</strong> Active log memory has exceeded the <strong>80% (400 MB)</strong> capacity limit. To prevent database performance degradation or gate scan disruptions, please purge historical logs older than 30 or 60 days. Every purge records your staff credentials in the permanent audit trail.
             </div>
 
             {/* Modal Actions */}

@@ -1,4 +1,5 @@
 let xlsxPromise = null;
+import { getHostelLabel } from './hostel';
 const getXLSX = () => {
   if (!xlsxPromise) {
     xlsxPromise = import('xlsx');
@@ -50,7 +51,7 @@ export const formatGateLogsForExcel = (logs = []) => {
       'S.No': index + 1,
       'Student Name': student?.name || log.name || 'Unknown',
       'Roll Number': student?.rollNo || log.rollNo || '—',
-      'Hostel': student?.hostel || log.hostel || '—',
+      'Hostel': getHostelLabel(student?.hostel || log.hostel),
       'Status': log.status || 'OUT',
       'Destination / Place': log.place || 'City / Local',
       'Date': log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—'),
@@ -90,7 +91,7 @@ export const formatHomeLogsForExcel = (homeLogs = []) => {
       'S.No': index + 1,
       'Student Name': student?.name || visit.name || 'Unknown',
       'Roll Number': student?.rollNo || visit.rollNo || '—',
-      'Hostel': student?.hostel || visit.hostel || '—',
+      'Hostel': getHostelLabel(student?.hostel || visit.hostel),
       'Destination Place': visit.place || '—',
       'Reason': visit.reason || '—',
       'Leave Date': visit.leave_date || '—',

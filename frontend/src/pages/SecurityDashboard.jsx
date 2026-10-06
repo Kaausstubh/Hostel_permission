@@ -21,6 +21,7 @@ import {
   MdCenterFocusStrong 
 } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
+import { getHostelLabel } from '../utils/hostel';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const READY_STATUS = 'Camera ready — hold QR in view';
@@ -890,7 +891,7 @@ export default function SecurityDashboard() {
     const needle = searchValue.trim().toLowerCase();
     if (!needle) return items;
     return items.filter((item) =>
-      [item.studentName, item.rollNumber, item.hostel]
+      [item.studentName, item.rollNumber, item.hostel, getHostelLabel(item.hostel, '')]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle))
     );
@@ -1421,7 +1422,7 @@ export default function SecurityDashboard() {
                             {result.student.name}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {result.student.rollNumber || '—'} &nbsp;•&nbsp; {result.student.hostel || '—'}
+                            {result.student.rollNumber || '—'} &nbsp;•&nbsp; {getHostelLabel(result.student.hostel)}
                           </div>
                           {/* Phone numbers — visible for quick gate verification */}
                           {(result.student.studentPhone || result.student.parentPhone) && (
@@ -1777,7 +1778,7 @@ export default function SecurityDashboard() {
                                   )}
                                 </div>
                                 <div className="security-pending-card-meta">
-                                  {qr.hostel || '—'} • {qr.rollNumber || '—'}
+                                  {getHostelLabel(qr.hostel)} • {qr.rollNumber || '—'}
                                   {isHome(qr) && qr.leaveDate && (
                                     <span> • {qr.leaveDate} → {qr.returnDate}</span>
                                   )}

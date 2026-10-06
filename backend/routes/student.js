@@ -356,7 +356,7 @@ router.post('/home-visit', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Home visit request submitted. Awaiting warden confirmation call to parent.',
+      message: 'Home visit request submitted. Awaiting hostel staff confirmation call to parent.',
       visit,
     });
   } catch (err) {
@@ -682,7 +682,7 @@ router.put('/photo', async (req, res) => {
     if (existing?.studentPhoto) {
       return res.status(403).json({
         success: false,
-        message: 'Your official registration face photo is locked and cannot be edited. Please contact your hostel warden for changes.',
+        message: 'Your official registration face photo is locked and cannot be edited. Please contact your hostel staff for changes.',
       });
     }
 

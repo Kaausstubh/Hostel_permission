@@ -8,6 +8,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdHome, MdRefresh, MdCheckCircle, MdCancel, MdPhone, MdPhoneInTalk } from 'react-icons/md';
 import StudentAvatar from '../components/StudentAvatar';
+import { getHostelLabel } from '../utils/hostel';
 
 const STATUS_FILTERS = ['all', 'pending', 'approved', 'rejected', 'completed'];
 
@@ -173,7 +174,7 @@ export default function HomeVisits() {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{v.student_id?.hostel || '—'}</span></td>
+                    <td><span className="badge badge-out">{getHostelLabel(v.student_id?.hostel || v.hostel)}</span></td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{v.place || '—'}</td>
                     <td style={{ maxWidth: 180, color: 'var(--text-secondary)', fontSize: 13 }} title={v.reason}>
                       {v.reason ? (v.reason.substring(0, 60) + (v.reason.length > 60 ? '...' : '')) : '—'}

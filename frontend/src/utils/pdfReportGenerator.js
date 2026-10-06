@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import iiitLogo from '../assets/iiitpune-logo.png';
+import { getHostelLabel } from './hostel';
 
 /**
  * Safely loads image asset for jsPDF embedding
@@ -141,7 +142,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'bold');
   doc.text('Hostel Scope / Filter:', 44, startY + 35);
   doc.setFont('helvetica', 'normal');
-  doc.text(String(metadata.hostelFilter || 'All Hostels (BH1, BH2, GH)'), 136, startY + 35);
+  doc.text(String(metadata.hostelFilter || 'All Hostels (Brahmaputra BH1, Krishna BH2, Indrayani GH)'), 136, startY + 35);
 
   // Center column (Issuing Authority)
   doc.setFont('helvetica', 'bold');
@@ -244,7 +245,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
     index + 1,
     r.studentName || '—',
     r.rollNo || '—',
-    r.hostel || '—',
+    getHostelLabel(r.hostel),
     r.category || 'In/Out',
     r.status || '—',
     r.place || r.destination || '—',
@@ -373,7 +374,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Hostel Staff Administration (BH1 / BH2 / GH), IIIT Pune', 310, lineY + 19);
+  doc.text('Hostel Staff Administration (Brahmaputra / Krishna / Indrayani), IIIT Pune', 310, lineY + 19);
 
   // Box 3: Hostel Administration
   doc.line(600, lineY, 780, lineY);
@@ -449,7 +450,7 @@ export const generatePDFFromLocalLogs = async ({
       scannedBy: scannedByName,
       studentName: student?.name || log.name || 'Unknown',
       rollNo: student?.rollNo || log.rollNo || '—',
-      hostel: student?.hostel || log.hostel || '—',
+      hostel: getHostelLabel(student?.hostel || log.hostel),
       status: log.status || 'OUT',
       returned: log.returned ? 'Yes' : 'No',
       destination: log.place || 'City / Local',
@@ -486,7 +487,7 @@ export const generatePDFFromLocalLogs = async ({
       scannedBy: scannedByName,
       studentName: student?.name || log.name || 'Unknown',
       rollNo: student?.rollNo || log.rollNo || '—',
-      hostel: student?.hostel || log.hostel || '—',
+      hostel: getHostelLabel(student?.hostel || log.hostel),
       status: log.actual_in_time ? 'HOME IN' : (log.actual_out_time ? 'HOME OUT' : (log.overall_status?.toUpperCase() || 'APPROVED')),
       returned: log.qr_used_in ? 'Yes' : 'No',
       destination: log.place || 'Home Destination',
