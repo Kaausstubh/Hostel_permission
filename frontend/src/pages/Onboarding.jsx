@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import AntiScreenshotShield from '../components/AntiScreenshotShield';
+
 import {
   MdPerson,
   MdSchool,
@@ -302,7 +302,6 @@ export default function Onboarding() {
   };
 
   return (
-    <AntiScreenshotShield>
       <div className="login-page">
       {/* Top action navigation bar */}
       <div
@@ -1028,6 +1027,5 @@ export default function Onboarding() {
         </div>
       )}
       </div>
-    </AntiScreenshotShield>
   );
 }

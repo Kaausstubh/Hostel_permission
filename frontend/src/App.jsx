@@ -49,6 +49,7 @@ const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
 
 // Layout
 import Sidebar from './components/Sidebar';
+import StudentLayout from './components/StudentLayout';
 
 // ─── Global page loading fallback ─────────────────────────────────────────────
 function PageLoader() {
@@ -151,12 +152,12 @@ function AppRoutes() {
         <Route path="/simulator" element={<StudentSimulator />} />
         <Route path="/home-visit/respond/:visitId" element={<ParentHomeVisitRespond />} />
 
-        {/* ── Student Portal ── */}
+        {/* ── Student Portal (wrapped in StudentLayout for capture-deterrence) ── */}
         <Route
           path="/student"
           element={
             <ProtectedRoute allowedRoles={['student']}>
-              <StudentDashboard />
+              <StudentLayout><StudentDashboard /></StudentLayout>
             </ProtectedRoute>
           }
         />
@@ -164,7 +165,7 @@ function AppRoutes() {
           path="/onboarding"
           element={
             <ProtectedRoute allowedRoles={['student']}>
-              <Onboarding />
+              <StudentLayout><Onboarding /></StudentLayout>
             </ProtectedRoute>
           }
         />

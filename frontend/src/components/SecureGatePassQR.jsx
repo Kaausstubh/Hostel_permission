@@ -126,7 +126,7 @@ export default function SecureGatePassQR({
   );
 
   // Global listeners to cancel hold instantly on any window blur, visibility change,
-  // multi-touch, or AntiScreenshotShield activation
+  // multi-touch, or StudentProtectionProvider activation
   useEffect(() => {
     const handleGlobalCancel = () => {
       if (isHoldingRef.current) {

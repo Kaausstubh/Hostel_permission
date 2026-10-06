@@ -27,12 +27,12 @@ import {
   MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
   MdCalendarMonth, MdChevronRight, MdExitToApp,
   MdPhotoCamera, MdUpload, MdClose, MdCheckCircle,
-  MdLock, MdSecurity, MdTouchApp, MdRefresh,
+  MdRefresh,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.png';
 import StudentAvatar from '../components/StudentAvatar';
-import AntiScreenshotShield from '../components/AntiScreenshotShield';
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
 const USER = 'user';
@@ -1714,7 +1714,7 @@ export default function StudentDashboard() {
             </div>
 
             {/* QR image */}
-            <div style={{
+            <div data-sensitive style={{
               padding: 16, display: 'flex', flexDirection: 'column',
               alignItems: 'center', gap: 10,
               cursor: 'zoom-in',
@@ -2202,7 +2202,6 @@ export default function StudentDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <AntiScreenshotShield>
       <div style={{ display: 'flex', height: 'var(--app-viewport-height)', minHeight: 'var(--app-viewport-height)', overflow: 'hidden', background: 'var(--bg-base)', fontFamily: 'Inter, sans-serif' }}>
 
       {/* ── Left Sidebar ── */}
@@ -2262,7 +2261,7 @@ export default function StudentDashboard() {
         </nav>
 
         {/* User card */}
-        <div style={{
+        <div data-sensitive style={{
           padding: '16px 20px', borderTop: '1px solid var(--glass-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -2726,7 +2725,7 @@ export default function StudentDashboard() {
           backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center',
           justifyContent: 'center', zIndex: 1000, cursor: 'zoom-out',
         }}>
-          <div onClick={e => e.stopPropagation()} style={{
+          <div data-sensitive onClick={e => e.stopPropagation()} style={{
             background: 'var(--bg-card)', borderRadius: 20, padding: isMobile ? '20px 16px' : '28px 32px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
             border: '1px solid var(--glass-border)',
@@ -3353,6 +3352,5 @@ export default function StudentDashboard() {
         }
       `}</style>
       </div>
-    </AntiScreenshotShield>
   );
 }
