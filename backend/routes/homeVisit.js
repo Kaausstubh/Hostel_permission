@@ -22,6 +22,7 @@ const { issueHomeVisitGatePass, findHomeVisitByScanToken } = require('../service
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
 const logger = require('../utils/logger');
+const { recordDeletionAudit } = require('../services/storageStatsService');
 
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
@@ -398,10 +399,25 @@ router.get('/my', protect, authorize('student'), async (req, res) => {
 // ─── Delete Individual Home Visit Record (Warden/Admin) ─────────────────────
 router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
-    const visit = await HomeVisitLog.findByIdAndDelete(req.params.id);
-    if (!visit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
+    const existingVisit = await HomeVisitLog.findById(req.params.id).populate('student_id', 'name rollNo hostel').lean();
+    if (!existingVisit) return res.status(404).json({ success: false, message: 'Home visit record not found' });
+
+    await HomeVisitLog.findByIdAndDelete(req.params.id);
+
+    const studentName = existingVisit.name || existingVisit.student_id?.name || 'Student';
+    const desc = `Deleted home visit pass for ${studentName} (${existingVisit.leave_date || 'N/A'} to ${existingVisit.return_date || 'N/A'})`;
+
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'DELETE_SINGLE_HOME',
+      targetType: 'HOME_VISIT',
+      deletedCount: 1,
+      description: desc,
+      metadata: { recordId: req.params.id, studentName, rollNo: existingVisit.rollNo },
+    });
+
     logger.info('[HomeVisit] Deleted visit record', { id: req.params.id, user: req.user.email, role: req.user.role });
-    res.json({ success: true, message: 'Home visit record deleted successfully' });
+    res.json({ success: true, message: 'Home visit record deleted successfully', deletedByName: req.user.name || req.user.email });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -410,9 +426,26 @@ router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) =>
 // ─── Delete All Home Visit Records (Warden/Admin) ───────────────────────────
 router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
+    const totalCountBefore = await HomeVisitLog.countDocuments();
     const result = await HomeVisitLog.deleteMany({});
-    logger.info('[HomeVisit] Cleared all home visits', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
-    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Cleared ${result.deletedCount || 0} home visit records` });
+    const deletedCount = result.deletedCount != null ? result.deletedCount : totalCountBefore;
+
+    const desc = `Cleared all ${deletedCount} home visit pass records from database`;
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'DELETE_ALL_HOME',
+      targetType: 'HOME_VISIT',
+      deletedCount,
+      description: desc,
+    });
+
+    logger.info('[HomeVisit] Cleared all home visits', { user: req.user.email, role: req.user.role, deletedCount });
+    res.json({
+      success: true,
+      deletedCount,
+      deletedByName: req.user.name || req.user.email,
+      message: `Cleared ${deletedCount} home visit records successfully. Action recorded under ${req.user.name || req.user.email}.`,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -435,8 +468,26 @@ router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) =>
         { actual_out_time: { $lte: cutoff } },
       ]
     });
-    logger.info('[HomeVisit] Warden purged records', { cutoffDate, deletedCount: result.deletedCount, warden: req.user.email });
-    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Purged ${result.deletedCount || 0} home visit records` });
+
+    const deletedCount = result.deletedCount || 0;
+    const desc = `Purged ${deletedCount} home visit records before ${cutoffDate}`;
+
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'PURGE_HOME',
+      targetType: 'HOME_VISIT',
+      deletedCount,
+      description: desc,
+      metadata: { cutoffDate },
+    });
+
+    logger.info('[HomeVisit] Warden purged records', { cutoffDate, deletedCount, warden: req.user.email });
+    res.json({
+      success: true,
+      deletedCount,
+      deletedByName: req.user.name || req.user.email,
+      message: `Purged ${deletedCount} home visit records before ${cutoffDate}. Action recorded under ${req.user.name || req.user.email}.`,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -27,7 +27,7 @@ export default function Navbar({ title }) {
       <div className="navbar-title">{title}</div>
       <div className="navbar-actions">
         <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-          {time.toLocaleTimeString('en-IN')}
+          {time.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
         </span>
 
         {/* Animated Theme Toggle */}

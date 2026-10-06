@@ -32,7 +32,7 @@ const {
 } = require('../services/homeVisitQrService');
 const { PENDING_QR_LIST_LIMIT } = require('../config/campus');
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 // 30 seconds minimum cooldown between consecutive scans (e.g. OUT -> IN)
 const SCAN_PHASE_GUARD_MS = parseInt(process.env.SCAN_PHASE_GUARD_MS || '30000', 10);
 

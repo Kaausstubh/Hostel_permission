@@ -16,6 +16,7 @@ const { generateQR, renderQRFromToken, validateQR, registerActiveQR, removeActiv
 const { createPendingInOutRequest } = require('../services/inOutRequestService');
 const { withScanLock } = require('../services/scanLockService');
 const logger = require('../utils/logger');
+const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
 const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -24,7 +25,7 @@ const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
 };
 
 // Utility: today's date string YYYY-MM-DD
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 // ─── Generate QR ──────────────────────────────────────────────────────────────
 // Student calls this to get a QR code they show at the gate
@@ -349,13 +350,39 @@ router.get('/history/:id', protect, async (req, res) => {
   }
 });
 
+// ─── Storage Capacity & Log Memory Stats (Warden/Admin/Security) ────────────
+router.get('/storage-stats', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const stats = await getStorageStats();
+    res.json({ success: true, ...stats });
+  } catch (error) {
+    logger.error('[InOut] Failed to get storage stats', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ─── Delete Individual Gate Log (Warden/Admin) ──────────────────────────────
 router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
-    const log = await InOutLog.findByIdAndDelete(req.params.id);
-    if (!log) return res.status(404).json({ success: false, message: 'Gate log record not found' });
+    const existingLog = await InOutLog.findById(req.params.id).populate('student_id', 'name rollNo hostel').lean();
+    if (!existingLog) return res.status(404).json({ success: false, message: 'Gate log record not found' });
+
+    await InOutLog.findByIdAndDelete(req.params.id);
+
+    const studentName = existingLog.name || existingLog.student_id?.name || 'Student';
+    const desc = `Deleted gate log for ${studentName} (${existingLog.status || 'OUT'} on ${existingLog.date || 'unknown date'})`;
+
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'DELETE_SINGLE_GATE',
+      targetType: 'GATE_INOUT',
+      deletedCount: 1,
+      description: desc,
+      metadata: { recordId: req.params.id, studentName, rollNo: existingLog.rollNo },
+    });
+
     logger.info('[InOut] Deleted log record', { id: req.params.id, user: req.user.email, role: req.user.role });
-    res.json({ success: true, message: 'Gate log record deleted successfully' });
+    res.json({ success: true, message: 'Gate log record deleted successfully', deletedByName: req.user.name || req.user.email });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -364,9 +391,26 @@ router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) =>
 // ─── Delete All Gate Logs (Warden/Admin) ────────────────────────────────────
 router.delete('/', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
+    const totalCountBefore = await InOutLog.countDocuments();
     const result = await InOutLog.deleteMany({});
-    logger.info('[InOut] Cleared all gate logs', { user: req.user.email, role: req.user.role, deletedCount: result.deletedCount });
-    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Cleared ${result.deletedCount || 0} gate logs` });
+    const deletedCount = result.deletedCount != null ? result.deletedCount : totalCountBefore;
+
+    const desc = `Cleared all ${deletedCount} gate scan logs from database`;
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'DELETE_ALL_GATE',
+      targetType: 'GATE_INOUT',
+      deletedCount,
+      description: desc,
+    });
+
+    logger.info('[InOut] Cleared all gate logs', { user: req.user.email, role: req.user.role, deletedCount });
+    res.json({
+      success: true,
+      deletedCount,
+      deletedByName: req.user.name || req.user.email,
+      message: `Cleared ${deletedCount} gate logs successfully. Action recorded under ${req.user.name || req.user.email}.`,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -387,8 +431,26 @@ router.post('/purge', protect, authorize('warden', 'admin'), async (req, res) =>
         { date: { $lte: cutoffDate } }
       ]
     });
-    logger.info('[InOut] Purged records', { cutoffDate, deletedCount: result.deletedCount, user: req.user.email, role: req.user.role });
-    res.json({ success: true, deletedCount: result.deletedCount || 0, message: `Purged ${result.deletedCount || 0} gate logs` });
+
+    const deletedCount = result.deletedCount || 0;
+    const desc = `Purged ${deletedCount} gate logs before ${cutoffDate}`;
+
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'PURGE_GATE',
+      targetType: 'GATE_INOUT',
+      deletedCount,
+      description: desc,
+      metadata: { cutoffDate },
+    });
+
+    logger.info('[InOut] Purged records', { cutoffDate, deletedCount, user: req.user.email, role: req.user.role });
+    res.json({
+      success: true,
+      deletedCount,
+      deletedByName: req.user.name || req.user.email,
+      message: `Purged ${deletedCount} gate logs before ${cutoffDate}. Action recorded under ${req.user.name || req.user.email}.`,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

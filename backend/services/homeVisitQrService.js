@@ -11,7 +11,7 @@ const {
   renderQRValue,
 } = require('./qrService');
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 const isLegacyHomeJwtToken = (token) =>
   typeof token === 'string' && /^eyJ[A-Za-z0-9_-]+\./.test(token);

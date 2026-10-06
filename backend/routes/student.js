@@ -34,7 +34,7 @@ const { normalizeToE164, validateIndianPhone } = require('../utils/phone');
 
 const { validatePlaceGeo } = require('../utils/placeValidator');
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
   const year = date.getFullYear();

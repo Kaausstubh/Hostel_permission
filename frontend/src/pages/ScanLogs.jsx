@@ -6,7 +6,11 @@ import { createPortal } from 'react-dom';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdHistory, MdRefresh, MdDeleteOutline } from 'react-icons/md';
+import { 
+  MdHistory, MdRefresh, MdDeleteOutline, 
+  MdStorage, MdWarning, MdCheckCircle, MdSecurity, 
+  MdDeleteSweep, MdClose, MdInfoOutline, MdAccessTime 
+} from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line, RiArrowDownSFill, RiDeleteBinLine } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
 import { downloadGateRecordsPDF, generatePDFFromLocalLogs } from '../utils/pdfReportGenerator';
@@ -56,6 +60,28 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     setHomeLogs(filteredHomeLogs);
   };
 
+  const [storageStats, setStorageStats] = useState(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
+  const [purgeModalOpen, setPurgeModalOpen] = useState(false);
+  const [purgeCutoffDate, setPurgeCutoffDate] = useState('');
+  const [purgeScope, setPurgeScope] = useState('all');
+  const [purging, setPurging] = useState(false);
+
+  const fetchStorageStats = async () => {
+    try {
+      setStorageLoading(true);
+      const res = await api.get('/inout/storage-stats');
+      if (res.data?.success) {
+        setStorageStats(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to load storage stats:', err);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
   const fetchLogs = async (tabToPrioritize = activeTab) => {
     try {
       setLoading(true);
@@ -68,6 +94,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         setLoading(false);
         fetchGateLogs().catch(() => {});
       }
+      fetchStorageStats().catch(() => {});
     } catch (err) {
       toast.error('Failed to load logs');
     } finally {
@@ -78,8 +105,37 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => { 
-    fetchLogs(activeTab); 
+    fetchLogs(activeTab);
+    fetchStorageStats();
   }, [dateFilter, statusFilter, activeTab]);
+
+  const handlePurgeLogs = async () => {
+    if (!purgeCutoffDate) {
+      toast.error('Please select a cutoff date (YYYY-MM-DD)');
+      return;
+    }
+    try {
+      setPurging(true);
+      let successMsg = '';
+      if (purgeScope === 'gate' || purgeScope === 'all') {
+        const res1 = await api.post('/inout/purge', { cutoffDate: purgeCutoffDate });
+        successMsg = res1.data?.message || 'Purged gate logs';
+      }
+      if (purgeScope === 'home' || purgeScope === 'all') {
+        const res2 = await api.post('/homevisit/purge', { cutoffDate: purgeCutoffDate });
+        successMsg = (successMsg ? successMsg + ' • ' : '') + (res2.data?.message || 'Purged home visits');
+      }
+      toast.success(successMsg || 'Purged successfully');
+      setPurgeModalOpen(false);
+      setPurgeCutoffDate('');
+      await fetchLogs();
+      await fetchStorageStats();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Purge failed');
+    } finally {
+      setPurging(false);
+    }
+  };
 
   const handleExportPDF = async () => {
     const currentRecords = activeTab === 'gate' ? logs : homeLogs;
@@ -261,9 +317,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     description: `You are about to permanently delete all ${logs.length} gate scan records from the database. Student accounts and home visits remain 100% safe.`,
                     confirmTargetText: 'delete',
                     onConfirm: async () => {
-                      await api.delete('/inout');
-                      toast.success('All gate scan logs deleted successfully');
+                      const res = await api.delete('/inout');
+                      toast.success(res.data?.message || 'All gate scan logs deleted successfully');
                       await fetchLogs('gate');
+                      await fetchStorageStats();
                     },
                   });
                   setConfirmInput('');
@@ -287,9 +344,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     description: `You are about to permanently delete all ${homeLogs.length} home visit pass records from the database. Student accounts and gate logs remain 100% safe.`,
                     confirmTargetText: 'delete',
                     onConfirm: async () => {
-                      await api.delete('/homevisit');
-                      toast.success('All home visit records deleted successfully');
+                      const res = await api.delete('/homevisit');
+                      toast.success(res.data?.message || 'All home visit records deleted successfully');
                       await fetchLogs('home');
+                      await fetchStorageStats();
                     },
                   });
                   setConfirmInput('');
@@ -431,20 +489,293 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
           </div>
         </div>
 
+        {/* ── Storage Capacity & Memory Alert Card for Hostel Staff ── */}
+        <div
+          className="card fade-in"
+          style={{
+            marginBottom: 16,
+            padding: '16px 20px',
+            background: 'var(--bg-card)',
+            border: storageStats?.total?.alertLevel === 'CRITICAL'
+              ? '1.5px solid #ef4444'
+              : storageStats?.total?.alertLevel === 'WARNING'
+                ? '1.5px solid #f59e0b'
+                : '1px solid var(--border)',
+            boxShadow: storageStats?.total?.alertLevel === 'CRITICAL'
+              ? '0 0 20px rgba(239, 68, 68, 0.15)'
+              : 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: storageStats?.total?.alertLevel === 'CRITICAL'
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : storageStats?.total?.alertLevel === 'WARNING'
+                    ? 'rgba(245, 158, 11, 0.15)'
+                    : 'rgba(99, 102, 241, 0.15)',
+                color: storageStats?.total?.alertLevel === 'CRITICAL'
+                  ? '#ef4444'
+                  : storageStats?.total?.alertLevel === 'WARNING'
+                    ? '#f59e0b'
+                    : 'var(--primary)',
+              }}>
+                <MdStorage size={20} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>Log Storage & System Memory</span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 99,
+                      background: storageStats?.total?.alertLevel === 'CRITICAL'
+                        ? 'rgba(239, 68, 68, 0.2)'
+                        : storageStats?.total?.alertLevel === 'WARNING'
+                          ? 'rgba(245, 158, 11, 0.2)'
+                          : 'rgba(16, 185, 129, 0.2)',
+                      color: storageStats?.total?.alertLevel === 'CRITICAL'
+                        ? '#ef4444'
+                        : storageStats?.total?.alertLevel === 'WARNING'
+                          ? '#f59e0b'
+                          : '#10b981',
+                      border: storageStats?.total?.alertLevel === 'CRITICAL'
+                        ? '1px solid rgba(239, 68, 68, 0.4)'
+                        : storageStats?.total?.alertLevel === 'WARNING'
+                          ? '1px solid rgba(245, 158, 11, 0.4)'
+                          : '1px solid rgba(16, 185, 129, 0.4)',
+                    }}
+                  >
+                    {storageStats?.total?.alertLevel === 'CRITICAL'
+                      ? '🚨 CRITICAL ALERT (90%+ Used)'
+                      : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
+                        ? '⚠️ STORAGE LIMIT ALERT (≥80% / 400 MB)'
+                        : '✅ Memory Healthy'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Active institutional logs memory consumption (500 MB capacity quota, 400 MB warning limit)
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {isWarden && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => window.dispatchEvent(new CustomEvent('open-storage-limit-modal'))}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: '#f87171' }}
+                    title="View 80% (400 MB) Storage Limit Pop-Up Alert"
+                  >
+                    <MdWarning size={16} color="#ef4444" />
+                    <span>80% Alert Pop-up</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPurgeModalOpen(true)}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    title="Purge logs older than a specific date to free memory"
+                  >
+                    <MdDeleteSweep size={16} color="#f59e0b" />
+                    <span>Purge by Date</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setAuditModalOpen(true)}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    title="View audit trail of which hostel staff member deleted logs"
+                  >
+                    <MdSecurity size={16} color="var(--primary-light)" />
+                    <span>Deletion Audit Trail ({storageStats?.recentAudits?.length || 0})</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Memory Bar */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                Total Memory Stored: <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {storageStats?.total?.sizeFormatted || '—'}
+                </strong> of {storageStats?.total?.quotaFormatted || '50 MB'}
+              </span>
+              <span style={{
+                fontWeight: 700,
+                fontFamily: 'JetBrains Mono, monospace',
+                color: storageStats?.total?.alertLevel === 'CRITICAL'
+                  ? '#ef4444'
+                  : storageStats?.total?.alertLevel === 'WARNING'
+                    ? '#f59e0b'
+                    : '#10b981',
+              }}>
+                {storageStats?.total?.percentUsed || 0}% used
+              </span>
+            </div>
+
+            <div style={{
+              width: '100%',
+              height: 8,
+              borderRadius: 99,
+              background: 'rgba(255, 255, 255, 0.08)',
+              overflow: 'hidden',
+            }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, Math.max(1, storageStats?.total?.percentUsed || 0))}%`,
+                  borderRadius: 99,
+                  background: storageStats?.total?.alertLevel === 'CRITICAL'
+                    ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+                    : storageStats?.total?.alertLevel === 'WARNING'
+                      ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                      : 'linear-gradient(90deg, #10b981, #059669)',
+                  transition: 'width 0.4s ease',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Breakdown Pills */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 10,
+            fontSize: 12,
+          }}>
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+            }}>
+              <div style={{ color: 'var(--text-muted)' }}>Gate In/Out Logs:</div>
+              <div style={{ fontWeight: 700, marginTop: 2 }}>
+                <span style={{ color: '#3b82f6', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {storageStats?.inOut?.count ?? logs.length} records
+                </span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> • {storageStats?.inOut?.sizeFormatted || '—'}</span>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+            }}>
+              <div style={{ color: 'var(--text-muted)' }}>Home Visit Records:</div>
+              <div style={{ fontWeight: 700, marginTop: 2 }}>
+                <span style={{ color: '#10b981', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {storageStats?.homeVisit?.count ?? homeLogs.length} records
+                </span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> • {storageStats?.homeVisit?.sizeFormatted || '—'}</span>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+            }}>
+              <div style={{ color: 'var(--text-muted)' }}>Alert Threshold & Quota:</div>
+              <div style={{ fontWeight: 700, marginTop: 2 }}>
+                <span>Alert at 75% • Critical at 90%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Last deletion notice if present */}
+          {storageStats?.recentAudits && storageStats.recentAudits.length > 0 && (
+            <div style={{
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 12,
+              color: 'var(--text-muted)',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <MdAccessTime size={14} color="var(--primary-light)" />
+                <span>
+                  Last log deletion: <strong style={{ color: 'var(--text-primary)' }}>
+                    {storageStats.recentAudits[0].deletedByName}
+                  </strong> ({storageStats.recentAudits[0].deletedByRole}) removed {storageStats.recentAudits[0].deletedCount} records on {new Date(storageStats.recentAudits[0].timestamp).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' })} at {new Date(storageStats.recentAudits[0].timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={() => setAuditModalOpen(true)}
+              >
+                View Full Log
+              </button>
+            </div>
+          )}
+
+          {/* High memory alert banner */}
+          {storageStats?.total?.isAlert && (
+            <div style={{
+              marginTop: 12,
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: storageStats.total.alertLevel === 'CRITICAL' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+              border: storageStats.total.alertLevel === 'CRITICAL' ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(245, 158, 11, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13,
+              color: storageStats.total.alertLevel === 'CRITICAL' ? '#ef4444' : '#f59e0b',
+            }}>
+              <MdWarning size={18} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>{storageStats.total.alertMessage}</div>
+              <button
+                type="button"
+                className="btn btn-sm btn-warning"
+                onClick={() => setPurgeModalOpen(true)}
+                style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+              >
+                Purge Old Logs
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="tabs" style={{ marginBottom: 16 }}>
           <button
             type="button"
             className={`tab ${activeTab === 'gate' ? 'active' : ''}`}
             onClick={() => setActiveTab('gate')}
           >
-            Gate Scan Logs
+            Gate Scan Logs ({logs.length})
           </button>
           <button
             type="button"
             className={`tab ${activeTab === 'home' ? 'active' : ''}`}
             onClick={() => setActiveTab('home')}
           >
-            Home Visit Records
+            Home Visit Records ({homeLogs.length})
           </button>
         </div>
 
@@ -525,13 +856,13 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{log.date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                       {log.out_time
-                        ? new Date(log.out_time).toLocaleTimeString('en-IN')
-                        : (log.status === 'OUT' ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—')}
+                        ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                        : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                       {log.in_time
-                        ? new Date(log.in_time).toLocaleTimeString('en-IN')
-                        : (log.status === 'IN' ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—')}
+                        ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                        : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
                     </td>
                     <td>
                       {log.returned
@@ -617,10 +948,10 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.leave_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.return_date}</td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {visit.actual_out_time ? new Date(visit.actual_out_time).toLocaleString('en-IN') : '—'}
+                      {visit.actual_out_time ? new Date(visit.actual_out_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {visit.actual_in_time ? new Date(visit.actual_in_time).toLocaleString('en-IN') : '—'}
+                      {visit.actual_in_time ? new Date(visit.actual_in_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
                     </td>
                     <td>
                       <span className={`badge ${visit.actual_in_time ? 'badge-in' : 'badge-out'}`}>
@@ -797,6 +1128,375 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               >
                 <MdDeleteOutline size={16} />
                 {clearing ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Purge Historical Logs Modal ── */}
+      {purgeModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card, #1e293b)',
+            border: '1px solid var(--border, #334155)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            padding: '24px',
+            position: 'relative'
+          }}>
+            <button
+              type="button"
+              onClick={() => setPurgeModalOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer'
+              }}
+            >
+              <MdClose size={20} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: 'rgba(245, 158, 11, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#f59e0b'
+              }}>
+                <MdDeleteSweep size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>Purge Historical Logs</h3>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Free up memory storage by clearing older records
+                </p>
+              </div>
+            </div>
+
+            {/* Scope selection */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                Purge Scope
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {[
+                  { id: 'all', label: 'All Logs' },
+                  { id: 'gate', label: 'Gate In/Out' },
+                  { id: 'home', label: 'Home Visits' }
+                ].map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setPurgeScope(item.id)}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: purgeScope === item.id ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                      background: purgeScope === item.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-surface, #0f172a)',
+                      color: purgeScope === item.id ? 'var(--primary-light, #818cf8)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cutoff Date Picker */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                Delete records older than (Cutoff Date)
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px' }}
+                value={purgeCutoffDate}
+                onChange={(e) => setPurgeCutoffDate(e.target.value)}
+              />
+              {/* Presets */}
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { label: '30 Days Ago', days: 30 },
+                  { label: '60 Days Ago', days: 60 },
+                  { label: '90 Days Ago', days: 90 }
+                ].map(preset => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - preset.days);
+                  const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                  return (
+                    <button
+                      key={preset.days}
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ fontSize: '11px', padding: '3px 8px' }}
+                      onClick={() => setPurgeCutoffDate(dateStr)}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Staff Accountability Notice */}
+            <div style={{
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              borderRadius: '8px',
+              padding: '12px',
+              marginBottom: '20px',
+              fontSize: '12px',
+              lineHeight: 1.5,
+              color: 'var(--text-secondary)'
+            }}>
+              <div style={{ fontWeight: 700, color: 'var(--primary-light, #818cf8)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <MdSecurity size={15} />
+                Staff Deletion Audit Recorded
+              </div>
+              Your account details (<strong>{user?.name || 'Staff Member'}</strong> • {user?.role?.toUpperCase()} • {user?.email}) and execution timestamp in IST will be permanently preserved in the staff audit registry.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setPurgeModalOpen(false)}
+                disabled={purging}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  background: '#f59e0b',
+                  color: '#000',
+                  fontWeight: 700,
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+                disabled={!purgeCutoffDate || purging}
+                onClick={handlePurgeLogs}
+              >
+                <MdDeleteSweep size={16} />
+                {purging ? 'Purging Records...' : 'Execute Purge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Staff Deletion Audit Trail Modal ── */}
+      {auditModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card, #1e293b)',
+            border: '1px solid var(--border, #334155)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '860px',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            position: 'relative'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '50%',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--primary)'
+                }}>
+                  <MdSecurity size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                    Hostel Staff Log Deletion Audit Trail
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Tamper-proof accountability records showing which hostel staff member deleted or purged logs
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => fetchStorageStats()}
+                  disabled={storageLoading}
+                  title="Refresh audit records"
+                >
+                  <MdRefresh size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditModalOpen(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <MdClose size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / Table */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+              {(!storageStats?.recentAudits || storageStats.recentAudits.length === 0) ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                  <MdCheckCircle size={42} style={{ color: '#10b981', marginBottom: 10 }} />
+                  <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
+                    No Deletions Recorded
+                  </div>
+                  <div style={{ fontSize: 13, marginTop: 4 }}>
+                    All institutional gate scan logs and home visit records are pristine and intact.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        <th style={{ padding: '10px 12px' }}>Staff Member</th>
+                        <th style={{ padding: '10px 12px' }}>Role</th>
+                        <th style={{ padding: '10px 12px' }}>Action & Scope</th>
+                        <th style={{ padding: '10px 12px' }}>Records Deleted</th>
+                        <th style={{ padding: '10px 12px' }}>Timestamp (IST)</th>
+                        <th style={{ padding: '10px 12px' }}>Details / Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {storageStats.recentAudits.map((audit) => {
+                        const istDate = audit.timestampIST || (audit.timestamp ? new Date(audit.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—');
+                        return (
+                          <tr key={audit._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+                              <div>{audit.deletedByName || 'Unknown Staff'}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                                {audit.deletedByEmail || '—'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 99,
+                                background: audit.deletedByRole === 'admin' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                                color: audit.deletedByRole === 'admin' ? '#ef4444' : 'var(--primary-light, #818cf8)',
+                                textTransform: 'uppercase'
+                              }}>
+                                {audit.deletedByRole || 'STAFF'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ fontWeight: 600 }}>{audit.action || 'DELETE'}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                {audit.targetType}
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{
+                                fontWeight: 700,
+                                color: '#ef4444',
+                                background: 'rgba(239, 68, 68, 0.12)',
+                                padding: '2px 8px',
+                                borderRadius: 6
+                              }}>
+                                -{audit.recordsDeletedCount ?? 1}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <MdAccessTime size={13} style={{ color: 'var(--text-muted)' }} />
+                                <span>{istDate}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)', maxWidth: 200 }}>
+                              {audit.description || audit.details?.reason || 'Standard maintenance purge'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '12px',
+              color: 'var(--text-muted)'
+            }}>
+              <span>
+                Total Audit Entries: <strong>{storageStats?.recentAudits?.length || 0}</strong>
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setAuditModalOpen(false)}
+              >
+                Close Audit Trail
               </button>
             </div>
           </div>

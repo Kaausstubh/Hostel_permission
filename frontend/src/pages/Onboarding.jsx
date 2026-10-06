@@ -69,6 +69,8 @@ export default function Onboarding() {
   const [verifyingFace, setVerifyingFace] = useState(false);
   const [faceError, setFaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   // Live camera states
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -271,6 +273,10 @@ export default function Onboarding() {
 
     if (!hostel) {
       return toast.error('Please select your hostel.');
+    }
+
+    if (!agreeTerms) {
+      return toast.error('Please accept the Hostel Terms and Conditions to complete registration.');
     }
 
     setSubmitting(true);
@@ -792,10 +798,76 @@ export default function Onboarding() {
           </span>
         </div>
 
+        {/* Terms and Conditions Tick Box */}
+        <div
+          style={{
+            marginTop: '10px',
+            marginBottom: '10px',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            background: agreeTerms ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.04)',
+            border: agreeTerms ? '1.5px solid rgba(16, 185, 129, 0.4)' : '1px solid var(--border-color, rgba(255,255,255,0.1))',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <input
+            id="onboard-terms-checkbox"
+            type="checkbox"
+            checked={agreeTerms}
+            onChange={(e) => setAgreeTerms(e.target.checked)}
+            style={{
+              marginTop: '3px',
+              width: '18px',
+              height: '18px',
+              cursor: 'pointer',
+              accentColor: 'var(--primary, #3b82f6)',
+              flexShrink: 0,
+            }}
+            required
+          />
+          <label
+            htmlFor="onboard-terms-checkbox"
+            style={{
+              fontSize: '12.5px',
+              lineHeight: '1.45',
+              color: 'var(--text-secondary, #cbd5e1)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            I agree to the{' '}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowTermsModal(true);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--primary-light, #818cf8)',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                padding: 0,
+                fontSize: '12.5px',
+                fontWeight: 700,
+                display: 'inline',
+              }}
+            >
+              Hostel Terms & Conditions
+            </button>
+            , Curfew Rules (10:00 PM), mandatory biometric / QR gate scanning protocol, and student code of conduct.
+          </label>
+        </div>
+
         {/* Submit button */}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={!agreeTerms || submitting}
+          title={!agreeTerms ? 'Tick the Terms and Conditions box to enable completion' : 'Complete Registration'}
           style={{
             width: '100%',
             display: 'flex',
@@ -804,31 +876,124 @@ export default function Onboarding() {
             padding: '13px 20px',
             borderRadius: '12px',
             border: 'none',
-            background: 'var(--primary, #3b82f6)',
+            background: (!agreeTerms || submitting) ? '#475569' : 'var(--primary, #3b82f6)',
             color: '#ffffff',
             fontSize: '14.5px',
             fontWeight: 700,
-            cursor: submitting ? 'not-allowed' : 'pointer',
+            cursor: (!agreeTerms || submitting) ? 'not-allowed' : 'pointer',
+            opacity: (!agreeTerms || submitting) ? 0.45 : 1,
+            pointerEvents: (!agreeTerms || submitting) ? 'none' : 'auto',
+            filter: (!agreeTerms || submitting) ? 'grayscale(0.7)' : 'none',
             transition: 'all 0.2s ease',
             letterSpacing: '0.01em',
-            boxShadow: '0 4px 20px rgba(59, 130, 246, 0.35)',
+            boxShadow: (!agreeTerms || submitting) ? 'none' : '0 4px 20px rgba(59, 130, 246, 0.35)',
             marginTop: '3px',
           }}
           onMouseEnter={(e) => {
-            if (!submitting) {
+            if (!submitting && agreeTerms) {
               e.currentTarget.style.filter = 'brightness(1.1)';
               e.currentTarget.style.transform = 'translateY(-1px)';
             }
           }}
           onMouseLeave={(e) => {
-            if (!submitting) {
+            if (!submitting && agreeTerms) {
               e.currentTarget.style.filter = 'none';
               e.currentTarget.style.transform = 'none';
             }
           }}
         >
-          {submitting ? 'Setting up Profile...' : 'Complete Registration & Enter Portal 🚀'}
+          {submitting
+            ? 'Setting up Profile...'
+            : (!agreeTerms ? '🔒 Accept Terms to Complete Registration' : 'Complete Registration & Enter Portal 🚀')}
         </button>
+
+        {/* Terms and Conditions Modal */}
+        {showTermsModal && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.82)',
+              backdropFilter: 'blur(5px)',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--card-bg, #1a2234)',
+                border: '1px solid var(--border-color, #334155)',
+                borderRadius: '16px',
+                width: '100%',
+                maxWidth: '540px',
+                maxHeight: '80vh',
+                overflowY: 'auto',
+                padding: '24px',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.6)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary, #fff)' }}>
+                  📜 Hostel Terms & Conditions
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowTermsModal(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted, #94a3b8)',
+                    fontSize: '18px',
+                    cursor: 'pointer',
+                    padding: '4px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <p>
+                  <strong>1. Contact Verification:</strong> Both student and primary/secondary parent contacts provided must be genuine and active Indian phone numbers.
+                </p>
+                <p>
+                  <strong>2. Curfew Policy:</strong> Daily campus entry curfew is strictly 10:00 PM. Gate exits and entries are recorded and monitored in real-time.
+                </p>
+                <p>
+                  <strong>3. Gate Scanning:</strong> Every movement through the institutional gate requires scanning your verified dynamic QR pass.
+                </p>
+                <p>
+                  <strong>4. Parental Notification:</strong> Outpass approvals and home leave requests involve automatic parent notification and verification.
+                </p>
+                <p>
+                  <strong>5. Zero Tolerance:</strong> Any submission of false details, proxy scanning, or non-compliance will lead to disciplinary expulsion from the hostel.
+                </p>
+              </div>
+              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    background: 'var(--primary, #3b82f6)',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    setAgreeTerms(true);
+                    setShowTermsModal(false);
+                  }}
+                >
+                  I Understand & Agree
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Back to portal selection / Sign out link */}
         <div style={{ textAlign: 'center', marginTop: '2px' }}>

@@ -33,6 +33,7 @@ const lazyWithRetry = (componentImport) =>
 
 // ─── Lazy page imports (code splitting with deployment chunk retry) ───────────
 const Login               = lazyWithRetry(() => import('./pages/Login'));
+const Register            = lazyWithRetry(() => import('./pages/Register'));
 const OAuthCallback       = lazyWithRetry(() => import('./pages/OAuthCallback'));
 const StudentDashboard    = lazyWithRetry(() => import('./pages/StudentDashboard'));
 const WardenDashboard     = lazyWithRetry(() => import('./pages/WardenDashboard'));
@@ -50,6 +51,7 @@ const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
 // Layout
 import Sidebar from './components/Sidebar';
 import StudentLayout from './components/StudentLayout';
+import WardenStorageAlertModal from './components/WardenStorageAlertModal';
 
 // ─── Global page loading fallback ─────────────────────────────────────────────
 function PageLoader() {
@@ -121,7 +123,10 @@ const AppLayout = ({ children }) => {
         <MdMenu size={20} />
       </button>
       <Sidebar mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <div className="main-content">{children}</div>
+      <div className="main-content">
+        <WardenStorageAlertModal />
+        {children}
+      </div>
     </div>
   );
 };
@@ -147,6 +152,7 @@ function AppRoutes() {
           path="/login"
           element={isAuth ? <Navigate to={defaultRedirect()} replace /> : <Login />}
         />
+        <Route path="/register" element={<Register />} />
         {/* OAuth callback — must be public and unguarded */}
         <Route path="/auth/callback" element={<OAuthCallback />} />
         <Route path="/simulator" element={<StudentSimulator />} />

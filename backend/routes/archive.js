@@ -27,6 +27,7 @@ const {
 const { enqueueArchiveJob } = require('../queues/archiveQueue');
 const { getPresignedDownloadUrl, hasR2Credentials } = require('../services/r2Service');
 const logger = require('../utils/logger');
+const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
 
 // ── All archive routes require authentication ─────────────────────────────────
 router.use(protect, authorize('warden', 'admin', 'security'));
@@ -432,14 +433,16 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
 
     for (const log of inOutLogs) {
       const student = log.student_id;
-      const d = log.date || (log.timestamp ? new Date(log.timestamp).toISOString().slice(0, 10) : '—');
-      const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—';
+      const d = log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—');
+      const timeStr = log.timestamp
+        ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        : '—';
       const outTimeStr = log.out_time
-        ? new Date(log.out_time).toLocaleTimeString('en-IN')
-        : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
+        ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
       const inTimeStr = log.in_time
-        ? new Date(log.in_time).toLocaleTimeString('en-IN')
-        : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
+        ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
       const scannedByName = log.scannedBy?.name || log.scannedBy?.rollNo || (typeof log.scannedBy === 'string' ? log.scannedBy : '—');
 
       formattedRecords.push({
@@ -463,8 +466,12 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
 
     for (const log of homeLogs) {
       const student = log.student_id;
-      const outTimeStr = log.actual_out_time ? new Date(log.actual_out_time).toLocaleTimeString('en-IN') : '—';
-      const inTimeStr = log.actual_in_time ? new Date(log.actual_in_time).toLocaleTimeString('en-IN') : '—';
+      const outTimeStr = log.actual_out_time
+        ? new Date(log.actual_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        : '—';
+      const inTimeStr = log.actual_in_time
+        ? new Date(log.actual_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        : '—';
       const leaveTime = outTimeStr !== '—' ? outTimeStr : (inTimeStr !== '—' ? inTimeStr : '—');
       const scannedByName = log.parent_call_confirmed_by?.name || log.parent_call_confirmed_by?.rollNo || '—';
 
@@ -503,7 +510,16 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
     res.json({
       success: true,
       metadata: {
-        generatedAt: new Date().toLocaleString('en-IN'),
+        generatedAt: new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' (IST)',
         generatedBy: `${req.user.name} (${(req.user.role === 'warden' ? 'HOSTEL STAFF' : (req.user.role || 'staff')).toUpperCase()})`,
         period: month || (startDate && endDate ? `${startDate} to ${endDate}` : 'Recent Records'),
         recordType: type,
@@ -521,6 +537,17 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
   } catch (err) {
     logger.error('[Archive] Failed to export records', { error: err.message });
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /storage-stats (Log Memory & Deletion Audit Trail) ───────────────────
+router.get('/storage-stats', authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const stats = await getStorageStats();
+    res.json({ success: true, ...stats });
+  } catch (error) {
+    logger.error('[Archive] Storage stats error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -608,12 +635,24 @@ router.post('/secure-purge', authorize('warden', 'admin'), async (req, res) => {
       }
     });
 
+    const totalPurged = deletedInOut + deletedHomeVisit;
+
+    await recordDeletionAudit({
+      user: req.user,
+      action: 'PURGE_ALL',
+      targetType: collectionType === 'inout' ? 'GATE_INOUT' : (collectionType === 'homevisit' ? 'HOME_VISIT' : 'ALL_LOGS'),
+      deletedCount: totalPurged,
+      description: `Secure purge: removed ${deletedInOut} gate logs and ${deletedHomeVisit} home visit logs before ${cutoffDate}`,
+      metadata: { cutoffDate, collectionType },
+    });
+
     res.json({
       success: true,
-      message: `Successfully purged ${deletedInOut + deletedHomeVisit} records before ${cutoffDate}`,
+      message: `Successfully purged ${totalPurged} records before ${cutoffDate}. Action recorded under ${req.user.name || req.user.email}.`,
       deletedInOut,
       deletedHomeVisit,
-      totalDeleted: deletedInOut + deletedHomeVisit,
+      totalDeleted: totalPurged,
+      deletedByName: req.user.name || req.user.email,
     });
   } catch (err) {
     logger.error('[Archive] Purge failed', { error: err.message });

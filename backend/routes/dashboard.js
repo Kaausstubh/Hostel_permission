@@ -13,14 +13,26 @@ const Complaint = require('../models/Complaint');
 const { protect, authorize } = require('../middleware/auth');
 const { getDashboardCache, setDashboardCache } = require('../services/dashboardCache');
 const logger = require('../utils/logger');
+const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
 
-const todayStr = () => new Date().toISOString().split('T')[0];
-const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const getPagination = (query, defaultLimit = 50, maxLimit = 2000) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
   const skip = (page - 1) * limit;
   return { page, limit, skip };
 };
+
+// ── Log Storage Capacity & Deletion Audit Stats (Warden/Admin/Security) ─────
+router.get('/storage-stats', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const stats = await getStorageStats();
+    res.json({ success: true, ...stats });
+  } catch (error) {
+    logger.error('[Dashboard] Storage stats error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // ── Dashboard Summary ─────────────────────────────────────────────────────────
 router.get('/summary', protect, authorize('warden', 'security'), async (req, res) => {
@@ -159,21 +171,37 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
 
     if (target === 'inout') {
       const inoutRes = await InOutLog.deleteMany({});
+      await recordDeletionAudit({
+        user: req.user,
+        action: 'DELETE_ALL_GATE',
+        targetType: 'GATE_INOUT',
+        deletedCount: inoutRes.deletedCount,
+        description: `Wiped all ${inoutRes.deletedCount} In/Out scan logs`,
+      });
       logger.info('[Dashboard] In/Out logs cleared', { userId: req.user._id, role: req.user.role, inoutDeleted: inoutRes.deletedCount });
       return res.json({
         success: true,
-        message: `Successfully deleted ${inoutRes.deletedCount} In/Out scan logs. Student accounts and home visits remain safe.`,
+        message: `Successfully deleted ${inoutRes.deletedCount} In/Out scan logs. Action recorded under ${req.user.name || req.user.email}.`,
         deleted: { inout: inoutRes.deletedCount },
+        deletedByName: req.user.name || req.user.email,
       });
     }
 
     if (target === 'homevisit') {
       const homeRes = await HomeVisitLog.deleteMany({});
+      await recordDeletionAudit({
+        user: req.user,
+        action: 'DELETE_ALL_HOME',
+        targetType: 'HOME_VISIT',
+        deletedCount: homeRes.deletedCount,
+        description: `Wiped all ${homeRes.deletedCount} Home Visit pass records`,
+      });
       logger.info('[Dashboard] Home visit logs cleared', { userId: req.user._id, role: req.user.role, homeDeleted: homeRes.deletedCount });
       return res.json({
         success: true,
-        message: `Successfully deleted ${homeRes.deletedCount} Home Visit records. Student accounts and gate logs remain safe.`,
+        message: `Successfully deleted ${homeRes.deletedCount} Home Visit records. Action recorded under ${req.user.name || req.user.email}.`,
         deleted: { homevisit: homeRes.deletedCount },
+        deletedByName: req.user.name || req.user.email,
       });
     }
 

@@ -34,11 +34,11 @@ export const formatGateLogsForExcel = (logs = []) => {
   return logs.map((log, index) => {
     const student = log.student_id;
     const outTimeStr = log.out_time
-      ? new Date(log.out_time).toLocaleTimeString('en-IN')
-      : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
+      ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
     const inTimeStr = log.in_time
-      ? new Date(log.in_time).toLocaleTimeString('en-IN')
-      : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
+      ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
     const scannedByName =
       log.scanned_by_name ||
       log.scannedBy?.name ||
@@ -53,7 +53,7 @@ export const formatGateLogsForExcel = (logs = []) => {
       'Hostel': student?.hostel || log.hostel || '—',
       'Status': log.status || 'OUT',
       'Destination / Place': log.place || 'City / Local',
-      'Date': log.date || (log.timestamp ? new Date(log.timestamp).toISOString().slice(0, 10) : '—'),
+      'Date': log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—'),
       'Out Time': outTimeStr,
       'In Time': inTimeStr,
       'Returned': log.returned ? 'Yes' : 'No',
@@ -70,10 +70,10 @@ export const formatHomeLogsForExcel = (homeLogs = []) => {
   return homeLogs.map((visit, index) => {
     const student = visit.student_id;
     const outTimeStr = visit.actual_out_time
-      ? new Date(visit.actual_out_time).toLocaleString('en-IN')
+      ? new Date(visit.actual_out_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
       : '—';
     const inTimeStr = visit.actual_in_time
-      ? new Date(visit.actual_in_time).toLocaleString('en-IN')
+      ? new Date(visit.actual_in_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
       : '—';
     const statusStr = visit.actual_in_time
       ? 'HOME IN'

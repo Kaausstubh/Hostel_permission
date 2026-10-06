@@ -72,6 +72,13 @@ export default function SecurityDashboard() {
   const [activeCameraId, setActiveCameraId] = useState(null); // currently selected camera id
   const [cameraFacing, setCameraFacing] = useState('back'); // 'front' | 'back'
 
+  // Live gate clock (Asia/Kolkata)
+  const [currentLiveTime, setCurrentLiveTime] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentLiveTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // ── Audio Feedback (Web Audio API — pre-warmed for 0ms lag) ──────────────
   const audioCtxRef = useRef(null);
 
@@ -773,9 +780,10 @@ export default function SecurityDashboard() {
         success: true,
         student: data.student,
         status: data.log.status,
-        timestamp: data.log.timestamp,
+        timestamp: data.log.timestamp || new Date().toISOString(),
         message: data.message,
         scanDuration: data.scanDuration,
+        scannedByName: data.scannedByName || data.guardInCharge,
       });
       markRecentScan(normalized, true);
       blockTokenUntilItLeavesFrame(normalized);
@@ -914,19 +922,37 @@ export default function SecurityDashboard() {
           <div className="card">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>📷 Gate QR Scanner (Daily + Home Visit)</div>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 12,
-                padding: '4px 10px',
-                borderRadius: 99,
-                background: 'rgba(99, 102, 241, 0.12)',
-                border: '1px solid rgba(99, 102, 241, 0.25)',
-                color: 'var(--primary-light)',
-              }}>
-                <span>🛡️ Guard In-Charge:</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{user?.name || user?.rollNo || 'Security Guard'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  padding: '4px 10px',
+                  borderRadius: 99,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  color: '#10b981',
+                  fontWeight: 600,
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
+                  <span>{currentLiveTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST</span>
+                </div>
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  padding: '4px 10px',
+                  borderRadius: 99,
+                  background: 'rgba(99, 102, 241, 0.12)',
+                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                  color: 'var(--primary-light)',
+                }}>
+                  <span>🛡️ Guard:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{user?.name || user?.rollNo || 'Security Guard'}</span>
+                </div>
               </div>
             </div>
 
@@ -1325,10 +1351,24 @@ export default function SecurityDashboard() {
                           }}>
                             {bannerLabel}
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {new Date(result.timestamp).toLocaleString('en-IN', {
-                              dateStyle: 'medium', timeStyle: 'short',
-                            })}
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <MdAccessTime size={14} color="var(--primary-light)" />
+                            <span>
+                              Scanned at: <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                {new Date(result.timestamp || Date.now()).toLocaleTimeString('en-IN', {
+                                  timeZone: 'Asia/Kolkata',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                  hour12: false,
+                                })} IST
+                              </strong> &nbsp;({new Date(result.timestamp || Date.now()).toLocaleDateString('en-IN', {
+                                timeZone: 'Asia/Kolkata',
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })})
+                            </span>
                           </div>
                         </div>
                       </div>

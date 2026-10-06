@@ -39,16 +39,23 @@ export default function WardenDashboard() {
   });
   const [loading, setLoading] = useState(!summary);
   const [slowServerWarning, setSlowServerWarning] = useState(false);
+  const [storageStats, setStorageStats] = useState(null);
 
   const fetchSummary = async () => {
     try {
       if (!summary) setLoading(true);
-      const res = await api.get('/dashboard/summary');
-      if (res.data?.summary) {
-        setSummary(res.data.summary);
+      const [res, storageRes] = await Promise.allSettled([
+        api.get('/dashboard/summary'),
+        api.get('/inout/storage-stats'),
+      ]);
+      if (res.status === 'fulfilled' && res.value?.data?.summary) {
+        setSummary(res.value.data.summary);
         try {
-          sessionStorage.setItem('warden_summary_cache', JSON.stringify(res.data.summary));
+          sessionStorage.setItem('warden_summary_cache', JSON.stringify(res.value.data.summary));
         } catch {}
+      }
+      if (storageRes.status === 'fulfilled' && storageRes.value?.data?.success) {
+        setStorageStats(storageRes.value.data);
       }
     } catch (err) {
       toast.error('Failed to load dashboard data');
@@ -89,6 +96,75 @@ export default function WardenDashboard() {
             Refresh
           </button>
         </div>
+
+        {/* 🚨 80% (400 MB) Storage Limit Capacity Alert Banner */}
+        {storageStats?.total && (storageStats.total.isOver80Percent || storageStats.total.percentUsed >= 80) && (
+          <div
+            className="card fade-in"
+            style={{
+              marginBottom: 16,
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.1))',
+              border: '1.5px solid #ef4444',
+              borderRadius: 14,
+              padding: '14px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+              boxShadow: '0 4px 20px rgba(239, 68, 68, 0.15)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ef4444',
+                flexShrink: 0,
+              }}>
+                <MdWarning size={24} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14.5, color: '#f87171' }}>
+                  🚨 Storage Capacity Alert: {storageStats.total.percentUsed}% (≥400 MB) Reached
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary, #cbd5e1)', marginTop: 2 }}>
+                  Active institutional logs memory usage is at {storageStats.total.sizeFormatted} of 500 MB limit. Purge older logs to prevent overflow.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => window.dispatchEvent(new CustomEvent('open-storage-limit-modal'))}
+                style={{
+                  background: '#ef4444',
+                  color: '#fff',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}
+              >
+                View Full Alert
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => navigate('/logs')}
+                style={{ fontSize: 12 }}
+              >
+                Purge Logs
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading && !summary ? (
           <div className="loading-page">

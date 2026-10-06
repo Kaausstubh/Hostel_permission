@@ -22,6 +22,8 @@ export default function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
   const [form, setForm] = useState({
     name: '',
     rollNo: '',
@@ -50,6 +52,10 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!agreeTerms) {
+      return toast.error('Please accept the Hostel Terms and Conditions to proceed.');
+    }
 
     // Client-side validations
     if (!form.email.toLowerCase().endsWith(`@${COLLEGE_DOMAIN}`)) {
@@ -240,13 +246,165 @@ export default function Register() {
             </span>
           </div>
 
-          <button id="register-btn" type="submit" className="btn btn-primary"
-            style={{ width: '100%', marginTop: 8, justifyContent: 'center' }} disabled={loading}>
+          {/* Terms and Conditions Tick Box */}
+          <div
+            style={{
+              marginTop: '14px',
+              marginBottom: '10px',
+              padding: '12px 14px',
+              borderRadius: '10px',
+              background: agreeTerms ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.04)',
+              border: agreeTerms ? '1.5px solid rgba(16, 185, 129, 0.4)' : '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <input
+              id="reg-terms-checkbox"
+              type="checkbox"
+              checked={agreeTerms}
+              onChange={(e) => setAgreeTerms(e.target.checked)}
+              style={{
+                marginTop: '3px',
+                width: '18px',
+                height: '18px',
+                cursor: 'pointer',
+                accentColor: 'var(--primary, #3b82f6)',
+                flexShrink: 0,
+              }}
+              required
+            />
+            <label
+              htmlFor="reg-terms-checkbox"
+              style={{
+                fontSize: '12.5px',
+                lineHeight: '1.45',
+                color: 'var(--text-secondary, #cbd5e1)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              I agree to the{' '}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTermsModal(true);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary-light, #818cf8)',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  display: 'inline',
+                }}
+              >
+                Hostel Terms & Conditions
+              </button>
+              , Curfew Rules (10:00 PM), mandatory QR gate verification, and disciplinary policies.
+            </label>
+          </div>
+
+          <button
+            id="register-btn"
+            type="submit"
+            className="btn btn-primary"
+            style={{
+              width: '100%',
+              marginTop: 8,
+              justifyContent: 'center',
+              cursor: (!agreeTerms || loading) ? 'not-allowed' : 'pointer',
+              opacity: (!agreeTerms || loading) ? 0.45 : 1,
+              filter: (!agreeTerms || loading) ? 'grayscale(0.7)' : 'none',
+              pointerEvents: (!agreeTerms || loading) ? 'none' : 'auto',
+              transition: 'all 0.2s ease',
+            }}
+            disabled={!agreeTerms || loading}
+            title={!agreeTerms ? 'Tick the Terms and Conditions box to enable registration' : 'Create Student Account'}
+          >
             {loading
               ? <><span className="loading-spinner" style={{ width: 16, height: 16 }} /> Registering...</>
-              : '🎓 Create Student Account'}
+              : (!agreeTerms ? '🔒 Accept Terms to Register' : '🎓 Create Student Account')}
           </button>
         </form>
+
+        {/* Terms and Conditions Modal */}
+        {showTermsModal && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.8)',
+              backdropFilter: 'blur(5px)',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--bg-card, #1e293b)',
+                border: '1px solid var(--border, #334155)',
+                borderRadius: '16px',
+                width: '100%',
+                maxWidth: '540px',
+                maxHeight: '80vh',
+                overflowY: 'auto',
+                padding: '24px',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📜 Hostel Terms & Conditions</h3>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowTermsModal(false)}
+                  style={{ padding: '4px 8px' }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <p>
+                  <strong>1. Accurate Contact Details:</strong> All submitted student and parent contact numbers must be valid, active Indian phone numbers and genuinely belong to parents/guardians. Providing false contacts is a serious disciplinary violation.
+                </p>
+                <p>
+                  <strong>2. Curfew Timings:</strong> Daily campus entry curfew is strictly enforced. Students returning after designated curfew timings without approved permission will be flagged as late or not returned.
+                </p>
+                <p>
+                  <strong>3. Gate Scanning:</strong> Every entry and exit through the hostel campus gate requires mandatory scanning of your personal dynamic QR code at the security checkpoint.
+                </p>
+                <p>
+                  <strong>4. Home Visits & Parental Consent:</strong> Extended home leaves require warden authorization and verified guardian confirmation through phone calls or automated WhatsApp approval links.
+                </p>
+                <p>
+                  <strong>5. Disciplinary Actions:</strong> Violation of hostel norms or impersonation at security gates will lead to immediate revocation of hostel residency rights.
+                </p>
+              </div>
+              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setAgreeTerms(true);
+                    setShowTermsModal(false);
+                  }}
+                >
+                  I Understand & Agree
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div style={{ textAlign: 'center', marginTop: 20, color: 'var(--text-muted)', fontSize: 13 }}>
           Already have an account?{' '}

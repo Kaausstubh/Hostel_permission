@@ -153,7 +153,17 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'bold');
   doc.text('Generated On:', 290, startY + 35);
   doc.setFont('helvetica', 'normal');
-  doc.text(String(metadata.generatedAt || new Date().toLocaleString('en-IN')), 365, startY + 35);
+  const defaultGeneratedAt = new Date().toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }) + ' (IST)';
+  doc.text(String(metadata.generatedAt || defaultGeneratedAt), 365, startY + 35);
 
   // Right column (Movement Metrics)
   doc.setFont('helvetica', 'bold');
@@ -166,13 +176,49 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.text(`${summary.totalExits || 0} Out  /  ${summary.totalEntries || 0} In  /  ${summary.notReturned || 0} Outside`, 645, startY + 35);
 
-  // Clean Date Formatter helpers
+  // Clean Date & Time Formatter helpers (IST Normalized - 24 Hours)
+  const formatTimeIST = (timeVal) => {
+    if (!timeVal || timeVal === '—' || timeVal === '-') return '—';
+    const str = String(timeVal).trim();
+    // If in 12h AM/PM format (e.g. "04:15:30 pm" or "4:15 PM"), convert to 24h
+    const match12 = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)$/i);
+    if (match12) {
+      let h = parseInt(match12[1], 10);
+      const m = match12[2];
+      const s = match12[3] || '00';
+      const isPm = match12[4].toLowerCase() === 'pm';
+      if (isPm && h < 12) h += 12;
+      if (!isPm && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:${m}:${s}`;
+    }
+    const d = new Date(timeVal);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+    }
+    return str;
+  };
+
   const formatSingleDate = (d) => {
     if (!d || d === '—' || d === '-') return '—';
     const str = String(d).trim();
     const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) {
       return `${m[3]}/${m[2]}/${m[1]}`;
+    }
+    const parsed = new Date(d);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
     }
     return str;
   };
@@ -203,8 +249,8 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
     r.status || '—',
     r.place || r.destination || '—',
     formatRecordDate(r),
-    r.outTime || (r.status === 'OUT' ? r.time : '—') || '—',
-    r.inTime || (r.status === 'IN' ? r.time : '—') || '—',
+    formatTimeIST(r.outTime || (r.status === 'OUT' ? r.time : '—')),
+    formatTimeIST(r.inTime || (r.status === 'IN' ? r.time : '—')),
     r.returned || '—',
     r.scannedBy || r.scannedByName || '—',
   ]);
@@ -381,15 +427,17 @@ export const generatePDFFromLocalLogs = async ({
 
   for (const log of gateLogs) {
     const student = log.student_id;
-    const d = log.date || (log.timestamp ? new Date(log.timestamp).toISOString().slice(0, 10) : '—');
-    const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : (log.out_time || '—');
+    const d = log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—');
+    const timeStr = log.timestamp
+      ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : (log.out_time ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
     const outTimeStr = log.out_time
-      ? new Date(log.out_time).toLocaleTimeString('en-IN')
-      : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
+      ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
     const inTimeStr = log.in_time
-      ? new Date(log.in_time).toLocaleTimeString('en-IN')
-      : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—');
-    const scannedByName = log.scannedBy?.name || log.scannedBy?.rollNo || (typeof log.scannedBy === 'string' ? log.scannedBy : 'N/A');
+      ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—');
+    const scannedByName = log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || (typeof log.scannedBy === 'string' ? log.scannedBy : 'N/A');
 
     formattedRecords.push({
       id: log._id,
@@ -412,10 +460,14 @@ export const generatePDFFromLocalLogs = async ({
 
   for (const log of homeLogs) {
     const student = log.student_id;
-    const outTimeStr = log.actual_out_time ? new Date(log.actual_out_time).toLocaleTimeString('en-IN') : '—';
-    const inTimeStr = log.actual_in_time ? new Date(log.actual_in_time).toLocaleTimeString('en-IN') : '—';
+    const outTimeStr = log.actual_out_time
+      ? new Date(log.actual_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : '—';
+    const inTimeStr = log.actual_in_time
+      ? new Date(log.actual_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : '—';
     const leaveTime = outTimeStr !== '—' ? outTimeStr : (inTimeStr !== '—' ? inTimeStr : '—');
-    const scannedByName = log.scannedBy?.name || log.scannedBy?.rollNo || log.parent_call_confirmed_by?.name || (typeof log.scannedBy === 'string' ? log.scannedBy : '—');
+    const scannedByName = log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.parent_call_confirmed_by?.name || (typeof log.scannedBy === 'string' ? log.scannedBy : '—');
 
     const dateStr = (log.leave_date && log.return_date)
       ? `${log.leave_date} to ${log.return_date}`
@@ -452,7 +504,16 @@ export const generatePDFFromLocalLogs = async ({
   const officerRole = (user?.role === 'warden' ? 'HOSTEL STAFF' : (user?.role || 'staff')).toUpperCase();
   const reportData = {
     metadata: {
-      generatedAt: new Date().toLocaleString('en-IN'),
+      generatedAt: new Date().toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }) + ' (IST)',
       generatedBy: `${user?.name || 'Authorized Staff'} (${officerRole})`,
       period,
       hostelFilter,

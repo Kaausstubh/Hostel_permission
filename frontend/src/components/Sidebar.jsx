@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 
 const wardenNav = [
   { to: '/dashboard',    icon: <MdDashboard />,    label: 'Overview' },
+  { to: '/scanner',      icon: <MdQrCodeScanner />, label: 'Gate QR Scanner' },
   { to: '/students',     icon: <MdPeople />,       label: 'Students Directory' },
   { to: '/students-out', icon: <MdExitToApp />,    label: 'Students Out' },
   { to: '/not-returned', icon: <MdWarning />,       label: 'Not Returned', alert: true },
