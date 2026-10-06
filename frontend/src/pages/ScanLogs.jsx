@@ -16,9 +16,31 @@ import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
 
 export default function ScanLogs({ defaultTab = 'gate' }) {
-  const [logs, setLogs] = useState([]);
-  const [homeLogs, setHomeLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_gate_logs_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [homeLogs, setHomeLogs] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_home_logs_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cachedGate = sessionStorage.getItem('heimdall_gate_logs_cache');
+      const cachedHome = sessionStorage.getItem('heimdall_home_logs_cache');
+      return !(cachedGate || cachedHome);
+    } catch {
+      return true;
+    }
+  });
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState(defaultTab);
@@ -41,7 +63,13 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     if (dateFilter) params.append('date', dateFilter);
     if (statusFilter) params.append('status', statusFilter);
     const gateRes = await api.get(`/inout/logs?${params.toString()}`);
-    setLogs(gateRes.data?.logs || []);
+    const fetchedLogs = gateRes.data?.logs || [];
+    setLogs(fetchedLogs);
+    if (!dateFilter && !statusFilter) {
+      try {
+        sessionStorage.setItem('heimdall_gate_logs_cache', JSON.stringify(fetchedLogs));
+      } catch {}
+    }
   };
 
   const fetchHomeLogs = async () => {
@@ -56,6 +84,11 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       return hasMatchingDate(visit, dateFilter);
     });
     setHomeLogs(filteredHomeLogs);
+    if (!dateFilter && !statusFilter) {
+      try {
+        sessionStorage.setItem('heimdall_home_logs_cache', JSON.stringify(filteredHomeLogs));
+      } catch {}
+    }
   };
 
   const [storageStats, setStorageStats] = useState(() => {
@@ -93,7 +126,9 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
   const fetchLogs = async (tabToPrioritize = activeTab) => {
     try {
-      setLoading(true);
+      if ((tabToPrioritize === 'gate' && logs.length === 0) || (tabToPrioritize === 'home' && homeLogs.length === 0)) {
+        setLoading(true);
+      }
       if (tabToPrioritize === 'gate') {
         await fetchGateLogs();
         setLoading(false);
@@ -115,7 +150,6 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
   useEffect(() => { 
     fetchLogs(activeTab);
-    fetchStorageStats();
   }, [dateFilter, statusFilter, activeTab]);
 
   const handlePurgeLogs = async () => {

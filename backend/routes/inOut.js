@@ -243,11 +243,12 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
     const studentSelect = req.user.role === 'security'
-      ? 'name rollNo hostel picture studentPhoto'
-      : 'name rollNo hostel phone parentPhone picture studentPhoto';
+      ? 'name rollNo hostel'
+      : 'name rollNo hostel phone parentPhone';
 
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
+        .select('-student_photo')
         .populate('student_id', studentSelect)
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })
@@ -257,7 +258,14 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       InOutLog.countDocuments(filter),
     ]);
 
-    res.json({ success: true, count, page, limit, logs });
+    const sanitizedLogs = logs.map((log) => {
+      if (log.student_id && log.student_id._id) {
+        log.student_id.studentPhoto = `/api/auth/student-photo/${log.student_id._id}`;
+      }
+      return log;
+    });
+
+    res.json({ success: true, count, page, limit, logs: sanitizedLogs });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -297,11 +305,12 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
     const isPastCurfew = currentHour > 20 || (currentHour === 20 && currentMinute >= 0);
 
     const studentSelect = req.user.role === 'security'
-      ? 'name rollNo hostel picture studentPhoto'
-      : 'name rollNo hostel phone parentPhone picture studentPhoto';
+      ? 'name rollNo hostel'
+      : 'name rollNo hostel phone parentPhone';
 
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
+        .select('-student_photo')
         .populate('student_id', studentSelect)
         .sort({ timestamp: -1 })
         .skip(skip)
@@ -309,6 +318,13 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
         .lean(),
       InOutLog.countDocuments(filter),
     ]);
+
+    const sanitizedLogs = logs.map((log) => {
+      if (log.student_id && log.student_id._id) {
+        log.student_id.studentPhoto = `/api/auth/student-photo/${log.student_id._id}`;
+      }
+      return log;
+    });
 
     res.json({
       success: true,
@@ -318,7 +334,7 @@ router.get('/not-returned', protect, authorize('warden', 'security'), async (req
       curfewTime: '8:00 PM',
       isPastCurfew,
       curfewHour: 20,
-      students: logs,
+      students: sanitizedLogs,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -337,6 +353,7 @@ router.get('/history/:id', protect, async (req, res) => {
     const filter = { student_id: req.params.id };
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
+        .select('-student_photo')
         .sort({ timestamp: -1 })
         .skip(skip)
         .limit(limit)

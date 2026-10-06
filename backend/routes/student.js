@@ -426,13 +426,20 @@ router.get('/complaints', async (req, res) => {
     const filter = { student_id: req.user._id };
     const [complaints, count] = await Promise.all([
       Complaint.find(filter)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
+        .select('-photo')
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       Complaint.countDocuments(filter),
     ]);
-    res.json({ success: true, count, page, limit, complaints });
+
+    const formatted = complaints.map((c) => ({
+      ...c,
+      photoUrl: (c.hasPhoto || c.photo) ? `/api/complaints/${c._id}/photo` : null,
+    }));
+
+    res.json({ success: true, count, page, limit, complaints: formatted });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -1,10 +1,8 @@
-/**
- * Complaints Dashboard
- * Warden can filter by hostel/status, resolve complaints inline
- */
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
+import StudentAvatar from '../components/StudentAvatar';
 import api from '../services/api';
+import { resolvePhotoUrl } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import { MdReport, MdRefresh, MdCheckCircle, MdPhotoCamera, MdClose, MdZoomIn } from 'react-icons/md';
 
@@ -23,8 +21,22 @@ const getTypeConfig = (type = '') => {
 };
 
 export default function ComplaintDashboard() {
-  const [complaints, setComplaints] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [complaints, setComplaints] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_complaints_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_complaints_cache');
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
   const [hostelFilter, setHostelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -33,12 +45,18 @@ export default function ComplaintDashboard() {
 
   const fetchComplaints = async () => {
     try {
-      setLoading(true);
+      if (complaints.length === 0) setLoading(true);
       const params = new URLSearchParams();
       if (hostelFilter) params.append('hostel', hostelFilter);
       if (statusFilter) params.append('status', statusFilter);
       const res = await api.get(`/complaints/all?${params.toString()}`);
-      setComplaints(res.data.complaints || []);
+      const fetched = res.data.complaints || [];
+      setComplaints(fetched);
+      if (!hostelFilter && !statusFilter) {
+        try {
+          sessionStorage.setItem('heimdall_complaints_cache', JSON.stringify(fetched));
+        } catch {}
+      }
     } catch (err) {
       toast.error('Failed to load complaints');
     } finally {
@@ -165,36 +183,10 @@ export default function ComplaintDashboard() {
                     <tr key={c._id}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {studentAvatar ? (
-                            <img
-                              src={studentAvatar}
-                              alt={student.name || 'Student'}
-                              style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: '50%',
-                                objectFit: 'cover',
-                                flexShrink: 0,
-                                border: '1.5px solid var(--glass-border)',
-                              }}
-                            />
-                          ) : (
-                            <div style={{
-                              width: 34,
-                              height: 34,
-                              borderRadius: '50%',
-                              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 700,
-                              color: '#fff',
-                              fontSize: 13,
-                              flexShrink: 0,
-                            }}>
-                              {(student.name || 'S').charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          <StudentAvatar
+                            student={student}
+                            name={student.name || c.name}
+                          />
                           <div>
                             <div style={{ fontWeight: 600 }}>{student.name || c.name || 'Unknown'}</div>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{student.rollNo || c.rollNo}</div>
@@ -222,21 +214,21 @@ export default function ComplaintDashboard() {
                         {c.complaint_text}
                       </td>
                       <td>
-                        {c.photo ? (
+                        {(c.hasPhoto || c.photo || c.photoUrl) ? (
                           <button
                             type="button"
                             onClick={() => setPreviewPhoto({
-                              url: c.photo,
-                              title: `${student.name || 'Student'} - ${typeCfg.label}`,
+                              url: resolvePhotoUrl(c.photo || c.photoUrl || `/api/complaints/${c._id}/photo`),
+                              title: `${student.name || c.name || 'Student'} - ${typeCfg.label}`,
                               description: c.complaint_text,
                               hostel: c.hostel,
-                              date: new Date(c.timestamp).toLocaleString('en-IN'),
+                              date: new Date(c.timestamp).toLocaleString('en-IN', { hour12: false }),
                             })}
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: 6,
-                              padding: '4px 8px',
+                              padding: '5px 10px',
                               borderRadius: 8,
                               border: '1px solid var(--primary)',
                               background: 'rgba(99, 102, 241, 0.1)',
@@ -247,16 +239,7 @@ export default function ComplaintDashboard() {
                               transition: 'all 0.15s',
                             }}
                           >
-                            <img
-                              src={c.photo}
-                              alt="Thumbnail"
-                              style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: 4,
-                                objectFit: 'cover',
-                              }}
-                            />
+                            <MdPhotoCamera size={16} />
                             <span>View Photo</span>
                           </button>
                         ) : (

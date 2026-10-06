@@ -34,6 +34,10 @@ const complaintSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    hasPhoto: {
+      type: Boolean,
+      default: false,
+    },
     complaint_text: {
       type: String,
       required: true,

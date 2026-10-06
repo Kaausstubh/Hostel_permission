@@ -358,7 +358,8 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2 picture studentPhoto')
+        .select('-student_photo')
+        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
         .populate('scannedBy', 'name')
         .populate('scanned_by_out', 'name')
         .populate('scanned_by_in', 'name')
@@ -370,7 +371,14 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
       HomeVisitLog.countDocuments(filter),
     ]);
 
-    res.json({ success: true, count, page, limit, visits });
+    const sanitizedVisits = visits.map((visit) => {
+      if (visit.student_id && visit.student_id._id) {
+        visit.student_id.studentPhoto = `/api/auth/student-photo/${visit.student_id._id}`;
+      }
+      return visit;
+    });
+
+    res.json({ success: true, count, page, limit, visits: sanitizedVisits });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -297,4 +297,38 @@ router.post('/logout', protect, async (req, res) => {
   }
 });
 
+// ── Student Photo Stream (Fast on-demand binary image endpoint) ──────────────
+// Converts database base64 strings into standard binary image responses with
+// 24-hour browser caching. Completely prevents megabytes of base64 data from
+// inflating scan logs, home visits, and complaint list endpoints.
+router.get('/student-photo/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('studentPhoto picture').lean();
+    if (!user) return res.status(404).send('Not found');
+
+    const photo = user.studentPhoto || user.picture;
+    if (!photo) return res.status(404).send('No photo');
+
+    if (photo.startsWith('http')) {
+      return res.redirect(photo);
+    }
+
+    if (photo.startsWith('data:image/')) {
+      const parts = photo.split(',');
+      if (parts.length >= 2) {
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        const buffer = Buffer.from(parts[1], 'base64');
+        res.set('Content-Type', mime);
+        res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        return res.send(buffer);
+      }
+    }
+
+    return res.status(404).send('Invalid photo format');
+  } catch (err) {
+    return res.status(500).send('Error');
+  }
+});
+
 module.exports = router;
