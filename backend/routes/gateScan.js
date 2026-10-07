@@ -380,6 +380,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
         guardInCharge: guardName,
         scannedByName: guardName,
         student: {
+          id: String(student._id || payload.student_id),
           name: student.name,
           rollNumber: student.rollNo,
           hostel: student.hostel,
@@ -452,6 +453,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
         guardInCharge: guardName,
         scannedByName: guardName,
         student: {
+          id: String(studentDoc._id || payload.student_id),
           name: studentDoc.name,
           rollNumber: studentDoc.rollNo,
           hostel: studentDoc.hostel,
@@ -487,6 +489,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       guardInCharge: guardName,
       scannedByName: guardName,
       student: {
+        id: String(student._id || payload.student_id),
         name: student.name,
         rollNumber: student.rollNo,
         hostel: student.hostel,
@@ -574,6 +577,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
         guardInCharge: guardName,
         scannedByName: guardName,
         student: {
+          id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
           name: student?.name || visit.name,
           rollNumber: student?.rollNo || visit.rollNo,
           hostel: student?.hostel || 'N/A',
@@ -626,6 +630,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
         guardInCharge: guardName,
         scannedByName: guardName,
         student: {
+          id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
           name: student?.name || visit.name,
           rollNumber: student?.rollNo || visit.rollNo,
           hostel: student?.hostel || 'N/A',
@@ -683,7 +688,9 @@ router.post('/scan', async (req, res) => {
     if (result.status === 200 || result.body?.success) {
       invalidateLogsCache().catch(() => {});
       try {
-        broadcastScanResult(result.body, result.body?.student?.hostel);
+        const studentId = result.body?.student?.id || payload?.student_id || result.body?.student?._id;
+        const hostel = result.body?.student?.hostel || 'ALL';
+        broadcastScanResult(result.body, studentId, hostel);
       } catch (err) {}
     }
 

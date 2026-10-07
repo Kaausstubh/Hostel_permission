@@ -9,6 +9,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { io } from 'socket.io-client';
+import { resolveBackendOrigin } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import { getHostelLabel } from '../utils/hostel';
 import {
@@ -508,7 +510,7 @@ const playScanChime = () => {
 };
 
 export default function StudentDashboard() {
-  const { user, logout, updateUser } = useAuth();
+  const { user, token, logout, updateUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
@@ -523,6 +525,8 @@ export default function StudentDashboard() {
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
+  const lastPopupShownAtRef = useRef(0);
+  const lastProcessedEventKeyRef = useRef('');
   const bottomRef = useRef(null);
   const menuTimerRef = useRef(null);
   const bootTimerRef = useRef(null);
@@ -1367,6 +1371,12 @@ export default function StudentDashboard() {
           }
         }
 
+        // If an instant socket/SSE scan popup was already shown in the last 6 seconds, do not duplicate
+        if (Date.now() - lastPopupShownAtRef.current < 6000) {
+          return;
+        }
+        lastPopupShownAtRef.current = Date.now();
+
         // Close zoomed QR so full screen modal takes over cleanly
         setZoomedQR(null);
 
@@ -1491,15 +1501,187 @@ export default function StudentDashboard() {
     }
   }, [parseActivePasses, user, botSay]);
 
+  // ── Instant Real-Time Push Listener (Socket.IO + SSE) ──────────────────────
+  const handleInstantScanEvent = useCallback((eventData) => {
+    if (!eventData) return;
+    const myId = String(user?._id || user?.id || '');
+    const targetId = String(eventData.student?.id || eventData.student?._id || '');
+    if (targetId && myId && targetId !== myId) return;
+
+    const logStatus = String(eventData.log?.status || '').toUpperCase();
+    const rawTimestamp = eventData.log?.timestamp || eventData.timestamp || new Date();
+    const eventKey = `${logStatus}_${new Date(rawTimestamp).getTime() || Date.now()}`;
+
+    // Deduplicate rapid dual events from WebSocket + SSE
+    if (lastProcessedEventKeyRef.current === eventKey || Date.now() - lastPopupShownAtRef.current < 3500) {
+      return;
+    }
+    lastProcessedEventKeyRef.current = eventKey;
+    lastPopupShownAtRef.current = Date.now();
+
+    const isHomeVisit = eventData.kind === 'home_visit' || logStatus.startsWith('HOME');
+    const isHvPhaseReturn = logStatus === 'HOME IN' || logStatus === 'HOME_IN';
+    const scanTime = new Date(rawTimestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const destination = eventData.log?.place || (isHomeVisit ? 'Home' : (logStatus === 'OUT' ? 'Out of Campus' : 'Hostel Campus'));
+
+    // Close zoomed QR immediately so modal appears cleanly
+    setZoomedQR(null);
+
+    // Play scan chime & vibration immediately
+    playScanChime();
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([200, 100, 200]); } catch (_) {}
+    }
+
+    if (isHomeVisit) {
+      const scanType = isHvPhaseReturn ? 'HOME_IN' : 'HOME_OUT';
+      const title = isHvPhaseReturn ? 'Home Visit Return Verified' : 'Home Visit Departure Verified';
+      const subtitle = isHvPhaseReturn
+        ? 'Security scanned your Home Visit return pass. Welcome back to campus hostel!'
+        : 'Security scanned your Home Visit pass at the gate. Have a safe journey home!';
+
+      setScanAlertModal({
+        isHomeVisit: true,
+        homeVisitPhase: isHvPhaseReturn ? 'return' : 'departure',
+        scanType,
+        title,
+        subtitle,
+        destination,
+        leaveDate: eventData.leave_date || '',
+        returnDate: eventData.return_date || '',
+        scanTime,
+        studentName: user?.name || eventData.student?.name || 'Student',
+        rollNo: user?.rollNo || eventData.student?.rollNumber || '',
+        hostel: user?.hostel || eventData.student?.hostel || '',
+      });
+
+      if (isHvPhaseReturn) {
+        botSay(
+          `🏡 **Home Visit Return Confirmed by Security!**\n\n` +
+          `✅ Movement: *Campus Entry (Home Visit Return)*\n` +
+          `📍 Returned from: *${destination}*\n` +
+          `⏰ Verified at: *${scanTime}*\n` +
+          `👮 Scanned at Main Campus Security Gate. Welcome back to campus!`
+        );
+      } else {
+        botSay(
+          `🏡 **Home Visit Departure Confirmed by Security!**\n\n` +
+          `✅ Movement: *Campus Exit (Home Visit)*\n` +
+          `📍 Destination: *${destination}*\n` +
+          `⏰ Verified at: *${scanTime}*\n` +
+          `👮 Scanned at Main Campus Security Gate. Have a safe journey home!`
+        );
+      }
+    } else {
+      const isOut = logStatus === 'OUT';
+      const scanType = isOut ? 'OUT' : 'IN';
+      const title = isOut ? 'Campus Exit Recorded' : 'Campus Entry Recorded';
+      const subtitle = isOut
+        ? 'Your campus exit has been successfully recorded. Have a safe journey!'
+        : 'Welcome back! Your campus entry has been successfully recorded.';
+
+      setScanAlertModal({
+        isHomeVisit: false,
+        scanType,
+        title,
+        subtitle,
+        destination,
+        scanTime,
+        studentName: user?.name || eventData.student?.name || 'Student',
+        rollNo: user?.rollNo || eventData.student?.rollNumber || '',
+        hostel: user?.hostel || eventData.student?.hostel || '',
+      });
+
+      botSay(
+        `🛡️ **Gate Scan Confirmed by Security!**\n\n` +
+        `✅ Movement: *${isOut ? 'Campus Exit (OUT)' : 'Campus Entry (IN)'}*\n` +
+        `${destination ? `📍 Location: *${destination}*\n` : ''}` +
+        `⏰ Verified at: *${scanTime}*\n` +
+        `👮 Scanned at Main Campus Security Gate.`
+      );
+    }
+
+    // Refresh pass data in background to synchronize badges and local state
+    checkActivePassSilently().catch(() => {});
+  }, [user, botSay, checkActivePassSilently]);
+
+  // Connect to Socket.IO and SSE for zero-latency gate scan updates
+  useEffect(() => {
+    if (!user) return;
+    const studentId = String(user._id || user.id || '');
+    if (!studentId) return;
+
+    const authToken = token || localStorage.getItem('token');
+    const backendOrigin = resolveBackendOrigin();
+
+    let socket = null;
+    let eventSource = null;
+
+    // 1. Primary: Socket.IO WebSocket
+    try {
+      socket = io(backendOrigin, {
+        auth: { token: authToken },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 15,
+        reconnectionDelay: 1000,
+      });
+
+      socket.on('connect', () => {
+        socket.emit('join_student', studentId);
+      });
+
+      socket.on('scan_verified', (data) => {
+        handleInstantScanEvent(data);
+      });
+    } catch (err) {
+      console.warn('[Socket] Connection failed:', err);
+    }
+
+    // 2. Secondary: Server-Sent Events (SSE) Fallback
+    try {
+      const sseUrl = `${backendOrigin}/api/student/scan-stream?token=${encodeURIComponent(authToken || '')}`;
+      eventSource = new EventSource(sseUrl);
+
+      eventSource.addEventListener('scan_verified', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handleInstantScanEvent(data);
+        } catch (_) {}
+      });
+
+      eventSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data && (data.kind || data.log)) {
+            handleInstantScanEvent(data);
+          }
+        } catch (_) {}
+      };
+    } catch (err) {
+      console.warn('[SSE] EventSource failed:', err);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('scan_verified');
+        socket.disconnect();
+      }
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [user, token, handleInstantScanEvent]);
+
   useEffect(() => {
     if (!user) return;
     checkActivePassSilently();
-    // ⚡ Performance: Poll every 8s when active, pause when tab is hidden to save battery & network
+    // ⚡ Performance: Poll every 25s as silent fallback, pause when tab is hidden
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         checkActivePassSilently();
       }
-    }, 8000);
+    }, 25000);
 
     const handleVisibilityChange = () => {
       if (typeof document !== 'undefined' && !document.hidden) {

@@ -80,12 +80,45 @@ const initSocketIO = (httpServer) => {
     }
   });
 
+  // ── Global Namespace (Used by Students and default clients) ──────────────────
+  _io.on('connection', (socket) => {
+    logger.info('[Socket] Global client connected', { userId: socket.userId, id: socket.id });
+
+    if (socket.userId) {
+      socket.join(`user:${socket.userId}`);
+      socket.join(`student:${socket.userId}`);
+    }
+
+    socket.on('join_student', (studentId) => {
+      if (studentId) {
+        socket.join(`user:${studentId}`);
+        socket.join(`student:${studentId}`);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      logger.info('[Socket] Global client disconnected', { userId: socket.userId, id: socket.id });
+    });
+  });
+
   // ── /dashboard Namespace ─────────────────────────────────────────────────────
   const dashboardNs = _io.of('/dashboard');
   dashboardNs.use((socket, next) => next()); // Auth already applied globally
 
   dashboardNs.on('connection', (socket) => {
     logger.info('[Socket] Dashboard client connected', { userId: socket.userId, id: socket.id });
+
+    if (socket.userId) {
+      socket.join(`user:${socket.userId}`);
+      socket.join(`student:${socket.userId}`);
+    }
+
+    socket.on('join_student', (studentId) => {
+      if (studentId) {
+        socket.join(`user:${studentId}`);
+        socket.join(`student:${studentId}`);
+      }
+    });
 
     socket.on('subscribe_hostel', (hostel) => {
       if (typeof hostel === 'string' && ['BH1', 'BH2', 'GH', 'ALL'].includes(hostel.toUpperCase())) {
@@ -114,33 +147,90 @@ const initSocketIO = (httpServer) => {
 };
 
 /**
+ * Server-Sent Events (SSE) Client Registry for Students
+ * Guarantees real-time push even if WebSockets are blocked by proxies
+ */
+const sseClients = new Map(); // studentId -> Set(res)
+
+const addSseClient = (studentId, res) => {
+  const idStr = String(studentId);
+  if (!sseClients.has(idStr)) {
+    sseClients.set(idStr, new Set());
+  }
+  sseClients.get(idStr).add(res);
+};
+
+const removeSseClient = (studentId, res) => {
+  const idStr = String(studentId);
+  const clientSet = sseClients.get(idStr);
+  if (clientSet) {
+    clientSet.delete(res);
+    if (clientSet.size === 0) sseClients.delete(idStr);
+  }
+};
+
+const sendSseScanEvent = (studentId, payload) => {
+  const idStr = String(studentId);
+  const clientSet = sseClients.get(idStr);
+  if (!clientSet || clientSet.size === 0) return;
+
+  const data = `event: scan_verified\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of clientSet) {
+    try {
+      res.write(data);
+    } catch (_) {
+      clientSet.delete(res);
+    }
+  }
+};
+
+/**
  * Get the Socket.IO instance (after initSocketIO has been called).
  */
 const getIO = () => _io;
 
 /**
- * Broadcast a scan result to all connected dashboard and scanner clients.
+ * Broadcast a scan result to student dashboard (instant popup), wardens, and scanners.
  * @param {object} scanResult  - The full scan result from gateScan handler
- * @param {string} hostel      - The hostel of the scanned student (for targeted broadcast)
+ * @param {string|null} studentId - Target student ID for instant private popup delivery
+ * @param {string} hostel      - The hostel of the scanned student
  */
-const broadcastScanResult = (scanResult, hostel = 'ALL') => {
-  if (!_io) return;
+const broadcastScanResult = (scanResult, studentId = null, hostel = 'ALL') => {
+  if (!_io && sseClients.size === 0) return;
 
   const payload = {
     ...scanResult,
-    timestamp: new Date().toISOString(),
+    timestamp: scanResult?.log?.timestamp || scanResult?.timestamp || new Date().toISOString(),
   };
 
-  // Broadcast to all dashboard viewers
-  _io.of('/dashboard').emit('scan_result', payload);
+  // 1. Direct, instant dispatch to the scanned student (Socket.IO + SSE)
+  const targetId = studentId || scanResult?.student?._id || scanResult?.student?.id || scanResult?.log?.student_id;
+  if (targetId) {
+    const sId = targetId.toString();
 
-  // Broadcast to hostel-specific room if applicable
-  if (hostel && hostel !== 'ALL') {
-    _io.of('/dashboard').to(`hostel:${hostel}`).emit('scan_result', payload);
+    // Emit scan_verified directly to private student rooms across namespaces
+    if (_io) {
+      _io.to(`user:${sId}`).emit('scan_verified', payload);
+      _io.to(`student:${sId}`).emit('scan_verified', payload);
+      _io.of('/dashboard').to(`user:${sId}`).emit('scan_verified', payload);
+      _io.of('/scanner').to(`user:${sId}`).emit('scan_verified', payload);
+    }
+
+    // Push to SSE listeners
+    sendSseScanEvent(sId, payload);
   }
 
-  // Broadcast to all scanner screens (so other guards see peer activity)
-  _io.of('/scanner').emit('scan_result', payload);
+  // 2. Broadcast to dashboard and scanner clients
+  if (_io) {
+    _io.emit('scan_result', payload);
+    _io.of('/dashboard').emit('scan_result', payload);
+
+    if (hostel && hostel !== 'ALL') {
+      _io.of('/dashboard').to(`hostel:${hostel}`).emit('scan_result', payload);
+    }
+
+    _io.of('/scanner').emit('scan_result', payload);
+  }
 };
 
 /**
@@ -182,4 +272,7 @@ module.exports = {
   broadcastOccupancyUpdate,
   broadcastQrPendingUpdate,
   getConnectedClientCount,
+  addSseClient,
+  removeSseClient,
+  sendSseScanEvent,
 };

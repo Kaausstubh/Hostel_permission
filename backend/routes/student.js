@@ -835,4 +835,34 @@ router.put('/photo', async (req, res) => {
   }
 });
 
+// ── GET /scan-stream ─────────────────────────────────────────────────────────
+// Real-time Server-Sent Events (SSE) stream for near-zero latency gate scan events
+router.get('/scan-stream', (req, res) => {
+  const studentId = req.user._id.toString();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', studentId })}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (_) {
+      clearInterval(heartbeat);
+    }
+  }, 20000);
+
+  const { addSseClient, removeSseClient } = require('../services/socketService');
+  addSseClient(studentId, res);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    removeSseClient(studentId, res);
+  });
+});
+
 module.exports = router;

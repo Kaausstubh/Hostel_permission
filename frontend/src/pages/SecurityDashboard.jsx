@@ -464,6 +464,7 @@ export default function SecurityDashboard() {
         setScannerStatus(
           blockedTokenUntilClearRef.current ? MOVE_QR_STATUS : READY_STATUS
         );
+        resumeLiveScanner();
       }
     }, feedbackMs);
   };
@@ -563,6 +564,10 @@ export default function SecurityDashboard() {
         }
         if (isProcessingScanRef.current) return;
         if (shouldIgnoreRecentScan(normalized)) return;
+
+        // Instant lock & hardware pause: stops further video frame analysis immediately
+        isProcessingScanRef.current = true;
+        pauseLiveScanner();
         setScannerStatus('QR detected — verifying...');
         await processToken(normalized);
       };
@@ -757,6 +762,7 @@ export default function SecurityDashboard() {
   const dismissResult = () => {
     setResult(null);
     setScanTone('idle');
+    resumeLiveScanner();
 
     if (scanning) {
       setScannerStatus(
@@ -784,11 +790,19 @@ export default function SecurityDashboard() {
 
   const processToken = async (token) => {
     const normalized = normalizeToken(token);
-    if (!normalized) return;
-    if (isProcessingScanRef.current) return;
-    if (shouldIgnoreRecentScan(normalized)) return;
+    if (!normalized) {
+      isProcessingScanRef.current = false;
+      resumeLiveScanner();
+      return;
+    }
+    if (shouldIgnoreRecentScan(normalized)) {
+      isProcessingScanRef.current = false;
+      resumeLiveScanner();
+      return;
+    }
 
     isProcessingScanRef.current = true;
+    pauseLiveScanner();
     setLoading(true);
     setResult(null);
     let feedbackTone = 'idle';
