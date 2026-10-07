@@ -56,9 +56,23 @@ const invalidateLogsCache = async () => {
     memCache.clear();
     const redis = await getRedis();
     if (redis) {
-      const keys = await redis.keys('logs:*');
-      if (keys && keys.length > 0) {
-        await redis.del(keys);
+      if (typeof redis.scanIterator === 'function') {
+        const keysToDelete = [];
+        for await (const key of redis.scanIterator({ MATCH: 'logs:*', COUNT: 100 })) {
+          keysToDelete.push(key);
+          if (keysToDelete.length >= 100) {
+            await redis.del(keysToDelete);
+            keysToDelete.length = 0;
+          }
+        }
+        if (keysToDelete.length > 0) {
+          await redis.del(keysToDelete);
+        }
+      } else {
+        const keys = await redis.keys('logs:*');
+        if (keys && keys.length > 0) {
+          await redis.del(keys);
+        }
       }
     }
   } catch (err) {

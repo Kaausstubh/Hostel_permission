@@ -39,7 +39,7 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
       student_id: studentId,
       date: todayStr(),
       returned: false,
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 }).lean();
 
     if (activeSession) {
       const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRFromToken(

@@ -15,7 +15,7 @@ const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
  * @returns {Promise<{ processed: number, alerted: string[] }>}
  */
 const runNotReturnedAlert = async () => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
   console.log(`\n🔔 [CRON] Running not-returned alert job for ${today}...`);
 
@@ -25,20 +25,22 @@ const runNotReturnedAlert = async () => {
     returned: false,
     date: today,
     alertSent: false,
-  }).populate('student_id', 'name phone rollNumber hostel parentPhone');
+  }).populate('student_id', 'name phone rollNo hostel parentPhone').lean();
 
   console.log(`   Found ${logs.length} student(s) not returned.`);
 
   // Find warden(s) to notify
-  const wardens = await User.find({ role: 'warden' }).select('phone name');
+  const wardens = await User.find({ role: 'warden' }).select('phone name').lean();
 
   const alertedStudents = [];
+  const processedLogIds = [];
 
   for (const log of logs) {
     const student = log.student_id;
     if (!student) continue;
 
     const exitTime = new Date(log.timestamp).toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -54,21 +56,28 @@ const runNotReturnedAlert = async () => {
 
       // ── Alert to WARDEN(s) ────────────────────────────────────────────────
       for (const warden of wardens) {
+        if (!warden.phone) continue;
         await enqueueWhatsAppMessage({
           to: warden.phone,
-          body: `🚨 *RETURN ALERT — Action Required*\n\nStudent: *${student.name}*\nRoll No: ${student.rollNumber || 'N/A'}\nHostel: ${student.hostel || 'N/A'}\nExit Time: ${exitTime}\n\nThis student checked OUT at ${exitTime} and has *NOT returned* today.\n\nPlease take necessary action.`,
+          body: `🚨 *RETURN ALERT — Action Required*\n\nStudent: *${student.name}*\nRoll No: ${student.rollNo || 'N/A'}\nHostel: ${student.hostel || 'N/A'}\nExit Time: ${exitTime}\n\nThis student checked OUT at ${exitTime} and has *NOT returned* today.\n\nPlease take necessary action.`,
         });
       }
 
-      // Mark alert sent to prevent duplicate alerts
-      log.alertSent = true;
-      await log.save();
-
+      // Collect log ID for bulk update
+      processedLogIds.push(log._id);
       alertedStudents.push(student.name);
-      console.log(`   ✅ Alert sent for student: ${student.name} (${student.phone})`);
+      console.log(`   ✅ Alert queued for student: ${student.name} (${student.phone || 'no phone'})`);
     } catch (err) {
       console.error(`   ❌ Failed to alert for ${student.name}: ${err.message}`);
     }
+  }
+
+  // Atomically update all processed logs in a single database operation
+  if (processedLogIds.length > 0) {
+    await InOutLog.updateMany(
+      { _id: { $in: processedLogIds } },
+      { $set: { alertSent: true } }
+    );
   }
 
   console.log(`🔔 [CRON] Job complete. Alerted: [${alertedStudents.join(', ')}]\n`);

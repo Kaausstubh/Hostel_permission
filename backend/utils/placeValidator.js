@@ -101,6 +101,9 @@ const isValidResult = (r) => {
   return false;
 };
 
+const GEO_CACHE = new Map();
+const MAX_GEO_CACHE = 500;
+
 const validatePlaceGeo = async (placeName) => {
   const name = String(placeName || '').trim();
   if (name.length < 3 || name.length > 150) return false;
@@ -110,7 +113,22 @@ const validatePlaceGeo = async (placeName) => {
     return true;
   }
 
-  // 2. Query OSM Nominatim API for global cities, towns, villages, states, and countries
+  // 2. Check LRU memory cache
+  const cacheKey = name.toLowerCase();
+  if (GEO_CACHE.has(cacheKey)) {
+    return GEO_CACHE.get(cacheKey);
+  }
+
+  const setCachedGeo = (val) => {
+    if (GEO_CACHE.size >= MAX_GEO_CACHE) {
+      const oldest = GEO_CACHE.keys().next().value;
+      GEO_CACHE.delete(oldest);
+    }
+    GEO_CACHE.set(cacheKey, val);
+    return val;
+  };
+
+  // 3. Query OSM Nominatim API for global cities, towns, villages, states, and countries
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&addressdetails=1&limit=5`;
     const res = await fetch(url, {
@@ -122,19 +140,20 @@ const validatePlaceGeo = async (placeName) => {
     
     if (!res.ok) {
       console.warn(`Nominatim API geocoder returned status ${res.status}. Falling back to local validation result.`);
-      return isValidPlace(name);
+      return setCachedGeo(isValidPlace(name));
     }
     
     const data = await res.json();
     if (data && data.length > 0) {
       // Check if at least one result in the top 5 represents a valid geographic/place destination
-      return data.some(r => isValidResult(r));
+      const valid = data.some(r => isValidResult(r));
+      return setCachedGeo(valid);
     }
-    return false;
+    return setCachedGeo(false);
   } catch (err) {
     console.error('Error during Nominatim geocoding validation:', err.message);
     // On network failure/timeout, fallback to the local dictionary check so the app remains offline-resilient
-    return isValidPlace(name);
+    return setCachedGeo(isValidPlace(name));
   }
 };
 
