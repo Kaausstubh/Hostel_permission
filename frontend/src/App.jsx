@@ -228,7 +228,16 @@ function AppRoutes() {
 }
 
 export default function App() {
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(() => {
+    try {
+      const shown = sessionStorage.getItem('heimdall_splash_shown');
+      if (shown) return false;
+      sessionStorage.setItem('heimdall_splash_shown', 'true');
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   return (
     <ErrorBoundary>

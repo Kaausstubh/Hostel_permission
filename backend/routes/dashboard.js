@@ -156,9 +156,9 @@ router.delete('/students/:id', protect, authorize('warden', 'admin'), async (req
 
     // Cascade delete associated operational records
     await Promise.all([
-      InOutLog.deleteMany({ student: student._id }),
-      HomeVisitLog.deleteMany({ student: student._id }),
-      Complaint.deleteMany({ student: student._id }),
+      InOutLog.deleteMany({ $or: [{ student_id: student._id }, { student: student._id }] }),
+      HomeVisitLog.deleteMany({ $or: [{ student_id: student._id }, { student: student._id }] }),
+      Complaint.deleteMany({ $or: [{ student_id: student._id }, { student: student._id }] }),
       User.findByIdAndDelete(student._id),
     ]);
 

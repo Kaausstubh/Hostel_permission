@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
-import iiitLogo from '../assets/iiitpune-logo.png';
+import iiitLogo from '../assets/iiitpune-logo.webp';
 
 // Google logo SVG (inline — no external dependency)
 const GoogleIcon = () => (

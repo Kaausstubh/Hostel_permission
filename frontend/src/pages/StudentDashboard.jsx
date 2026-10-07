@@ -31,7 +31,7 @@ import {
   MdRefresh,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
-import iiitLogo from '../assets/iiitpune-logo.png';
+import iiitLogo from '../assets/iiitpune-logo.webp';
 import StudentAvatar from '../components/StudentAvatar';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1494,10 +1494,28 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!user) return;
     checkActivePassSilently();
+    // ⚡ Performance: Poll every 8s when active, pause when tab is hidden to save battery & network
     const interval = setInterval(() => {
-      checkActivePassSilently();
-    }, 2500);
-    return () => clearInterval(interval);
+      if (typeof document !== 'undefined' && !document.hidden) {
+        checkActivePassSilently();
+      }
+    }, 8000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        checkActivePassSilently();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [user, checkActivePassSilently]);
 
   const handleQuickViewQR = async () => {

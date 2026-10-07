@@ -226,8 +226,27 @@ export default function SecurityDashboard() {
 
   useEffect(() => {
     fetchPendingQRs();
-    const interval = setInterval(fetchPendingQRs, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        fetchPendingQRs();
+      }
+    }, 5000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        fetchPendingQRs();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, []);
 
   // ── Scanner Controls ──────────────────────────────────────────────────────

@@ -11,15 +11,15 @@
  *   2600ms→ onDone() fires, splash unmounts
  */
 import { useEffect, useState } from 'react';
-import iiitLogo from '../assets/iiitpune-logo.png';
+import iiitLogo from '../assets/iiitpune-logo.webp';
 
 export default function SplashScreen({ onDone }) {
   const [phase, setPhase] = useState('enter'); // enter | exit
 
   useEffect(() => {
-    // Phase timeline
-    const exitTimer  = setTimeout(() => setPhase('exit'),  2100);
-    const doneTimer  = setTimeout(() => onDone(),          2700);
+    // ⚡ Swift transition — avoid artificial delays
+    const exitTimer  = setTimeout(() => setPhase('exit'),  400);
+    const doneTimer  = setTimeout(() => onDone(),          750);
     return () => { clearTimeout(exitTimer); clearTimeout(doneTimer); };
   }, [onDone]);
 
