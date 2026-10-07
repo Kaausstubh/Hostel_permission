@@ -10,7 +10,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import api from '../services/api';
+import api, { prewarmApiConnection } from '../services/api';
 import toast from 'react-hot-toast';
 
 import {
@@ -71,8 +71,14 @@ export default function Onboarding() {
   const [verifyingFace, setVerifyingFace] = useState(false);
   const [faceError, setFaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [showTermsModal, setShowTermsModal] = useState(false);
+
+  // Prewarm backend on mount while student is completing profile details
+  useEffect(() => {
+    prewarmApiConnection();
+  }, []);
 
   // Live camera states
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -286,17 +292,22 @@ export default function Onboarding() {
     }
 
     setSubmitting(true);
+    setSubmitError('');
     try {
-      const res = await api.put('/student/onboard', {
-        name: name.trim(),
-        rollNo: rollNo.trim().toUpperCase(),
-        phone: phoneCheck.e164,
-        parentPhone: parentCheck.e164,
-        parentPhone2: parent2Check.e164,
-        hostel,
-        roomNo: roomNo.trim(),
-        photo,
-      });
+      const res = await api.put(
+        '/student/onboard',
+        {
+          name: name.trim(),
+          rollNo: rollNo.trim().toUpperCase(),
+          phone: phoneCheck.e164,
+          parentPhone: parentCheck.e164,
+          parentPhone2: parent2Check.e164,
+          hostel,
+          roomNo: roomNo.trim(),
+          photo,
+        },
+        { timeout: 60000 }
+      );
 
       if (res.data?.success) {
         // Update user state globally in AuthContext
@@ -308,7 +319,18 @@ export default function Onboarding() {
       }
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || 'Failed to submit onboarding details. Please try again.');
+      let errorMsg = err.response?.data?.message;
+      if (!errorMsg) {
+        if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+          errorMsg = 'Request timed out while connecting to the server. The server was waking up — please try again now.';
+        } else if (!err.response) {
+          errorMsg = 'Network error or backend waking up. Please wait a moment and try tapping Submit again.';
+        } else {
+          errorMsg = 'Failed to submit onboarding details. Please try again.';
+        }
+      }
+      setSubmitError(errorMsg);
+      toast.error(errorMsg, { duration: 6000 });
     } finally {
       setSubmitting(false);
     }
@@ -902,6 +924,29 @@ export default function Onboarding() {
             , Curfew Rules (8:00 PM), mandatory biometric / QR gate scanning protocol, and student code of conduct.
           </label>
         </div>
+
+        {/* Submission Error Banner */}
+        {submitError && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              color: '#fca5a5',
+              fontSize: '12px',
+              lineHeight: '1.4',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginTop: '4px',
+              marginBottom: '2px',
+            }}
+          >
+            <MdErrorOutline size={18} style={{ flexShrink: 0, color: '#ef4444' }} />
+            <span>{submitError}</span>
+          </div>
+        )}
 
         {/* Submit button */}
         <button

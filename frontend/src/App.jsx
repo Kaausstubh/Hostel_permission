@@ -4,7 +4,7 @@
  * All pages are lazy-loaded to minimise the initial bundle.
  */
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -66,6 +66,7 @@ function PageLoader() {
 // ─── Protected Route Wrapper ──────────────────────────────────────────────────
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
   const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'));
 
   if (loading) return <PageLoader />;
@@ -81,7 +82,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   // Student onboarding redirection guard — triggers ONLY ONCE at initial registration
   if (user.role === 'student') {
     const needsOnboard = !user.rollNo || !user.hostel || !user.phone || !user.parentPhone;
-    const isCurrentlyOnboarding = window.location.pathname === '/onboarding';
+    const isCurrentlyOnboarding = location.pathname === '/onboarding';
 
     if (needsOnboard && !isCurrentlyOnboarding) {
       return <Navigate to="/onboarding" replace />;
