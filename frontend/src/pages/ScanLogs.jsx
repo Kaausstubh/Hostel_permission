@@ -951,7 +951,16 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
+                        {(log.student_id?.roomNo || log.roomNo) && (
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            Room {log.student_id?.roomNo || log.roomNo}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <span className={`badge ${log.status === 'IN' ? 'badge-in' : 'badge-out'}`}>
                         {log.status === 'IN' ? '🚪 IN' : '🔓 OUT'}
@@ -1045,7 +1054,16 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{getHostelLabel(visit.student_id?.hostel || visit.hostel)}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span className="badge badge-out">{getHostelLabel(visit.student_id?.hostel || visit.hostel)}</span>
+                        {(visit.student_id?.roomNo || visit.roomNo) && (
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            Room {visit.student_id?.roomNo || visit.roomNo}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{visit.place || '—'}</td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={visit.reason}>
                       {visit.reason || '—'}

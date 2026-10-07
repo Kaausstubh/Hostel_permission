@@ -208,7 +208,16 @@ export default function HomeVisits() {
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge badge-out">{getHostelLabel(v.student_id?.hostel || v.hostel)}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span className="badge badge-out">{getHostelLabel(v.student_id?.hostel || v.hostel)}</span>
+                        {(v.student_id?.roomNo || v.roomNo) && (
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            Room {v.student_id?.roomNo || v.roomNo}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{v.place || '—'}</td>
                     <td style={{ maxWidth: 180, color: 'var(--text-secondary)', fontSize: 13 }} title={v.reason}>
                       {v.reason ? (v.reason.substring(0, 60) + (v.reason.length > 60 ? '...' : '')) : '—'}

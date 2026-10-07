@@ -261,13 +261,13 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     }
 
     const studentSelect = req.user.role === 'security'
-      ? 'name rollNo hostel'
-      : 'name rollNo hostel phone parentPhone';
+      ? 'name rollNo hostel roomNo'
+      : 'name rollNo hostel roomNo phone parentPhone';
 
     // ⚡ Lean projection: only load fields needed by UI to minimize memory & payload footprint
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
-        .select('_id student_id name rollNo hostel place status out_time in_time timestamp date returned scanned_by_name scannedBy')
+        .select('_id student_id name rollNo hostel roomNo place status out_time in_time timestamp date returned scanned_by_name scannedBy')
         .populate('student_id', studentSelect)
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })

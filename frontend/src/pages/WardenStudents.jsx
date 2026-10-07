@@ -118,6 +118,7 @@ export default function WardenStudents() {
       return (
         student.name?.toLowerCase().includes(q) ||
         student.rollNo?.toLowerCase().includes(q) ||
+        student.roomNo?.toLowerCase().includes(q) ||
         student.hostel?.toLowerCase().includes(q) ||
         hostelLabel.toLowerCase().includes(q) ||
         student.email?.toLowerCase().includes(q)
@@ -320,6 +321,7 @@ export default function WardenStudents() {
                     <th>Student Name</th>
                     <th>Roll Number</th>
                     <th>Hostel</th>
+                    <th>Room</th>
                     <th>Contact Info</th>
                     <th>Joined</th>
                     {user?.role === 'warden' && <th>Action</th>}
@@ -343,16 +345,30 @@ export default function WardenStudents() {
                         </td>
                         <td>
                           {student.hostel ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
-                              {student.roomNo && (
-                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                  Room {student.roomNo}
-                                </span>
-                              )}
-                            </div>
+                            <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>
+                          )}
+                        </td>
+                        <td>
+                          {student.roomNo ? (
+                            <span
+                              style={{
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontWeight: 700,
+                                fontSize: 12.5,
+                                color: 'var(--text-primary)',
+                                background: 'rgba(99, 102, 241, 0.12)',
+                                border: '1px solid rgba(99, 102, 241, 0.28)',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                display: 'inline-block',
+                              }}
+                            >
+                              Room {student.roomNo}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
                           )}
                         </td>
                         <td>

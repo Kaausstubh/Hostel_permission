@@ -112,6 +112,7 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { rollNo: { $regex: search, $options: 'i' } },
+        { roomNo: { $regex: search, $options: 'i' } },
       ];
     }
 

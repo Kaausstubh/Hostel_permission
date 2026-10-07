@@ -112,7 +112,16 @@ export default function StudentsOut() {
                           </div>
                         </div>
                       </td>
-                      <td><span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span></td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
+                          {(log.student_id?.roomNo || log.roomNo) && (
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                              Room {log.student_id?.roomNo || log.roomNo}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>
                         {exitTime.toLocaleTimeString('en-IN')}
                       </td>

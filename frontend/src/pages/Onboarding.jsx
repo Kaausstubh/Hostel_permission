@@ -71,7 +71,7 @@ export default function Onboarding() {
   const [verifyingFace, setVerifyingFace] = useState(false);
   const [faceError, setFaceError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(true);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
   // Live camera states
@@ -793,7 +793,7 @@ export default function Onboarding() {
                 <MdMeetingRoom size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
-                  placeholder="e.g. 101 or B-204"
+                  placeholder="e.g. 101"
                   value={roomNo}
                   onChange={(e) => setRoomNo(e.target.value)}
                   required

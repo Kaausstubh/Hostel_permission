@@ -404,8 +404,8 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     // ⚡ Lean projection: load only fields rendered in the table to minimize response payload
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .select('_id student_id name rollNo hostel place reason leave_date return_date parentPhone parentPhone2 overall_status parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy createdAt')
-        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
+        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy createdAt')
+        .populate('student_id', 'name rollNo hostel roomNo parentPhone parentPhone2')
         .populate('scannedBy', 'name')
         .sort({ createdAt: -1 })
         .skip(skip)
