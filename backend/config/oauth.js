@@ -27,57 +27,19 @@ const STUDENT_ALLOWED_DOMAINS = [
 
 // ── Hostel Staff (Warden) email whitelist ─────────────────────────────────────
 // Authorized emails permitted to log in to the Hostel Staff Command Centre.
-const HOSTEL_STAFF_ALLOWED_EMAILS = [
-  'laxmanshinde@iiitp.ac.in',
-  'angadborge691@gmail.com',
-  'saurabhkumar78540@gmail.com',
-  'navinthakur@iiitp.ac.in',
-  // 'kirti.more@iiitp.ac.in',
-  // 'minakshi@iiitp.ac.in',
-  'kaaustubhkhandare@gmail.com',
-  'sjyotik2005@gmail.com',
-  'aniketwandre2914@gmail.com',
-  'parthrajsolanke@gmail.com',
-  'mohitmoksh810@gmail.com',
-  'abhimanyukadampatil0000@gmail.com',
-  'mahesh.joshi@iiitp.ac.in',
-];
-
-// Loaded from env (comma-separated), falling back to HOSTEL_STAFF_ALLOWED_EMAILS.
-const envWardenEmails = (process.env.WARDEN_ALLOWED_EMAILS || '')
+// Loaded from environment variable WARDEN_ALLOWED_EMAILS (comma-separated).
+const WARDEN_ALLOWED_EMAILS = (process.env.WARDEN_ALLOWED_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
-
-const WARDEN_ALLOWED_EMAILS = envWardenEmails.length > 0
-  ? envWardenEmails
-  : HOSTEL_STAFF_ALLOWED_EMAILS;
 
 // ── Security Guard email whitelist ────────────────────────────────────────────
 // Authorized emails permitted to log in to the Security Gate Portal.
-const SECURITY_GUARD_ALLOWED_EMAILS = [
-  'kaaustubhkhandare@gmail.com',
-  'sjyotik2005@gmail.com',
-  'aniketwandre2914@gmail.com',
-  'parthrajsolanke@gmail.com',
-  'mohitmoksh810@gmail.com',
-  'pallavideshpande842@gmail.com',
-  'maheshmali3577@gmail.com',
-  'dipalithorat757@gmail.com',
-  'debajeamol78@gmail.com',
-  'pankajpal421996@gmail.com',
-  'rathoddatta223@gmail.com',
-];
-
-// Loaded from env (comma-separated), falling back to SECURITY_GUARD_ALLOWED_EMAILS.
-const envSecurityEmails = (process.env.SECURITY_ALLOWED_EMAILS || '')
+// Loaded from environment variable SECURITY_ALLOWED_EMAILS (comma-separated).
+const SECURITY_ALLOWED_EMAILS = (process.env.SECURITY_ALLOWED_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
-
-const SECURITY_ALLOWED_EMAILS = envSecurityEmails.length > 0
-  ? envSecurityEmails
-  : SECURITY_GUARD_ALLOWED_EMAILS;
 
 // ── Validators ────────────────────────────────────────────────────────────────
 

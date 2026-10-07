@@ -44,22 +44,12 @@ async function seed() {
   await mongoose.connect(config.mongoUri, { maxPoolSize: 50 });
   const db = mongoose.connection.db;
 
-  // Protected emails that must NEVER be touched
+  // Protected emails that must NEVER be touched (dynamically loaded from .env)
   const PROTECTED_EMAILS = [
-    'kaaustubhkhandare@gmail.com',
-    'laxmanshinde@iiitp.ac.in',
-    'angadborge691@gmail.com',
-    'saurabhkumar78540@gmail.com',
-    'navinthakur@iiitp.ac.in',
-    'kirti.more@iiitp.ac.in',
-    'minakshi@iiitp.ac.in',
-    'sjyotik2005@gmail.com',
-    'aniketwandre2914@gmail.com',
-    'parthrajsolanke@gmail.com',
-    'mohitmoksh810@gmail.com',
-    'mahesh.joshi@iiitp.ac.in',
+    ...(process.env.WARDEN_ALLOWED_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()),
+    ...(process.env.SECURITY_ALLOWED_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()),
     'security@campus.edu',
-  ];
+  ].filter(Boolean);
 
   console.log('🧹 Purging any existing synthetic test data (loadTest: true)...');
   const deleteResult = await db.collection('users').deleteMany({
