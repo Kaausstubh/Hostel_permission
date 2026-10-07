@@ -16,7 +16,7 @@ const BYTES_PER_MB = 1024 * 1024;
 // ⚡ High-speed in-memory cache to prevent repeated database commands
 let cachedStats = null;
 let lastCacheTimestamp = 0;
-const CACHE_TTL_MS = 30 * 1000; // 30s cache
+const CACHE_TTL_MS = 60 * 1000; // 60s cache
 
 const invalidateStorageCache = () => {
   cachedStats = null;

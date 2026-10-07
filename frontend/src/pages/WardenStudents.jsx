@@ -2,31 +2,63 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline } from 'react-icons/md';
+import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline, MdRefresh } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
 
 export default function WardenStudents() {
   const { user } = useAuth();
-  const [students, setStudents] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [students, setStudents] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_warden_students');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [totalCount, setTotalCount] = useState(() => {
+    try {
+      const cachedCount = sessionStorage.getItem('heimdall_warden_students_count');
+      return cachedCount ? Number(cachedCount) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_warden_students');
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHostel, setSelectedHostel] = useState('ALL');
 
   const fetchStudents = async () => {
     try {
-      setLoading(true);
+      if (students.length === 0) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const res = await api.get('/dashboard/students?limit=2000');
       const studentList = res.data.students || [];
+      const countVal = res.data.count ?? studentList.length;
       setStudents(studentList);
-      setTotalCount(res.data.count ?? studentList.length);
+      setTotalCount(countVal);
+      try {
+        sessionStorage.setItem('heimdall_warden_students', JSON.stringify(studentList));
+        sessionStorage.setItem('heimdall_warden_students_count', String(countVal));
+      } catch {}
     } catch (err) {
       toast.error('Failed to load students list');
       console.error(err);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -86,20 +118,31 @@ export default function WardenStudents() {
               Comprehensive registry of institutional students enrolled in HEIMDALL campus management
             </div>
           </div>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 16px',
-            borderRadius: 'var(--radius-md)',
-            background: 'rgba(99, 102, 241, 0.12)',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
-          }}>
-            <MdPeople size={20} style={{ color: 'var(--primary-light)' }} />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Total Registered:</span>
-            <strong style={{ fontSize: 16, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
-              {loading ? '…' : totalRegistered}
-            </strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={fetchStudents}
+              disabled={loading && students.length === 0}
+              title="Refresh students directory"
+            >
+              <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+            }}>
+              <MdPeople size={20} style={{ color: 'var(--primary-light)' }} />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Total Registered:</span>
+              <strong style={{ fontSize: 16, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                {loading && students.length === 0 ? '…' : totalRegistered}
+              </strong>
+            </div>
           </div>
         </div>
 
@@ -244,7 +287,7 @@ export default function WardenStudents() {
             </div>
           </div>
 
-          {loading ? (
+          {(loading && students.length === 0) ? (
             <div className="loading-page" style={{ minHeight: 200 }}>
               <div className="loading-spinner" />
             </div>

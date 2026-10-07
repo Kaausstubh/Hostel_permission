@@ -6,24 +6,56 @@ import { MdWarning, MdRefresh, MdPhone, MdAccessTime, MdInfoOutline } from 'reac
 import { getHostelLabel } from '../utils/hostel';
 
 export default function NotReturned() {
-  const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [students, setStudents] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_not_returned_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !sessionStorage.getItem('heimdall_not_returned_cache');
+    } catch {
+      return true;
+    }
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [triggering, setTriggering] = useState(false);
-  const [curfewInfo, setCurfewInfo] = useState({ curfewTime: '8:00 PM', isPastCurfew: false });
+  const [curfewInfo, setCurfewInfo] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_curfew_info_cache');
+      return cached ? JSON.parse(cached) : { curfewTime: '8:00 PM', isPastCurfew: false };
+    } catch {
+      return { curfewTime: '8:00 PM', isPastCurfew: false };
+    }
+  });
 
   const fetchNotReturned = async () => {
     try {
-      setLoading(true);
+      if (students.length === 0) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const res = await api.get('/inout/not-returned');
-      setStudents(res.data.students || []);
-      setCurfewInfo({
+      const fetchedStudents = res.data.students || [];
+      const newCurfewInfo = {
         curfewTime: res.data.curfewTime || '8:00 PM',
         isPastCurfew: Boolean(res.data.isPastCurfew),
-      });
+      };
+      setStudents(fetchedStudents);
+      setCurfewInfo(newCurfewInfo);
+      try {
+        sessionStorage.setItem('heimdall_not_returned_cache', JSON.stringify(fetchedStudents));
+        sessionStorage.setItem('heimdall_curfew_info_cache', JSON.stringify(newCurfewInfo));
+      } catch {}
     } catch (err) {
       toast.error('Failed to fetch data');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -105,8 +137,8 @@ export default function NotReturned() {
             </div>
           </div>
           <div className="section-actions">
-            <button className="btn btn-ghost btn-sm" onClick={fetchNotReturned} disabled={loading}>
-              <MdRefresh size={16} /> Refresh
+            <button className="btn btn-ghost btn-sm" onClick={fetchNotReturned} disabled={loading && students.length === 0}>
+              <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </button>
             <button className="btn btn-danger btn-sm" onClick={triggerAlertManually} disabled={triggering}>
               {triggering
@@ -117,7 +149,7 @@ export default function NotReturned() {
           </div>
         </div>
 
-        {loading ? (
+        {(loading && students.length === 0) ? (
           <div className="loading-page">
             <div className="loading-spinner" style={{ width: 40, height: 40 }} />
           </div>

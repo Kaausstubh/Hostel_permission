@@ -23,22 +23,56 @@ const statusBadge = (status) => {
 };
 
 export default function HomeVisits() {
-  const [visits, setVisits] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [visits, setVisits] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_home_visits_cache_all');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_home_visits_cache_all');
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
   const [actioning, setActioning] = useState(null);
 
   const fetchVisits = async () => {
     try {
-      setLoading(true);
+      if (visits.length === 0) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const params = filter !== 'all' ? `?status=${filter}` : '';
       const res = await api.get(`/homevisit/list${params}`);
-      setVisits(res.data.visits);
+      const fetchedVisits = res.data.visits || [];
+      setVisits(fetchedVisits);
+      try {
+        sessionStorage.setItem(`heimdall_home_visits_cache_${filter}`, JSON.stringify(fetchedVisits));
+      } catch {}
     } catch (err) {
       toast.error('Failed to fetch home visits');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+    try {
+      const cached = sessionStorage.getItem(`heimdall_home_visits_cache_${newFilter}`);
+      if (cached) {
+        setVisits(JSON.parse(cached));
+      }
+    } catch {}
   };
 
   useEffect(() => { fetchVisits(); }, [filter]);
@@ -116,8 +150,8 @@ export default function HomeVisits() {
             <div className="section-title"><MdHome /> Home Visit Requests</div>
             <div className="section-subtitle">{visits.length} request(s) shown</div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchVisits} disabled={loading}>
-            <MdRefresh size={16} /> Refresh
+          <button className="btn btn-ghost btn-sm" onClick={fetchVisits} disabled={loading && visits.length === 0}>
+            <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
@@ -127,14 +161,14 @@ export default function HomeVisits() {
             <button
               key={f}
               className={`tab ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
+              onClick={() => handleFilterChange(f)}
             >
               {f.replace('_', ' ')}
             </button>
           ))}
         </div>
 
-        {loading ? (
+        {(loading && visits.length === 0) ? (
           <div className="loading-page"><div className="loading-spinner" style={{ width: 40, height: 40 }} /></div>
         ) : visits.length === 0 ? (
           <div className="empty-state">

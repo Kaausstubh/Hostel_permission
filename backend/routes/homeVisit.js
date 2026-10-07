@@ -390,23 +390,23 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const filter = conditions.length > 1 ? { $and: conditions } : (conditions[0] || {});
 
-    const visits = await HomeVisitLog.find(filter)
-      .select('-student_photo')
-      .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
-      .populate('scannedBy', 'name')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    const [visits, count] = await Promise.all([
+      HomeVisitLog.find(filter)
+        .select('-student_photo')
+        .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
+        .populate('scannedBy', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      (conditions.length === 0 && skip === 0)
+        ? null
+        : (conditions.length === 0
+            ? HomeVisitLog.estimatedDocumentCount()
+            : HomeVisitLog.countDocuments(filter)),
+    ]);
 
-    let count;
-    if (skip === 0 && visits.length < limit && conditions.length === 0) {
-      count = visits.length;
-    } else if (conditions.length === 0) {
-      count = await HomeVisitLog.estimatedDocumentCount();
-    } else {
-      count = await HomeVisitLog.countDocuments(filter);
-    }
+    const finalCount = count !== null ? count : visits.length;
 
     const sanitizedVisits = visits.map((visit) => {
       if (visit.student_id && visit.student_id._id) {
@@ -415,8 +415,8 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
       return visit;
     });
 
-    const responsePayload = { count, page, limit, visits: sanitizedVisits };
-    await setLogsCache(cacheKey, responsePayload, 15);
+    const responsePayload = { count: finalCount, page, limit, visits: sanitizedVisits };
+    await setLogsCache(cacheKey, responsePayload, 30);
 
     res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {

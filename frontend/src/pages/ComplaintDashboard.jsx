@@ -38,6 +38,7 @@ export default function ComplaintDashboard() {
       return true;
     }
   });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hostelFilter, setHostelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -46,7 +47,11 @@ export default function ComplaintDashboard() {
 
   const fetchComplaints = async () => {
     try {
-      if (complaints.length === 0) setLoading(true);
+      if (complaints.length === 0) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const params = new URLSearchParams();
       if (hostelFilter) params.append('hostel', hostelFilter);
       if (statusFilter) params.append('status', statusFilter);
@@ -62,6 +67,7 @@ export default function ComplaintDashboard() {
       toast.error('Failed to load complaints');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -101,8 +107,8 @@ export default function ComplaintDashboard() {
               {pending} pending · {resolved} resolved · {complaints.length} total
             </div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchComplaints} disabled={loading}>
-            <MdRefresh size={16} /> Refresh
+          <button className="btn btn-ghost btn-sm" onClick={fetchComplaints} disabled={loading && complaints.length === 0}>
+            <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
@@ -151,7 +157,7 @@ export default function ComplaintDashboard() {
           </select>
         </div>
 
-        {loading ? (
+        {(loading && complaints.length === 0) ? (
           <div className="loading-page"><div className="loading-spinner" style={{ width: 40, height: 40 }} /></div>
         ) : filteredComplaints.length === 0 ? (
           <div className="empty-state">

@@ -10,6 +10,7 @@ const express = require('express');
 const router = express.Router();
 const Complaint = require('../models/Complaint');
 const { protect, authorize } = require('../middleware/auth');
+const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
 const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
   const page = Math.max(parseInt(query.page || '1', 10), 1);
   const limit = Math.min(Math.max(parseInt(query.limit || String(defaultLimit), 10), 1), maxLimit);
@@ -52,6 +53,8 @@ router.post('/file', protect, authorize('student'), async (req, res) => {
       photo: trimmedPhoto,
       hasPhoto: Boolean(trimmedPhoto),
     });
+
+    await invalidateLogsCache();
 
     res.status(201).json({ success: true, message: 'Complaint filed successfully', complaint });
   } catch (error) {
@@ -133,65 +136,21 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
     if (hostel) filter.hostel = hostel;
     if (status) filter.status = status;
 
+    const cacheKey = `complaints:all:${hostel || 'all'}:${status || 'all'}:${page}:${limit}`;
+    const cached = await getLogsCache(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...cached, cached: true });
+    }
+
     const [complaints, count] = await Promise.all([
-      Complaint.aggregate([
-        { $match: filter },
-        { $sort: { timestamp: -1 } },
-        { $skip: skip },
-        { $limit: limit },
-        {
-          $addFields: {
-            hasPhoto: {
-              $cond: [
-                {
-                  $and: [
-                    { $ne: ['$photo', null] },
-                    { $ne: ['$photo', ''] },
-                    { $ne: [{ $type: '$photo' }, 'missing'] },
-                  ],
-                },
-                true,
-                false,
-              ],
-            },
-          },
-        },
-        { $project: { photo: 0 } },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'student_id',
-            foreignField: '_id',
-            pipeline: [
-              { $project: { name: 1, rollNo: 1, hostel: 1, phone: 1 } },
-            ],
-            as: 'student_arr',
-          },
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'resolvedBy',
-            foreignField: '_id',
-            pipeline: [
-              { $project: { name: 1 } },
-            ],
-            as: 'resolved_arr',
-          },
-        },
-        {
-          $addFields: {
-            student_id: { $arrayElemAt: ['$student_arr', 0] },
-            resolvedBy: { $arrayElemAt: ['$resolved_arr', 0] },
-          },
-        },
-        {
-          $project: {
-            student_arr: 0,
-            resolved_arr: 0,
-          },
-        },
-      ]),
+      Complaint.find(filter)
+        .select('-photo')
+        .populate('student_id', 'name rollNo hostel phone')
+        .populate('resolvedBy', 'name')
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       Complaint.countDocuments(filter),
     ]);
 
@@ -199,6 +158,7 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
       const studentId = c.student_id?._id;
       return {
         ...c,
+        hasPhoto: Boolean(c.hasPhoto),
         photoUrl: c.hasPhoto ? `/api/complaints/${c._id}/photo` : null,
         student_id: c.student_id ? {
           ...c.student_id,
@@ -207,7 +167,10 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
       };
     });
 
-    res.json({ success: true, count, page, limit, complaints: sanitizedComplaints });
+    const payload = { count, page, limit, complaints: sanitizedComplaints };
+    await setLogsCache(cacheKey, payload, 30);
+
+    res.json({ success: true, ...payload, cached: false });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -232,6 +195,8 @@ router.patch('/:id/resolve', protect, authorize('warden'), async (req, res) => {
     if (!complaint) {
       return res.status(404).json({ success: false, message: 'Complaint not found' });
     }
+
+    await invalidateLogsCache();
 
     res.json({ success: true, message: 'Complaint resolved', complaint });
   } catch (error) {

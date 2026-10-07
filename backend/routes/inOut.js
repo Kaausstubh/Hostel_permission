@@ -254,24 +254,23 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       ? 'name rollNo hostel'
       : 'name rollNo hostel phone parentPhone';
 
-    const logs = await InOutLog.find(filter)
-      .select('-student_photo')
-      .populate('student_id', studentSelect)
-      .populate('scannedBy', 'name rollNo email')
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    const [logs, count] = await Promise.all([
+      InOutLog.find(filter)
+        .select('-student_photo')
+        .populate('student_id', studentSelect)
+        .populate('scannedBy', 'name rollNo email')
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      (!date && !status && skip === 0)
+        ? null
+        : ((!date && !status)
+            ? InOutLog.estimatedDocumentCount()
+            : InOutLog.countDocuments(filter)),
+    ]);
 
-    // Fast count optimization: avoid full table scans when not strictly needed
-    let count;
-    if (skip === 0 && logs.length < limit && !date && !status) {
-      count = logs.length;
-    } else if (!date && !status) {
-      count = await InOutLog.estimatedDocumentCount();
-    } else {
-      count = await InOutLog.countDocuments(filter);
-    }
+    const finalCount = count !== null ? count : logs.length;
 
     const sanitizedLogs = logs.map((log) => {
       if (log.student_id && log.student_id._id) {
@@ -280,8 +279,8 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       return log;
     });
 
-    const responsePayload = { count, page, limit, logs: sanitizedLogs };
-    await setLogsCache(cacheKey, responsePayload, 15);
+    const responsePayload = { count: finalCount, page, limit, logs: sanitizedLogs };
+    await setLogsCache(cacheKey, responsePayload, 30);
 
     res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {

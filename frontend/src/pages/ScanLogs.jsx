@@ -42,6 +42,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       return true;
     }
   });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState(defaultTab);
@@ -71,6 +72,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         sessionStorage.setItem('heimdall_gate_logs_cache', JSON.stringify(fetchedLogs));
       } catch {}
     }
+    return fetchedLogs;
   };
 
   const fetchHomeLogs = async () => {
@@ -87,6 +89,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         sessionStorage.setItem('heimdall_home_logs_cache', JSON.stringify(fetchedLogs));
       } catch {}
     }
+    return fetchedLogs;
   };
 
   const [storageStats, setStorageStats] = useState(() => {
@@ -122,16 +125,21 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     }
   };
 
-  const fetchLogs = async (tabToPrioritize = activeTab) => {
+  const fetchLogs = async (forceBlocking = false) => {
+    const hasData = activeTab === 'gate' ? logs.length > 0 : homeLogs.length > 0;
+    if (!hasData || forceBlocking) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+
     try {
-      if ((tabToPrioritize === 'gate' && logs.length === 0) || (tabToPrioritize === 'home' && homeLogs.length === 0)) {
-        setLoading(true);
-      }
-      if (tabToPrioritize === 'gate') {
-        await fetchGateLogs();
-      } else {
-        await fetchHomeLogs();
-      }
+      // ⚡ Concurrently pre-fetch BOTH Gate Logs and Home Visit records in parallel
+      // This guarantees 0ms instantaneous tab switching between Gate and Home Visit logs!
+      await Promise.allSettled([
+        fetchGateLogs(),
+        fetchHomeLogs(),
+      ]);
     } catch (err) {
       console.warn('[ScanLogs] Fetch logs warning:', err.message);
       if (err.response?.status !== 401) {
@@ -139,14 +147,24 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => { 
-    fetchLogs(activeTab);
-  }, [dateFilter, statusFilter, activeTab]);
+    fetchLogs();
+  }, [dateFilter, statusFilter]);
+
+  // If user switches to a tab that doesn't have records yet, fetch it immediately
+  useEffect(() => {
+    if (activeTab === 'home' && homeLogs.length === 0) {
+      fetchHomeLogs();
+    } else if (activeTab === 'gate' && logs.length === 0) {
+      fetchGateLogs();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     // Only refresh storage stats if not cached or older than 60s
@@ -532,8 +550,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               disabled={loading || clearing}
               title="Refresh logs"
             >
-              <MdRefresh size={17} />
-              <span>Refresh</span>
+              <MdRefresh size={17} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+              <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </button>
           </div>
         </div>
@@ -850,7 +868,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
           </select>
         </div>
 
-        {loading ? (
+        {(loading && (activeTab === 'gate' ? logs.length === 0 : homeLogs.length === 0)) ? (
           <div className="loading-page"><div className="loading-spinner" style={{ width: 40, height: 40 }} /></div>
         ) : activeTab === 'gate' && logs.length === 0 ? (
           <div className="empty-state">

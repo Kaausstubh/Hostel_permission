@@ -12,6 +12,7 @@ const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
 const { protect, authorize } = require('../middleware/auth');
 const { getDashboardCache, setDashboardCache } = require('../services/dashboardCache');
+const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
 const logger = require('../utils/logger');
 const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
 
@@ -94,16 +95,23 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
 // ── Student List ──────────────────────────────────────────────────────────────
 router.get('/students', protect, authorize('warden', 'security'), async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req.query, 50, 200);
+    const { page, limit, skip } = getPagination(req.query, 50, 2000);
+    const hostel = req.query.hostel ? req.query.hostel.toUpperCase() : '';
+    const search = req.query.search ? req.query.search.trim() : '';
+
+    const cacheKey = `logs:students:${req.user.role}:${page}:${limit}:${hostel}:${search}`;
+    const cached = await getLogsCache(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...cached, cached: true });
+    }
 
     // Optional filters
     const filter = { role: 'student' };
-    if (req.query.hostel) filter.hostel = req.query.hostel.toUpperCase();
-    if (req.query.search) {
-      const s = req.query.search.trim();
+    if (hostel) filter.hostel = hostel;
+    if (search) {
       filter.$or = [
-        { name: { $regex: s, $options: 'i' } },
-        { rollNo: { $regex: s, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { rollNo: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -128,7 +136,10 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
       studentPhoto: `/api/auth/student-photo/${s._id}`,
     }));
 
-    res.json({ success: true, count, page, limit, students });
+    const responsePayload = { count, page, limit, students };
+    await setLogsCache(cacheKey, responsePayload, 60);
+
+    res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {
     logger.error('[Dashboard] Students list error', { error: error.message, requestId: req.requestId });
     res.status(500).json({ success: false, message: error.message });
@@ -150,6 +161,8 @@ router.delete('/students/:id', protect, authorize('warden', 'admin'), async (req
       Complaint.deleteMany({ student: student._id }),
       User.findByIdAndDelete(student._id),
     ]);
+
+    await invalidateLogsCache();
 
     logger.info('[Dashboard] Student deleted by warden', {
       wardenId: req.user._id,
@@ -176,6 +189,7 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
 
     if (target === 'inout') {
       const inoutRes = await InOutLog.deleteMany({});
+      await invalidateLogsCache();
       await recordDeletionAudit({
         user: req.user,
         action: 'DELETE_ALL_GATE',
@@ -194,6 +208,7 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
 
     if (target === 'homevisit') {
       const homeRes = await HomeVisitLog.deleteMany({});
+      await invalidateLogsCache();
       await recordDeletionAudit({
         user: req.user,
         action: 'DELETE_ALL_HOME',
@@ -213,6 +228,7 @@ router.post('/wipe-records', protect, authorize('warden', 'admin', 'security'), 
     const inoutRes = await InOutLog.deleteMany({});
     const homeRes = await HomeVisitLog.deleteMany({});
     const complaintRes = await Complaint.deleteMany({});
+    await invalidateLogsCache();
 
     let studentsDeleted = 0;
     if (wipeStudents) {

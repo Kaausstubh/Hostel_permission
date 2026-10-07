@@ -10,21 +10,43 @@ import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
 
 export default function StudentsOut() {
-  const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [students, setStudents] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_students_out_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !sessionStorage.getItem('heimdall_students_out_cache');
+    } catch {
+      return true;
+    }
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchStudentsOut = async () => {
     try {
-      setLoading(true);
+      if (students.length === 0) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const today = new Date().toISOString().split('T')[0];
       const res = await api.get(`/inout/logs?date=${today}&status=OUT`);
       // Only show those not returned
-      const notReturned = res.data.logs.filter((l) => !l.returned);
+      const notReturned = (res.data.logs || []).filter((l) => !l.returned);
       setStudents(notReturned);
+      try {
+        sessionStorage.setItem('heimdall_students_out_cache', JSON.stringify(notReturned));
+      } catch {}
     } catch (err) {
       toast.error('Failed to fetch data');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -44,12 +66,12 @@ export default function StudentsOut() {
             <div className="section-title"><MdPeople /> Currently Outside</div>
             <div className="section-subtitle">{students.length} student(s) outside the hostel right now</div>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchStudentsOut} disabled={loading}>
-            <MdRefresh size={16} /> Refresh
+          <button className="btn btn-ghost btn-sm" onClick={fetchStudentsOut} disabled={loading && students.length === 0}>
+            <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
-        {loading ? (
+        {(loading && students.length === 0) ? (
           <div className="loading-page"><div className="loading-spinner" style={{ width: 40, height: 40 }} /></div>
         ) : students.length === 0 ? (
           <div className="empty-state">
