@@ -118,8 +118,8 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
 
     const studentSelect =
       req.user.role === 'security'
-        ? 'name rollNo hostel roomNo createdAt'
-        : 'name rollNo hostel roomNo phone email parentPhone parentPhone2 createdAt isActive';
+        ? 'name rollNo hostel roomNo studentPhoto picture createdAt'
+        : 'name rollNo hostel roomNo phone email parentPhone parentPhone2 studentPhoto picture createdAt isActive';
 
     const [rawStudents, count] = await Promise.all([
       User.find(filter)
@@ -134,7 +134,7 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
 
     const students = rawStudents.map((s) => ({
       ...s,
-      studentPhoto: `/api/auth/student-photo/${s._id}`,
+      studentPhoto: s.studentPhoto || s.picture || `/api/auth/student-photo/${s._id}`,
     }));
 
     const responsePayload = { count, page, limit, students };

@@ -220,7 +220,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
   }
 
   const guardName = req.user?.name || req.user?.rollNo || req.user?.email || 'Security Guard';
-  const effectiveStudentPhoto = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
+  const effectiveStudentPhoto = student.studentPhoto || student.picture || '';
 
   const now = new Date();
   const scanType = pendingRequest.scanType;

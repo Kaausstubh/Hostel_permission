@@ -62,8 +62,8 @@ const findOrCreateUser = async (profile, provider, role) => {
     } else if (user.picture && (user.picture.startsWith('data:') || !user.picture.includes('googleusercontent.com'))) {
       // Migrate existing photo to studentPhoto
       user.studentPhoto = user.picture;
-    } else if (user.role !== 'student') {
-      user.picture = picture;
+    } else {
+      user.picture = picture || user.picture;
     }
     user.lastLoginAt  = new Date();
     user.name         = name; // Keep name fresh from provider
@@ -82,8 +82,8 @@ const findOrCreateUser = async (profile, provider, role) => {
       user.picture = user.studentPhoto;
     } else if (user.picture && (user.picture.startsWith('data:') || !user.picture.includes('googleusercontent.com'))) {
       user.studentPhoto = user.picture;
-    } else if (user.role !== 'student') {
-      user.picture = picture;
+    } else {
+      user.picture = picture || user.picture;
     }
     user.lastLoginAt   = new Date();
     await user.save();

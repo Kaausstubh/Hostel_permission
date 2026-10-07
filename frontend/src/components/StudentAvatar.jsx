@@ -20,24 +20,24 @@ export default function StudentAvatar({
   // Intelligently resolve the most authoritative actual face photo
   const resolvedUrl = (() => {
     // 1. Student's verified face photo taken during onboarding/registration
-    if (student?.studentPhoto && !student.studentPhoto.includes('googleusercontent.com')) {
+    if (student?.studentPhoto) {
       return resolvePhotoUrl(student.studentPhoto);
     }
-    // 2. Snapshot photo saved on the scan record (if actual uploaded photo / data URL)
-    if (recordPhoto && !recordPhoto.includes('googleusercontent.com')) {
+    // 2. Snapshot photo saved on the scan record
+    if (recordPhoto) {
       return resolvePhotoUrl(recordPhoto);
     }
-    // 3. User's profile picture if not a Google default letter avatar
-    if (student?.picture && !student.picture.includes('googleusercontent.com')) {
+    // 3. User's profile picture (including Google OAuth profile photo)
+    if (student?.picture) {
       return resolvePhotoUrl(student.picture);
     }
-    // 4. User's photo property if not a Google default letter avatar
-    if (student?.photo && !student.photo.includes('googleusercontent.com')) {
+    // 4. User's photo property
+    if (student?.photo) {
       return resolvePhotoUrl(student.photo);
     }
     // 5. If student ID exists, use fast cached binary photo endpoint
     const studentId = student?._id || student?.id;
-    if (studentId && (student?.hasPhoto || student?.hasStudentPhoto)) {
+    if (studentId) {
       return resolvePhotoUrl(`/api/auth/student-photo/${studentId}`);
     }
     return null;
@@ -60,6 +60,8 @@ export default function StudentAvatar({
         alt={studentName}
         onError={() => setImgError(true)}
         loading="lazy"
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
         style={{
           width: size,
           height: size,

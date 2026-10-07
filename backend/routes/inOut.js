@@ -261,13 +261,13 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
     }
 
     const studentSelect = req.user.role === 'security'
-      ? 'name rollNo hostel roomNo'
-      : 'name rollNo hostel roomNo phone parentPhone';
+      ? 'name rollNo hostel roomNo studentPhoto picture'
+      : 'name rollNo hostel roomNo phone parentPhone studentPhoto picture';
 
     // ⚡ Lean projection: only load fields needed by UI to minimize memory & payload footprint
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
-        .select('_id student_id name rollNo hostel roomNo place status out_time in_time timestamp date returned scanned_by_name scannedBy')
+        .select('_id student_id name rollNo hostel roomNo place status out_time in_time timestamp date returned scanned_by_name scannedBy student_photo')
         .populate('student_id', studentSelect)
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })
@@ -287,7 +287,7 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
 
     const sanitizedLogs = logs.map((log) => {
       if (log.student_id && log.student_id._id) {
-        log.student_id.studentPhoto = `/api/auth/student-photo/${log.student_id._id}`;
+        log.student_id.studentPhoto = log.student_id.studentPhoto || log.student_id.picture || `/api/auth/student-photo/${log.student_id._id}`;
       }
       return log;
     });
