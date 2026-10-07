@@ -8,12 +8,13 @@
  * Student Portal shows domain restriction info (@cse.iiitp.ac.in, @ece.iiitp.ac.in).
  * Warden and Security portals are currently open to any Google account.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
+import toast from 'react-hot-toast';
 import iiitLogo from '../assets/iiitpune-logo.webp';
 
 // Google logo SVG (inline — no external dependency)
@@ -74,15 +75,82 @@ export default function Login() {
   const { theme, toggleTheme } = useTheme();
   const [selectedPortal, setSelectedPortal] = useState('student');
   const [loggingIn, setLoggingIn] = useState(false);
+  const loginTimeoutRef = useRef(null);
+
+  const resetLoginState = useCallback(() => {
+    if (loginTimeoutRef.current) {
+      clearTimeout(loginTimeoutRef.current);
+      loginTimeoutRef.current = null;
+    }
+    setLoggingIn(false);
+  }, []);
 
   useEffect(() => {
     prewarmApiConnection();
-  }, []);
+
+    // Check if redirected back with an error parameter in the URL
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const error = searchParams.get('error');
+      const message = searchParams.get('message');
+      if (error || message) {
+        toast.error(message || 'Authentication failed. Please try again.', { duration: 6000 });
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch {
+      // Ignore query string parsing errors
+    }
+
+    // Modern browsers (Safari, Chrome) use Back-Forward Cache (bfcache).
+    // When the user clicks the browser Back button after visiting Google or an error page,
+    // the page is restored from memory with its previous state intact (loggingIn = true).
+    // The 'pageshow' event reliably fires on both initial load AND bfcache restoration.
+    const handlePageShow = () => {
+      resetLoginState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resetLoginState();
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('popstate', handlePageShow);
+    window.addEventListener('focus', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (loginTimeoutRef.current) {
+        clearTimeout(loginTimeoutRef.current);
+        loginTimeoutRef.current = null;
+      }
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('popstate', handlePageShow);
+      window.removeEventListener('focus', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [resetLoginState]);
 
   const handleGoogleLogin = (portal) => {
     if (loggingIn) return;
     setLoggingIn(true);
+
+    // Safety timeout: In case navigation fails, gets delayed, or user quickly returns,
+    // ensure the button never remains stuck permanently in loading state.
+    if (loginTimeoutRef.current) {
+      clearTimeout(loginTimeoutRef.current);
+    }
+    loginTimeoutRef.current = setTimeout(() => {
+      setLoggingIn(false);
+    }, 6000);
+
     initiateGoogleOAuth(portal);
+  };
+
+  const handleSelectPortal = (id) => {
+    setSelectedPortal(id);
+    resetLoginState();
   };
 
   const currentPortal = PORTALS[selectedPortal];
@@ -170,7 +238,7 @@ export default function Login() {
                   key={id}
                   type="button"
                   className="login-portal-btn"
-                  onClick={() => setSelectedPortal(id)}
+                  onClick={() => handleSelectPortal(id)}
                   style={{
                     flex: 1,
                     display: 'flex',
