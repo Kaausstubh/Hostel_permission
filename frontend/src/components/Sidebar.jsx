@@ -43,6 +43,31 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
     }
   };
 
+  const isCurfewAlertActive = () => {
+    try {
+      const cached = sessionStorage.getItem('heimdall_curfew_info_cache');
+      if (cached) {
+        const info = JSON.parse(cached);
+        if (!info.isPastCurfew) return false;
+      } else {
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istDate = new Date(now.getTime() + istOffset);
+        if (istDate.getUTCHours() < 20) return false;
+      }
+      const notReturnedCache = sessionStorage.getItem('heimdall_not_returned_cache');
+      if (notReturnedCache) {
+        const list = JSON.parse(notReturnedCache);
+        return list.length > 0;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const curfewAlert = isCurfewAlertActive();
+
   return (
     <>
       <div className={`sidebar-backdrop ${mobileOpen ? 'show' : ''}`} onClick={onClose} />
@@ -68,7 +93,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           >
             {item.icon}
             {item.label}
-            {item.alert && (
+            {item.alert && curfewAlert && (
               <span style={{
                 marginLeft: 'auto',
                 background: '#ef4444',

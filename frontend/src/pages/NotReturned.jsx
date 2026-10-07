@@ -98,15 +98,15 @@ export default function NotReturned() {
         }}>
           <MdInfoOutline size={20} color="var(--primary-light)" style={{ flexShrink: 0 }} />
           <div>
-            <strong>In/Out Daily Pass Curfew: 8:00 PM</strong> — This list tracks students who scanned OUT on daily passes and have not returned to campus. Approved multi-day Home Visit passes are excluded.
+            <strong>Campus Curfew Policy: 8:00 PM (20:00 IST)</strong> — Daily passes permit students to remain outside until 8:00 PM. Overdue curfew tracking and emergency alerts activate strictly after 8:00 PM IST. Approved multi-day Home Visit passes are excluded.
           </div>
         </div>
 
         {/* Alert Banner */}
         {students.length > 0 && (
           <div style={{
-            background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
-            border: `1px solid ${curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.5)' : 'rgba(245,158,11,0.5)'}`,
+            background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.12)' : 'rgba(59, 130, 246, 0.08)',
+            border: `1px solid ${curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.5)' : 'rgba(59, 130, 246, 0.3)'}`,
             borderRadius: 'var(--radius-lg)',
             padding: '16px 20px',
             marginBottom: 20,
@@ -115,15 +115,21 @@ export default function NotReturned() {
             gap: 14,
             animation: curfewInfo.isPastCurfew ? 'pulse-red 2s ease-in-out infinite' : 'none',
           }}>
-            <MdWarning size={30} color={curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b'} style={{ flexShrink: 0 }} />
+            {curfewInfo.isPastCurfew ? (
+              <MdWarning size={30} color="#ef4444" style={{ flexShrink: 0 }} />
+            ) : (
+              <MdAccessTime size={30} color="#3b82f6" style={{ flexShrink: 0 }} />
+            )}
             <div>
-              <div style={{ color: curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b', fontWeight: 800, fontSize: 16 }}>
-                {curfewInfo.isPastCurfew ? '🚨 8:00 PM Curfew Breached' : '⏰ In/Out Return Pending'} — {students.length} Student{students.length > 1 ? 's' : ''} Not Returned Today
+              <div style={{ color: curfewInfo.isPastCurfew ? '#ef4444' : '#3b82f6', fontWeight: 800, fontSize: 16 }}>
+                {curfewInfo.isPastCurfew
+                  ? `🚨 8:00 PM Curfew Breached — ${students.length} Student${students.length > 1 ? 's' : ''} Overdue`
+                  : `☀️ Daytime Permitted Hours Active — Curfew at 8:00 PM (${students.length} Student${students.length > 1 ? 's' : ''} Out)`}
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 3 }}>
                 {curfewInfo.isPastCurfew
                   ? 'These students have not returned to the hostel before the 8:00 PM curfew. Automated WhatsApp return alerts will be dispatched.'
-                  : 'Students are currently out on daily pass. Campus curfew is strictly 8:00 PM.'}
+                  : 'Students are currently out on authorized daily passes within permitted daytime hours. Curfew violation alerts activate after 8:00 PM IST.'}
               </div>
             </div>
           </div>
@@ -131,21 +137,43 @@ export default function NotReturned() {
 
         <div className="section-header">
           <div>
-            <div className="section-title"><MdWarning color="#ef4444" /> Students Not Returned</div>
+            <div className="section-title">
+              {curfewInfo.isPastCurfew ? (
+                <><MdWarning color="#ef4444" /> Overdue Students (Curfew Breached)</>
+              ) : (
+                <><MdAccessTime color="#3b82f6" /> Daily Passes Active (Curfew: 8:00 PM)</>
+              )}
+            </div>
             <div className="section-subtitle">
-              {loading ? 'Loading...' : `${students.length} student(s) currently unaccounted for (Curfew: 8:00 PM)`}
+              {loading
+                ? 'Loading...'
+                : curfewInfo.isPastCurfew
+                  ? `${students.length} student(s) currently unaccounted for past the 8:00 PM curfew.`
+                  : `${students.length} student(s) currently outside on authorized daily passes (Permitted until 8:00 PM).`
+              }
             </div>
           </div>
           <div className="section-actions">
             <button className="btn btn-ghost btn-sm" onClick={fetchNotReturned} disabled={loading && students.length === 0}>
               <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </button>
-            <button className="btn btn-danger btn-sm" onClick={triggerAlertManually} disabled={triggering}>
-              {triggering
-                ? <><span className="loading-spinner" style={{ width: 14, height: 14 }} /> Sending...</>
-                : '⚡ Trigger Alert Now'
-              }
-            </button>
+            {curfewInfo.isPastCurfew ? (
+              <button className="btn btn-danger btn-sm" onClick={triggerAlertManually} disabled={triggering}>
+                {triggering
+                  ? <><span className="loading-spinner" style={{ width: 14, height: 14 }} /> Sending...</>
+                  : '⚡ Trigger Alert Now'
+                }
+              </button>
+            ) : (
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled
+                style={{ opacity: 0.65, cursor: 'not-allowed', border: '1px solid var(--border-color)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                title="Emergency alerts activate after 8:00 PM curfew"
+              >
+                <MdAccessTime size={14} /> Alerts Active After 8 PM
+              </button>
+            )}
           </div>
         </div>
 
@@ -181,8 +209,8 @@ export default function NotReturned() {
                   const photoSrc = student?.studentPhoto || (!student?.picture?.includes('googleusercontent.com') ? student?.picture : null);
                   return (
                     <tr key={log._id} style={{
-                      background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.05)' : 'rgba(245,158,11,0.04)',
-                      borderLeft: `3px solid ${curfewInfo.isPastCurfew ? '#ef4444' : '#f59e0b'}`,
+                      background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.05)' : 'rgba(59, 130, 246, 0.03)',
+                      borderLeft: `3px solid ${curfewInfo.isPastCurfew ? '#ef4444' : '#3b82f6'}`,
                     }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -211,7 +239,7 @@ export default function NotReturned() {
                       <td>
                         <span className="badge badge-out">{getHostelLabel(student?.hostel)}</span>
                       </td>
-                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: '#ef4444' }}>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: curfewInfo.isPastCurfew ? '#ef4444' : 'var(--text-secondary)' }}>
                         {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—'}
                       </td>
                       <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
@@ -225,8 +253,8 @@ export default function NotReturned() {
                             🔴 Curfew Breached
                           </span>
                         ) : (
-                          <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                            ⏳ Out (Pending 8 PM)
+                          <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                            🟢 Authorized (Until 8:00 PM)
                           </span>
                         )}
                       </td>
