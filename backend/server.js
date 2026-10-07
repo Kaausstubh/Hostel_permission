@@ -65,8 +65,13 @@ const PORT = process.env.PORT || 5000;
 const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || '10mb';
 
 // ── Trust Proxy ───────────────────────────────────────────────────────────────
-// Required behind reverse proxies (Caddy, Cloudflare, Nginx) so req.ip and protocol are accurate
+// Required behind reverse proxies (Caddy, Cloudflare, Nginx, Render) so req.ip and protocol are accurate
 app.set('trust proxy', 1);
+
+// ── Lightweight Public Health Check (before any middleware/auth/session/CORS/rate-limiting) ──
+app.get(['/health', '/'], (req, res) => {
+  res.type('text/plain').status(200).send('ok');
+});
 
 // ── CORS configuration ────────────────────────────────────────────────────────
 const normalizeOrigin = (url) => {
@@ -280,7 +285,6 @@ const handleHealth = (req, res) => {
   });
 };
 
-app.get('/health', handleHealth);
 app.get('/api/health', handleHealth);
 
 app.get('/api/ready', async (req, res) => {
