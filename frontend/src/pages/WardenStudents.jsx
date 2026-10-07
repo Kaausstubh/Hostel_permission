@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
@@ -35,7 +35,15 @@ export default function WardenStudents() {
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedHostel, setSelectedHostel] = useState('ALL');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const fetchStudents = async () => {
     try {
@@ -80,29 +88,42 @@ export default function WardenStudents() {
   }, []);
 
   const totalRegistered = totalCount || students.length;
-  const countBH1 = students.filter((s) => s.hostel === 'BH1').length;
-  const countBH2 = students.filter((s) => s.hostel === 'BH2').length;
-  const countGH  = students.filter((s) => s.hostel === 'GH').length;
-  const countUnassigned = students.filter((s) => !s.hostel).length;
 
-  const filteredStudents = students.filter((student) => {
-    const hostelLabel = getHostelLabel(student.hostel, '');
-    const matchesSearch =
-      student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.rollNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.hostel?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hostelLabel.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.email?.toLowerCase().includes(searchTerm.toLowerCase());
+  const { countBH1, countBH2, countGH, countUnassigned } = useMemo(() => {
+    let bh1 = 0, bh2 = 0, gh = 0, unassigned = 0;
+    for (const s of students) {
+      if (s.hostel === 'BH1') bh1++;
+      else if (s.hostel === 'BH2') bh2++;
+      else if (s.hostel === 'GH') gh++;
+      else unassigned++;
+    }
+    return { countBH1: bh1, countBH2: bh2, countGH: gh, countUnassigned: unassigned };
+  }, [students]);
 
-    const matchesHostel =
-      selectedHostel === 'ALL'
-        ? true
-        : selectedHostel === 'UNASSIGNED'
-          ? !student.hostel
-          : student.hostel === selectedHostel;
+  const filteredStudents = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q && selectedHostel === 'ALL') return students;
 
-    return matchesSearch && matchesHostel;
-  });
+    return students.filter((student) => {
+      const matchesHostel =
+        selectedHostel === 'ALL'
+          ? true
+          : selectedHostel === 'UNASSIGNED'
+            ? !student.hostel
+            : student.hostel === selectedHostel;
+      if (!matchesHostel) return false;
+      if (!q) return true;
+
+      const hostelLabel = getHostelLabel(student.hostel, '');
+      return (
+        student.name?.toLowerCase().includes(q) ||
+        student.rollNo?.toLowerCase().includes(q) ||
+        student.hostel?.toLowerCase().includes(q) ||
+        hostelLabel.toLowerCase().includes(q) ||
+        student.email?.toLowerCase().includes(q)
+      );
+    });
+  }, [students, debouncedSearch, selectedHostel]);
 
   return (
     <div className="fade-in">

@@ -352,13 +352,16 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 
 // ─── Warden/Security: List All Requests ───────────────────────────────────────
 router.get('/list', protect, authorize('warden', 'security'), async (req, res) => {
+  const queryStart = Date.now();
   try {
-    const { status, scanStatus, scannedOnly, date } = req.query;
+    const { status, scanStatus, scannedOnly, date, search } = req.query;
     const { page, limit, skip } = getPagination(req.query, 50, 100);
+    const searchTrim = (search || '').trim();
 
-    const cacheKey = `logs:home:${status || 'all'}:${scanStatus || 'all'}:${scannedOnly || 'all'}:${date || 'all'}:${page}:${limit}`;
+    const cacheKey = `logs:home:${status || 'all'}:${scanStatus || 'all'}:${scannedOnly || 'all'}:${date || 'all'}:${searchTrim || 'all'}:${page}:${limit}`;
     const cached = await getLogsCache(cacheKey);
     if (cached) {
+      res.set('X-Response-Time', `${Date.now() - queryStart}ms`);
       return res.json({ success: true, ...cached, cached: true });
     }
 
@@ -387,12 +390,21 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
         ],
       });
     }
+    if (searchTrim) {
+      conditions.push({
+        $or: [
+          { name: { $regex: searchTrim, $options: 'i' } },
+          { rollNo: { $regex: searchTrim, $options: 'i' } },
+        ],
+      });
+    }
 
     const filter = conditions.length > 1 ? { $and: conditions } : (conditions[0] || {});
 
+    // ⚡ Lean projection: load only fields rendered in the table to minimize response payload
     const [visits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .select('-student_photo')
+        .select('_id student_id name rollNo hostel place reason leave_date return_date parentPhone parentPhone2 overall_status parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy createdAt')
         .populate('student_id', 'name rollNo hostel parentPhone parentPhone2')
         .populate('scannedBy', 'name')
         .sort({ createdAt: -1 })
@@ -407,6 +419,8 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     ]);
 
     const finalCount = count !== null ? count : visits.length;
+    const hasMore = (skip + visits.length) < finalCount;
+    const nextCursor = visits.length > 0 ? visits[visits.length - 1]._id : null;
 
     const sanitizedVisits = visits.map((visit) => {
       if (visit.student_id && visit.student_id._id) {
@@ -415,9 +429,17 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
       return visit;
     });
 
-    const responsePayload = { count: finalCount, page, limit, visits: sanitizedVisits };
+    const responsePayload = {
+      count: finalCount,
+      page,
+      limit,
+      hasMore,
+      nextCursor,
+      visits: sanitizedVisits,
+    };
     await setLogsCache(cacheKey, responsePayload, 30);
 
+    res.set('X-Response-Time', `${Date.now() - queryStart}ms`);
     res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

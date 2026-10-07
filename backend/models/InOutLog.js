@@ -91,5 +91,9 @@ inOutLogSchema.index({ date: -1, timestamp: -1 });
 inOutLogSchema.index({ timestamp: -1 });
 inOutLogSchema.index({ status: 1, timestamp: -1 });
 inOutLogSchema.index({ date: -1, status: 1, timestamp: -1 });
+inOutLogSchema.index({ date: 1, timestamp: -1 });
+inOutLogSchema.index({ rollNo: 1, timestamp: -1 });
+inOutLogSchema.index({ name: 1, timestamp: -1 });
+inOutLogSchema.index({ student_id: 1, timestamp: -1 });
 
 module.exports = mongoose.model('InOutLog', inOutLogSchema);

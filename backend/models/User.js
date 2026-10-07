@@ -110,6 +110,10 @@ userSchema.index({ oauthId: 1, oauthProvider: 1 }, { unique: true });
 userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
 // Fast role-based queries (dashboard counts, lists)
 userSchema.index({ role: 1 });
+// Compound indexes for student directory and fast search
+userSchema.index({ role: 1, hostel: 1, name: 1 });
+userSchema.index({ role: 1, name: 1 });
+userSchema.index({ role: 1, rollNo: 1 });
 // Note: email already has a unique index from { unique: true } in the schema field definition.
 
 module.exports = mongoose.model('User', userSchema);

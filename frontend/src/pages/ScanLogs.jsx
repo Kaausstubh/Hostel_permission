@@ -9,7 +9,8 @@ import toast from 'react-hot-toast';
 import { 
   MdHistory, MdRefresh, MdDeleteOutline, 
   MdStorage, MdWarning, MdCheckCircle, MdSecurity, 
-  MdDeleteSweep, MdClose, MdInfoOutline, MdAccessTime 
+  MdDeleteSweep, MdClose, MdInfoOutline, MdAccessTime,
+  MdSearch
 } from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line, RiArrowDownSFill, RiDeleteBinLine } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +46,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [gatePage, setGatePage] = useState(1);
+  const [gateTotalCount, setGateTotalCount] = useState(0);
+  const [gateHasMore, setGateHasMore] = useState(false);
+  const [homePage, setHomePage] = useState(1);
+  const [homeTotalCount, setHomeTotalCount] = useState(0);
+  const [homeHasMore, setHomeHasMore] = useState(false);
   const [activeTab, setActiveTab] = useState(defaultTab);
   const { user } = useAuth();
   const isWarden = ['warden', 'admin'].includes(user?.role);
@@ -53,6 +62,15 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     setActiveTab(defaultTab);
   }, [defaultTab]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setGatePage(1);
+      setHomePage(1);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const hasMatchingDate = (visit, date) => {
     if (!date) return true;
     const outDate = visit.actual_out_time ? new Date(visit.actual_out_time).toISOString().slice(0, 10) : '';
@@ -60,14 +78,19 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     return [visit.leave_date, visit.return_date, outDate, inDate].includes(date);
   };
 
-  const fetchGateLogs = async () => {
+  const fetchGateLogs = async (pageToFetch = gatePage) => {
     const params = new URLSearchParams();
     if (dateFilter) params.append('date', dateFilter);
     if (statusFilter) params.append('status', statusFilter);
+    if (debouncedSearch) params.append('search', debouncedSearch);
+    params.append('page', String(pageToFetch));
+    params.append('limit', '50');
     const gateRes = await api.get(`/inout/logs?${params.toString()}`);
     const fetchedLogs = gateRes.data?.logs || [];
     setLogs(fetchedLogs);
-    if (!dateFilter && !statusFilter) {
+    setGateTotalCount(gateRes.data?.count || fetchedLogs.length);
+    setGateHasMore(Boolean(gateRes.data?.hasMore));
+    if (!dateFilter && !statusFilter && !debouncedSearch && pageToFetch === 1) {
       try {
         sessionStorage.setItem('heimdall_gate_logs_cache', JSON.stringify(fetchedLogs));
       } catch {}
@@ -75,16 +98,20 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
     return fetchedLogs;
   };
 
-  const fetchHomeLogs = async () => {
+  const fetchHomeLogs = async (pageToFetch = homePage) => {
     const params = new URLSearchParams();
     if (dateFilter) params.append('date', dateFilter);
     if (statusFilter) params.append('scanStatus', statusFilter);
+    if (debouncedSearch) params.append('search', debouncedSearch);
     params.append('scannedOnly', 'true');
+    params.append('page', String(pageToFetch));
     params.append('limit', '50');
     const homeRes = await api.get(`/homevisit/list?${params.toString()}`);
     const fetchedLogs = homeRes.data?.visits || [];
     setHomeLogs(fetchedLogs);
-    if (!dateFilter && !statusFilter) {
+    setHomeTotalCount(homeRes.data?.count || fetchedLogs.length);
+    setHomeHasMore(Boolean(homeRes.data?.hasMore));
+    if (!dateFilter && !statusFilter && !debouncedSearch && pageToFetch === 1) {
       try {
         sessionStorage.setItem('heimdall_home_logs_cache', JSON.stringify(fetchedLogs));
       } catch {}
@@ -137,8 +164,8 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
       // ⚡ Concurrently pre-fetch BOTH Gate Logs and Home Visit records in parallel
       // This guarantees 0ms instantaneous tab switching between Gate and Home Visit logs!
       await Promise.allSettled([
-        fetchGateLogs(),
-        fetchHomeLogs(),
+        fetchGateLogs(gatePage),
+        fetchHomeLogs(homePage),
       ]);
     } catch (err) {
       console.warn('[ScanLogs] Fetch logs warning:', err.message);
@@ -155,14 +182,14 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
 
   useEffect(() => { 
     fetchLogs();
-  }, [dateFilter, statusFilter]);
+  }, [dateFilter, statusFilter, debouncedSearch, gatePage, homePage]);
 
   // If user switches to a tab that doesn't have records yet, fetch it immediately
   useEffect(() => {
     if (activeTab === 'home' && homeLogs.length === 0) {
-      fetchHomeLogs();
+      fetchHomeLogs(homePage);
     } else if (activeTab === 'gate' && logs.length === 0) {
-      fetchGateLogs();
+      fetchGateLogs(gatePage);
     }
   }, [activeTab]);
 
@@ -846,21 +873,32 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
           </button>
         </div>
 
-        <div className="filters-row">
+        <div className="filters-row" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
+            <MdSearch size={18} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              className="form-input"
+              style={{ paddingLeft: 38 }}
+              placeholder="Search by student name or roll no..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
           <input
             type="date"
             id="date-filter"
             className="form-input"
-            style={{ maxWidth: 180 }}
+            style={{ maxWidth: 170 }}
             value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
+            onChange={(e) => { setDateFilter(e.target.value); setGatePage(1); setHomePage(1); }}
           />
           <select
             id="log-status-filter"
             className="form-select"
-            style={{ maxWidth: 160 }}
+            style={{ maxWidth: 150 }}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setGatePage(1); setHomePage(1); }}
           >
             <option value="">All Status</option>
             <option value="IN">IN</option>
@@ -1069,6 +1107,54 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
             </table>
           </div>
         )}
+
+        {/* Server-Side Pagination Bar */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '12px 18px',
+          marginTop: 14,
+          background: 'rgba(255,255,255,0.02)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          fontSize: 13,
+          color: 'var(--text-muted)',
+        }}>
+          <div>
+            Showing <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+              {activeTab === 'gate' ? logs.length : homeLogs.length}
+            </strong> of <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+              {activeTab === 'gate' ? (gateTotalCount || logs.length) : (homeTotalCount || homeLogs.length)}
+            </strong> records (Page {activeTab === 'gate' ? gatePage : homePage})
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={activeTab === 'gate' ? gatePage <= 1 : homePage <= 1}
+              onClick={() => {
+                if (activeTab === 'gate') setGatePage((p) => Math.max(1, p - 1));
+                else setHomePage((p) => Math.max(1, p - 1));
+              }}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={activeTab === 'gate' ? !gateHasMore : !homeHasMore}
+              onClick={() => {
+                if (activeTab === 'gate') setGatePage((p) => p + 1);
+                else setHomePage((p) => p + 1);
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       {confirmModal.isOpen && (

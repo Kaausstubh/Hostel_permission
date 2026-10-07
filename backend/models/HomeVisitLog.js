@@ -143,5 +143,9 @@ homeVisitLogSchema.index({ overall_status: 1, qr_used_out: 1, qr_used_in: 1 });
 homeVisitLogSchema.index({ createdAt: -1 });
 homeVisitLogSchema.index({ actual_out_time: -1 });
 homeVisitLogSchema.index({ actual_in_time: -1 });
+homeVisitLogSchema.index({ rollNo: 1, createdAt: -1 });
+homeVisitLogSchema.index({ name: 1, createdAt: -1 });
+homeVisitLogSchema.index({ student_id: 1, overall_status: 1, createdAt: -1 });
+homeVisitLogSchema.index({ overall_status: 1, leave_date: 1, return_date: 1 });
 
 module.exports = mongoose.model('HomeVisitLog', homeVisitLogSchema);

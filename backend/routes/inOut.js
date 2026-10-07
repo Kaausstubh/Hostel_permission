@@ -237,40 +237,53 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 
 // ─── All Logs (Warden & Security) ─────────────────────────────────────────────
 router.get('/logs', protect, authorize('warden', 'security'), async (req, res) => {
+  const queryStart = Date.now();
   try {
-    const { date, status } = req.query;
+    const { date, status, search } = req.query;
     const { page, limit, skip } = getPagination(req.query, 50, 200);
+    const searchTrim = (search || '').trim();
 
-    const cacheKey = `logs:gate:${date || 'all'}:${status || 'all'}:${page}:${limit}:${req.user.role}`;
+    const cacheKey = `logs:gate:${date || 'all'}:${status || 'all'}:${searchTrim || 'all'}:${page}:${limit}:${req.user.role}`;
     const cached = await getLogsCache(cacheKey);
     if (cached) {
+      res.set('X-Response-Time', `${Date.now() - queryStart}ms`);
       return res.json({ success: true, ...cached, cached: true });
     }
 
     const filter = {};
     if (date) filter.date = date;
     if (status) filter.status = status.toUpperCase();
+    if (searchTrim) {
+      filter.$or = [
+        { name: { $regex: searchTrim, $options: 'i' } },
+        { rollNo: { $regex: searchTrim, $options: 'i' } },
+      ];
+    }
+
     const studentSelect = req.user.role === 'security'
       ? 'name rollNo hostel'
       : 'name rollNo hostel phone parentPhone';
 
+    // ⚡ Lean projection: only load fields needed by UI to minimize memory & payload footprint
     const [logs, count] = await Promise.all([
       InOutLog.find(filter)
-        .select('-student_photo')
+        .select('_id student_id name rollNo hostel place status out_time in_time timestamp date returned scanned_by_name scannedBy')
         .populate('student_id', studentSelect)
         .populate('scannedBy', 'name rollNo email')
         .sort({ timestamp: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      (!date && !status && skip === 0)
+      (!date && !status && !searchTrim && skip === 0)
         ? null
-        : ((!date && !status)
+        : ((!date && !status && !searchTrim)
             ? InOutLog.estimatedDocumentCount()
             : InOutLog.countDocuments(filter)),
     ]);
 
     const finalCount = count !== null ? count : logs.length;
+    const hasMore = (skip + logs.length) < finalCount;
+    const nextCursor = logs.length > 0 ? logs[logs.length - 1]._id : null;
 
     const sanitizedLogs = logs.map((log) => {
       if (log.student_id && log.student_id._id) {
@@ -279,9 +292,17 @@ router.get('/logs', protect, authorize('warden', 'security'), async (req, res) =
       return log;
     });
 
-    const responsePayload = { count: finalCount, page, limit, logs: sanitizedLogs };
+    const responsePayload = {
+      count: finalCount,
+      page,
+      limit,
+      hasMore,
+      nextCursor,
+      logs: sanitizedLogs,
+    };
     await setLogsCache(cacheKey, responsePayload, 30);
 
+    res.set('X-Response-Time', `${Date.now() - queryStart}ms`);
     res.json({ success: true, ...responsePayload, cached: false });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

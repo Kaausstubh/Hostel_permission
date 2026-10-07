@@ -26,6 +26,7 @@ const {
 } = require('../services/inOutRequestService');
 const { withScanLock } = require('../services/scanLockService');
 const { invalidateLogsCache } = require('../services/logsCache');
+const { broadcastScanResult } = require('../services/socketService');
 const {
   listPendingHomeVisitPasses,
   syncHomeVisitActiveQR,
@@ -592,6 +593,9 @@ router.post('/scan', async (req, res) => {
 
     if (result.status === 200 || result.body?.success) {
       invalidateLogsCache().catch(() => {});
+      try {
+        broadcastScanResult(result.body, result.body?.student?.hostel);
+      } catch (err) {}
     }
 
     return res.status(result.status).json(result.body);
