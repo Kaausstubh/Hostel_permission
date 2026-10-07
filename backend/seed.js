@@ -29,60 +29,104 @@ const ArchiveJob = require('./models/ArchiveJob');
 const connectDB = require('./config/db');
 
 // ── Staff accounts to pre-seed ────────────────────────────────────────────────
-// Dynamically loaded from WARDEN_ALLOWED_EMAILS and SECURITY_ALLOWED_EMAILS in .env.
+// Replace these with real institutional Google account emails.
 // Students are NOT seeded — they self-register via OAuth.
-const formatNameFromEmail = (email) => {
-  const localPart = email.split('@')[0];
-  return localPart
-    .replace(/[._-]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-};
-
-const wardenEmails = (process.env.WARDEN_ALLOWED_EMAILS || '')
-  .split(',')
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
-
-const securityEmails = (process.env.SECURITY_ALLOWED_EMAILS || '')
-  .split(',')
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
-
 const staffUsers = [
-  ...wardenEmails.map((email) => ({
-    name: formatNameFromEmail(email),
-    email,
-    role: 'warden',
+  // ─── Hostel Staff (Wardens) ────────────────────────────────────────────────
+  {
+    name:          'Kaustubh Khandare',
+    email:         'kaaustubhkhandare@gmail.com',
+    role:          'warden',
     oauthProvider: 'google',
-    oauthId: `seeded-warden-${email.replace(/[^a-zA-Z0-9]/g, '_')}`,
-  })),
-  ...securityEmails.map((email) => ({
-    name: formatNameFromEmail(email),
-    email,
-    role: 'security',
+    oauthId:       'seeded-staff-kaustubh',
+  },
+  {
+    name:          'Laxman Shinde',
+    email:         'laxmanshinde@iiitp.ac.in',
+    role:          'warden',
     oauthProvider: 'google',
-    oauthId: `seeded-security-${email.replace(/[^a-zA-Z0-9]/g, '_')}`,
-  })),
-];
+    oauthId:       'seeded-staff-laxman',
+  },
+  {
+    name:          'Angad Borge',
+    email:         'angadborge691@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-angad',
+  },
+  {
+    name:          'Saurabh Kumar',
+    email:         'saurabhkumar78540@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-saurabh',
+  },
+  {
+    name:          'Navin Thakur',
+    email:         'navinthakur@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-navin',
+  },
+  {
+    name:          'Kirti More',
+    email:         'kirti.more@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-kirti',
+  },
+  {
+    name:          'Minakshi',
+    email:         'minakshi@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-minakshi',
+  },
+  {
+    name:          'Sjyotik',
+    email:         'sjyotik2005@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-sjyotik',
+  },
+  {
+    name:          'Aniket Wandre',
+    email:         'aniketwandre2914@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-aniket',
+  },
+  {
+    name:          'Parthraj Solanke',
+    email:         'parthrajsolanke@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-parthraj',
+  },
+  {
+    name:          'Mohit Moksh',
+    email:         'mohitmoksh810@gmail.com',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-mohit',
+  },
+  {
+    name:          'Mahesh Joshi',
+    email:         'mahesh.joshi@iiitp.ac.in',
+    role:          'warden',
+    oauthProvider: 'google',
+    oauthId:       'seeded-staff-mahesh',
+  },
 
-if (staffUsers.length === 0) {
-  staffUsers.push(
-    {
-      name: 'Warden Staff',
-      email: 'warden@campus.edu',
-      role: 'warden',
-      oauthProvider: 'google',
-      oauthId: 'seeded-warden-placeholder',
-    },
-    {
-      name: 'Security Staff',
-      email: 'security@campus.edu',
-      role: 'security',
-      oauthProvider: 'google',
-      oauthId: 'seeded-security-placeholder',
-    }
-  );
-}
+  // ─── Security Staff ────────────────────────────────────────────────────────
+  {
+    name:          'Security Guard',
+    email:         'security@campus.edu',
+    role:          'security',
+    oauthProvider: 'google',
+    oauthId:       'seeded-security-placeholder',
+  },
+];
 
 const seed = async () => {
   try {
