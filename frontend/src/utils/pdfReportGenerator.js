@@ -246,6 +246,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
     r.studentName || '—',
     r.rollNo || '—',
     getHostelLabel(r.hostel),
+    r.roomNo || '—',
     r.category || 'In/Out',
     r.status || '—',
     r.place || r.destination || '—',
@@ -264,6 +265,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
       'Student Name',
       'Roll No',
       'Hostel',
+      'Room',
       'Pass Type',
       'Status',
       'Destination / Place',
@@ -293,22 +295,23 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
       fillColor: [248, 250, 252],
     },
     columnStyles: {
-      0: { cellWidth: 20, halign: 'center' },
-      1: { cellWidth: 95, fontStyle: 'bold', halign: 'left' },
-      2: { cellWidth: 55, halign: 'center' },
+      0: { cellWidth: 18, halign: 'center' },
+      1: { cellWidth: 90, fontStyle: 'bold', halign: 'left' },
+      2: { cellWidth: 52, halign: 'center' },
       3: { cellWidth: 35, halign: 'center' },
-      4: { cellWidth: 50, halign: 'center' },
+      4: { cellWidth: 35, halign: 'center' },
       5: { cellWidth: 46, halign: 'center' },
-      6: { cellWidth: 80, halign: 'left' },
-      7: { cellWidth: 78, halign: 'center' }, // Generous width prevents date wrapping
-      8: { cellWidth: 58, halign: 'center' },
-      9: { cellWidth: 58, halign: 'center' },
-      10: { cellWidth: 42, halign: 'center' },
-      11: { cellWidth: 'auto', halign: 'left' },
+      6: { cellWidth: 44, halign: 'center' },
+      7: { cellWidth: 76, halign: 'left' },
+      8: { cellWidth: 74, halign: 'center' },
+      9: { cellWidth: 54, halign: 'center' },
+      10: { cellWidth: 54, halign: 'center' },
+      11: { cellWidth: 40, halign: 'center' },
+      12: { cellWidth: 'auto', halign: 'left' },
     },
     didParseCell: (data) => {
       if (data.section === 'body') {
-        if (data.column.index === 5) { // Status
+        if (data.column.index === 6) { // Status
           if (data.cell.raw === 'IN' || String(data.cell.raw).includes('IN')) {
             data.cell.styles.textColor = [5, 150, 105]; // green-600
             data.cell.styles.fontStyle = 'bold';
@@ -317,7 +320,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
             data.cell.styles.fontStyle = 'bold';
           }
         }
-        if (data.column.index === 10) { // Returned
+        if (data.column.index === 11) { // Returned
           if (data.cell.raw === 'Yes') {
             data.cell.styles.textColor = [5, 150, 105];
             data.cell.styles.fontStyle = 'bold';
@@ -451,6 +454,7 @@ export const generatePDFFromLocalLogs = async ({
       studentName: student?.name || log.name || 'Unknown',
       rollNo: student?.rollNo || log.rollNo || '—',
       hostel: getHostelLabel(student?.hostel || log.hostel),
+      roomNo: log.roomNo || student?.roomNo || '—',
       status: log.status || 'OUT',
       returned: log.returned ? 'Yes' : 'No',
       destination: log.place || 'City / Local',
@@ -488,6 +492,7 @@ export const generatePDFFromLocalLogs = async ({
       studentName: student?.name || log.name || 'Unknown',
       rollNo: student?.rollNo || log.rollNo || '—',
       hostel: getHostelLabel(student?.hostel || log.hostel),
+      roomNo: log.roomNo || student?.roomNo || '—',
       status: log.actual_in_time ? 'HOME IN' : (log.actual_out_time ? 'HOME OUT' : (log.overall_status?.toUpperCase() || 'APPROVED')),
       returned: log.qr_used_in ? 'Yes' : 'No',
       destination: log.place || 'Home Destination',

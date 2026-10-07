@@ -405,7 +405,7 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
     if (type === 'all' || type === 'gate') {
       promises.push(
         InOutLog.find(inOutFilter)
-          .populate('student_id', 'name rollNo hostel phone')
+          .populate('student_id', 'name rollNo hostel roomNo phone')
           .populate('scannedBy', 'name rollNo email')
           .sort({ timestamp: -1 })
           .limit(1000)
@@ -418,7 +418,7 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
     if (type === 'all' || type === 'home') {
       promises.push(
         HomeVisitLog.find(homeFilter)
-          .populate('student_id', 'name rollNo hostel phone parentPhone')
+          .populate('student_id', 'name rollNo hostel roomNo phone parentPhone')
           .populate('parent_call_confirmed_by', 'name rollNo email')
           .sort({ createdAt: -1 })
           .limit(1000)
@@ -456,6 +456,7 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
         studentName: student?.name || log.name || 'Unknown',
         rollNo: student?.rollNo || log.rollNo || '—',
         hostel: student?.hostel || log.hostel || '—',
+        roomNo: student?.roomNo || log.roomNo || '—',
         status: log.status,
         returned: log.returned ? 'Yes' : 'No',
         destination: log.place || 'City / Local',
@@ -493,6 +494,7 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
         studentName: student?.name || log.name || 'Unknown',
         rollNo: student?.rollNo || log.rollNo || '—',
         hostel: student?.hostel || log.hostel || '—',
+        roomNo: student?.roomNo || log.roomNo || '—',
         status: log.actual_in_time ? 'HOME IN' : (log.actual_out_time ? 'HOME OUT' : (log.overall_status?.toUpperCase() || 'APPROVED')),
         returned: log.qr_used_in ? 'Yes' : 'No',
         destination: log.place || 'Home Destination',
