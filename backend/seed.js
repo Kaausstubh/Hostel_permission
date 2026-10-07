@@ -23,6 +23,7 @@ const mongoose = require('mongoose');
 const User = require('./models/User');
 const InOutLog = require('./models/InOutLog');
 const HomeVisitLog = require('./models/HomeVisitLog');
+const GatePass = require('./models/GatePass');
 const Complaint = require('./models/Complaint');
 const AuditLog = require('./models/AuditLog');
 const ArchiveJob = require('./models/ArchiveJob');
@@ -139,6 +140,9 @@ const seed = async () => {
 
     await HomeVisitLog.deleteMany({});
     console.log('  🗑️  Cleared all Home Visit logs');
+
+    await GatePass.deleteMany({});
+    console.log('  🗑️  Cleared all active Gate Passes');
 
     await Complaint.deleteMany({});
     console.log('  🗑️  Cleared all student complaints');

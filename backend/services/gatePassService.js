@@ -111,14 +111,14 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
     });
 
     if (!pass) {
-      // Upsert/align GatePass with unreturned log's qr_token
+      const token = unreturnedLog.qr_token || createCompactToken();
       pass = await GatePass.findOneAndUpdate(
-        { qr_token: unreturnedLog.qr_token },
+        { student_id: sId, status: 'OUTSIDE' },
         {
           $setOnInsert: {
             student_id: sId,
             pass_type: 'IN_OUT',
-            qr_token: unreturnedLog.qr_token,
+            qr_token: token,
             status: 'OUTSIDE',
             place: unreturnedLog.place || '',
             reason: unreturnedLog.reason || '',
@@ -127,16 +127,25 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
         },
         { upsert: true, new: true }
       );
+      if (!unreturnedLog.qr_token) {
+        await InOutLog.updateOne({ _id: unreturnedLog._id }, { qr_token: token }).catch(() => {});
+      }
     }
 
-    const { qrDataUrl, qrPublicUrl } = await renderPassQR(pass.qr_token, sId);
+    const effectiveToken = pass.qr_token || unreturnedLog.qr_token || createCompactToken();
+    if (!pass.qr_token) {
+      await GatePass.updateOne({ _id: pass._id }, { qr_token: effectiveToken }).catch(() => {});
+      pass.qr_token = effectiveToken;
+    }
+
+    const { qrDataUrl, qrPublicUrl } = await renderPassQR(effectiveToken, sId);
     await syncPassToCache(pass, userDoc);
 
     return {
       pass,
       qrDataUrl,
       qrPublicUrl,
-      token: pass.qr_token,
+      token: effectiveToken,
       scanType: 'IN',
       status: 'OUTSIDE',
     };
@@ -166,47 +175,34 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
 };
 
 /**
- * Get or create an active pass for student.
- * IF active pass exists -> return existing pass and exact same QR.
- * ELSE -> create a new pass in MongoDB and return it.
- * Multiple simultaneous calls will return the EXACT SAME pass.
+ * Create a BRAND NEW gate pass for a student (direction OUT).
+ * Always generates a fresh unique token, cancels any previous PENDING pass,
+ * and renders a completely distinct QR code.
  */
-const getOrCreateActivePass = async (studentId, { place = '', reason = '' } = {}, userDoc = null) => {
+const createNewPass = async (studentId, { place = '', reason = '' } = {}, userDoc = null) => {
   const sId = studentId.toString();
 
-  // 1. Check existing active pass first
-  const existing = await getActivePassForStudent(sId, userDoc);
-  if (existing) {
-    // If destination place was provided and pass is still pending without a place, update it
-    if (place && existing.pass.status === 'PENDING' && !existing.pass.place) {
-      await GatePass.updateOne({ _id: existing.pass._id }, { place });
-      existing.pass.place = place;
-    }
-    return existing;
+  // Cancel any prior PENDING passes for this student
+  const existingPending = await GatePass.find({
+    student_id: sId,
+    status: 'PENDING',
+  });
+  for (const p of existingPending) {
+    p.status = 'CANCELLED';
+    await p.save();
+    await removePassFromCache(p).catch(() => {});
   }
 
-  // 2. Create new pass atomically
+  // Create brand new pass with high-entropy fresh token
   const token = createCompactToken();
-
-  let pass;
-  try {
-    pass = await GatePass.create({
-      student_id: sId,
-      pass_type: 'IN_OUT',
-      qr_token: token,
-      status: 'PENDING',
-      place: place || '',
-      reason: reason || '',
-    });
-  } catch (err) {
-    // Handle concurrent creation collision gracefully
-    pass = await GatePass.findOne({
-      student_id: sId,
-      status: { $in: ['PENDING', 'OUTSIDE'] },
-    }).sort({ createdAt: -1 });
-
-    if (!pass) throw err;
-  }
+  const pass = await GatePass.create({
+    student_id: sId,
+    pass_type: 'IN_OUT',
+    qr_token: token,
+    status: 'PENDING',
+    place: place || '',
+    reason: reason || '',
+  });
 
   const { qrDataUrl, qrPublicUrl } = await renderPassQR(pass.qr_token, sId);
   await syncPassToCache(pass, userDoc);
@@ -216,9 +212,49 @@ const getOrCreateActivePass = async (studentId, { place = '', reason = '' } = {}
     qrDataUrl,
     qrPublicUrl,
     token: pass.qr_token,
-    scanType: pass.status === 'OUTSIDE' ? 'IN' : 'OUT',
-    status: pass.status,
+    scanType: 'OUT',
+    status: 'PENDING',
   };
+};
+
+/**
+ * Get or create an active pass for student.
+ * IF options.forceNew is true -> cancels prior pending and creates a fresh unique pass.
+ * ELSE IF active pass exists -> return existing pass.
+ * ELSE -> create a new pass in MongoDB and return it.
+ */
+const getOrCreateActivePass = async (studentId, { place = '', reason = '' } = {}, userDoc = null, options = {}) => {
+  const sId = studentId.toString();
+
+  // If forceNew is requested (e.g. user clicked a destination button to generate pass),
+  // always create a brand new pass with a fresh unique QR code!
+  if (options.forceNew) {
+    const unreturnedLog = await InOutLog.findOne({
+      student_id: sId,
+      status: 'OUT',
+      returned: false,
+    }).sort({ timestamp: -1 }).lean();
+
+    // If student is physically OUT, their active pass is for returning IN
+    if (unreturnedLog) {
+      return getActivePassForStudent(sId, userDoc);
+    }
+
+    return createNewPass(sId, { place, reason }, userDoc);
+  }
+
+  // 1. Check existing active pass first
+  const existing = await getActivePassForStudent(sId, userDoc);
+  if (existing) {
+    if (place && existing.pass.status === 'PENDING') {
+      await GatePass.updateOne({ _id: existing.pass._id }, { place });
+      existing.pass.place = place;
+    }
+    return existing;
+  }
+
+  // 2. Create new pass atomically
+  return createNewPass(sId, { place, reason }, userDoc);
 };
 
 /**
@@ -271,6 +307,7 @@ const recordPassIn = async (token, guardId, guardName) => {
 
 module.exports = {
   createCompactToken,
+  createNewPass,
   getActivePassForStudent,
   getOrCreateActivePass,
   recordPassOut,

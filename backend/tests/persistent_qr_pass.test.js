@@ -32,11 +32,18 @@ async function runTests() {
   console.log('🧪 Starting Persistent QR Pass & Home Visit Test Suite...\n');
 
   // Test 1: Unit logic of compact tokens
+  const { createCompactToken } = require('../services/gatePassService');
+  const ioToken1 = createCompactToken();
+  const ioToken2 = createCompactToken();
+  assert(ioToken1.startsWith('IO-'), 'IO Token must start with IO-');
+  assert(ioToken1 !== ioToken2, 'IO Tokens must be unique across requests');
+  console.log('✅ Test 1a: IO Token generator generates distinct IO-* tokens every time');
+
   const token1 = createHomeVisitCompactToken();
   const token2 = createHomeVisitCompactToken();
   assert(token1.startsWith('HV-'), 'Token must start with HV-');
   assert(token1 !== token2, 'Tokens must be unique');
-  console.log('✅ Test 1: Token generator generates distinct HV-* tokens');
+  console.log('✅ Test 1b: Token generator generates distinct HV-* tokens every time');
 
   // Test 2: Mongoose Schema Validation
   const testStudentId = new mongoose.Types.ObjectId();

@@ -209,9 +209,9 @@ router.get('/status', async (req, res) => {
 });
 
 // ── POST /get-or-create-pass ──────────────────────────────────────────────────
-// Dedicated endpoint for "Show QR Pass":
+// Endpoint for "Show QR Pass":
 // IF active pass exists (In/Out or Home Visit) -> returns existing QR
-// ELSE -> atomically creates a new persistent pass in MongoDB and returns it.
+// ELSE -> returns hasActivePass: false so frontend prompts student to generate a new QR.
 router.post('/get-or-create-pass', async (req, res) => {
   try {
     const user = req.user;
@@ -227,7 +227,7 @@ router.post('/get-or-create-pass', async (req, res) => {
 
     if (activeHomeVisit) {
       if (!activeHomeVisit.qr_used_out && activeHomeVisit.return_date < today) {
-        // Departure expired, continue to daily pass
+        // Departure expired, continue to daily pass check
       } else {
         let token = activeHomeVisit.qr_token;
         let qrDataUrl;
@@ -243,6 +243,7 @@ router.post('/get-or-create-pass', async (req, res) => {
         const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
         return res.json({
           success: true,
+          hasActivePass: true,
           passKind: 'home_visit',
           scanType: scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT',
           scanPhase,
@@ -259,25 +260,34 @@ router.post('/get-or-create-pass', async (req, res) => {
       }
     }
 
-    // 2. Get or atomically create daily In/Out pass
-    const place = String(req.body.place || 'Campus / Local').trim();
-    const activeInOut = await getOrCreateActivePass(studentId, { place }, user);
+    // 2. Check for active daily In/Out pass (PENDING or OUTSIDE)
+    const activeInOut = await getActivePassForStudent(studentId, user);
+    if (activeInOut) {
+      return res.json({
+        success: true,
+        hasActivePass: true,
+        passKind: 'inout',
+        scanType: activeInOut.scanType,
+        status: activeInOut.status,
+        token: activeInOut.token,
+        qrToken: activeInOut.token,
+        qrDataUrl: activeInOut.qrDataUrl,
+        qrPublicUrl: activeInOut.qrPublicUrl,
+        pass: activeInOut.pass,
+        student: {
+          name: user.name,
+          rollNo: user.rollNo,
+          hostel: user.hostel,
+        },
+      });
+    }
 
+    // 3. No active pass exists — DO NOT auto-create a fake pass!
+    // Tell frontend no pass is active so it displays "Generate New QR" modal.
     res.json({
       success: true,
-      passKind: 'inout',
-      scanType: activeInOut.scanType,
-      status: activeInOut.status,
-      token: activeInOut.token,
-      qrToken: activeInOut.token,
-      qrDataUrl: activeInOut.qrDataUrl,
-      qrPublicUrl: activeInOut.qrPublicUrl,
-      pass: activeInOut.pass,
-      student: {
-        name: user.name,
-        rollNo: user.rollNo,
-        hostel: user.hostel,
-      },
+      hasActivePass: false,
+      message: 'No active gate pass found. Please generate a new QR pass.',
     });
   } catch (err) {
     console.error('get-or-create-pass error:', err);
@@ -286,7 +296,7 @@ router.post('/get-or-create-pass', async (req, res) => {
 });
 
 // ── POST /request-inout ───────────────────────────────────────────────────────
-// Create or retrieve persistent IN or OUT request (stored in MongoDB)
+// Create a fresh unique IN/OUT request. Every request creates a distinct QR code.
 router.post('/request-inout', async (req, res) => {
   try {
     const user = req.user;
@@ -303,14 +313,18 @@ router.post('/request-inout', async (req, res) => {
     const scanType = existingOut ? 'IN' : 'OUT';
 
     if (scanType === 'OUT' && (!place || !(await validatePlaceGeo(place)))) {
-      return res.status(400).json({ success: false, message: 'A valid destination (place) is required for going out (real city, town, village, or place name)' });
+      return res.status(400).json({
+        success: false,
+        message: 'A valid destination (place) is required for going out (real city, town, village, or place name)',
+      });
     }
 
-    // Atomically get existing or create persistent pass in MongoDB
+    // When going OUT, force generation of a BRAND NEW unique pass and QR code based on selected info!
     const activePass = await getOrCreateActivePass(
       studentId,
       { place: scanType === 'OUT' ? place : (existingOut?.place || place) },
-      user
+      user,
+      { forceNew: scanType === 'OUT' }
     );
 
     res.json({
@@ -334,7 +348,7 @@ router.post('/request-inout', async (req, res) => {
       qrPublicUrl: activePass.qrPublicUrl,
       token: activePass.token,
       qrToken: activePass.token,
-      expiresIn: 'Persistent until gate return scan',
+      expiresIn: 'Valid for 1 exit and 1 return scan',
       student: {
         name: user.name,
         rollNo: user.rollNo,
@@ -343,6 +357,43 @@ router.post('/request-inout', async (req, res) => {
     });
   } catch (err) {
     console.error('Student in/out request error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /reset-pass ──────────────────────────────────────────────────────────
+// Reset pass status if student is back inside or stuck with an unreturned pass
+router.post('/reset-pass', async (req, res) => {
+  try {
+    const studentId = req.user._id.toString();
+    const now = new Date();
+
+    // Mark any unreturned InOutLog as returned
+    await InOutLog.updateMany(
+      { student_id: studentId, status: 'OUT', returned: false },
+      { $set: { returned: true, in_time: now, status: 'IN' } }
+    );
+
+    // Cancel or complete any active GatePass
+    const activePasses = await GatePass.find({
+      student_id: studentId,
+      status: { $in: ['PENDING', 'OUTSIDE'] },
+    });
+
+    const { removePassFromCache } = require('../services/gatePassService');
+    for (const p of activePasses) {
+      p.status = p.status === 'OUTSIDE' ? 'COMPLETED' : 'CANCELLED';
+      p.completed_at = now;
+      await p.save();
+      await removePassFromCache(p).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: 'Pass status reset. You are now inside campus and can generate a new pass.',
+    });
+  } catch (err) {
+    console.error('reset-pass error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

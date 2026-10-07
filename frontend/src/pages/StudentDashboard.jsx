@@ -522,6 +522,10 @@ export default function StudentDashboard() {
   const [activePasses, setActivePasses] = useState([]);
   const [qrQuickLoading, setQrQuickLoading] = useState(false);
   const [scanAlertModal, setScanAlertModal] = useState(null);
+  const [showGenerateQrModal, setShowGenerateQrModal] = useState(false);
+  const [customDestInput, setCustomDestInput] = useState('');
+  const [generatingPass, setGeneratingPass] = useState(false);
+  const [resettingPass, setResettingPass] = useState(false);
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
@@ -993,19 +997,73 @@ export default function StudentDashboard() {
     setLoading(true);
     try {
       const res = await api.post('/student/request-inout', { place });
-      const { scan_type, student, expiresIn, qrDataUrl } = res.data;
+      const { scan_type, student, expiresIn, qrDataUrl, token, qrToken } = res.data;
 
       botSay(
         `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n📍 Going to: *${place || 'Not specified'}*\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nShow the QR below at the gate.`,
       );
       pushQrMessage({ qrDataUrl, scanType: scan_type, student, passKind: 'inout', place });
+
+      const meta = {
+        qrDataUrl,
+        qrToken: token || qrToken,
+        scanType: scan_type,
+        student,
+        place,
+        passKind: 'inout',
+      };
+      const display = getPassDisplay(meta);
+      const newPass = {
+        ...meta,
+        ...display,
+        id: 'inout',
+        tabLabel: 'Daily In/Out',
+      };
+      setActivePasses([newPass]);
+      setZoomedQR({
+        dataUrl: qrDataUrl,
+        ...newPass,
+      });
+      setShowGenerateQrModal(false);
+
       checkActivePassSilently();
       setStep(STEPS.DONE);
       goToMainMenu();
     } catch (err) {
       botSay(`❌ ${err.response?.data?.message || 'Failed to send in/out request. Try again.'}`);
+      toast.error(err.response?.data?.message || 'Failed to generate gate pass.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGeneratePass = async (place) => {
+    if (!place || !place.trim()) return;
+    setGeneratingPass(true);
+    try {
+      await submitInOutRequest(place.trim());
+      setShowGenerateQrModal(false);
+      setCustomDestInput('');
+    } catch (err) {
+      toast.error(err?.message || 'Failed to generate pass');
+    } finally {
+      setGeneratingPass(false);
+    }
+  };
+
+  const handleResetPass = async () => {
+    setResettingPass(true);
+    try {
+      await api.post('/student/reset-pass');
+      setZoomedQR(null);
+      setActivePasses([]);
+      toast.success('Pass reset! You are marked inside campus. Generate a new pass when ready.');
+      await checkActivePassSilently();
+      setShowGenerateQrModal(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to reset pass.');
+    } finally {
+      setResettingPass(false);
     }
   };
 
@@ -1739,38 +1797,10 @@ export default function StudentDashboard() {
 
       if (s?.pendingVisits?.length > 0) {
         toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
-        return;
       }
 
-      // No active pass found -> Atomically get or create persistent pass in MongoDB
-      const createRes = await api.post('/student/get-or-create-pass');
-      if (createRes.data?.success) {
-        const passData = createRes.data;
-        const meta = {
-          qrDataUrl: passData.qrDataUrl,
-          qrToken: passData.token || passData.qrToken,
-          scanType: passData.scanType,
-          student: user,
-          place: passData.pass?.place || 'Campus / Local',
-          reason: passData.pass?.reason || '',
-          passKind: passData.passKind || 'inout',
-        };
-        const display = getPassDisplay(meta);
-        const newPass = {
-          ...meta,
-          ...display,
-          id: passData.passKind === 'home_visit' ? `hv_${passData.homeVisit?._id || 'active'}` : 'inout',
-          tabLabel: passData.passKind === 'home_visit' ? 'Home Visit' : 'Daily In/Out',
-        };
-        setActivePasses([newPass]);
-        setZoomedQR({
-          dataUrl: passData.qrDataUrl,
-          ...newPass,
-        });
-        toast.success('Gate Pass QR ready!');
-      } else {
-        toast('No active QR code found. You can request a pass from the chat menu.', { icon: 'ℹ️' });
-      }
+      // No active pass found -> Pop up the "Generate New QR" modal
+      setShowGenerateQrModal(true);
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Could not fetch current QR status.');
     } finally {
@@ -3161,22 +3191,304 @@ export default function StudentDashboard() {
               <span>{zoomedQR.instruction || 'Show this QR to security at the gate'}</span>
             </div>
 
+            {/* If pass is in Return (IN) mode, offer a reset option in case student is already back inside */}
+            {zoomedQR.instructionType === 'IN' && (
+              <button
+                onClick={handleResetPass}
+                disabled={resettingPass}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  background: theme === 'light' ? '#fff1f2' : 'rgba(239, 68, 68, 0.12)',
+                  border: theme === 'light' ? '1.5px solid #fecdd3' : '1px solid rgba(239, 68, 68, 0.35)',
+                  color: theme === 'light' ? '#be123c' : '#f87171',
+                  fontSize: 12.5,
+                  cursor: resettingPass ? 'wait' : 'pointer',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <MdRefresh size={16} style={{ animation: resettingPass ? 'spin 1s linear infinite' : 'none' }} />
+                <span>{resettingPass ? 'Resetting Pass...' : 'Already back inside campus? Reset pass'}</span>
+              </button>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+              <button
+                onClick={() => {
+                  setZoomedQR(null);
+                  setShowGenerateQrModal(true);
+                }}
+                style={{
+                  flex: 1.2,
+                  padding: '12px 10px',
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  border: 'none',
+                  color: '#ffffff',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)',
+                }}
+              >
+                <MdQrCode2 size={17} />
+                <span>Generate New Pass</span>
+              </button>
+
+              <button
+                onClick={() => setZoomedQR(null)}
+                style={{
+                  flex: 0.8,
+                  padding: '12px 0',
+                  borderRadius: 12,
+                  background: theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.08)',
+                  border: theme === 'light' ? '1px solid #cbd5e1' : 'none',
+                  color: theme === 'light' ? '#0f172a' : 'var(--text-primary)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GENERATE NEW GATE PASS QR MODAL ── */}
+      {showGenerateQrModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowGenerateQrModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: 16,
+            animation: 'fadeInModal 0.2s ease-out',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-card)',
+              borderRadius: 24,
+              padding: isMobile ? '24px 18px' : '30px 28px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              border: '1px solid var(--glass-border)',
+              maxWidth: 440,
+              width: '100%',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
+              position: 'relative',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)',
+                }}>
+                  <MdQrCode2 size={24} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text-primary)' }}>
+                    Generate Gate Pass QR
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                    Valid for 1 exit and 1 return scan
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGenerateQrModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: 4,
+                  borderRadius: 8,
+                }}
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Choose your destination below to generate a new, unique QR code. Each pass is unique and valid for only one exit and one return.
+            </p>
+
+            {/* Quick Destination Options */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button
+                disabled={generatingPass}
+                onClick={() => handleGeneratePass('Shop')}
+                style={{
+                  padding: '14px 12px',
+                  borderRadius: 14,
+                  border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255,255,255,0.12)',
+                  background: theme === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.05)',
+                  color: 'var(--text-primary)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: generatingPass ? 'wait' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: 24 }}>🛒</span>
+                <span>Shop</span>
+              </button>
+
+              <button
+                disabled={generatingPass}
+                onClick={() => handleGeneratePass('Talegaon')}
+                style={{
+                  padding: '14px 12px',
+                  borderRadius: 14,
+                  border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255,255,255,0.12)',
+                  background: theme === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.05)',
+                  color: 'var(--text-primary)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: generatingPass ? 'wait' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: 24 }}>📍</span>
+                <span>Talegaon</span>
+              </button>
+            </div>
+
+            {/* Custom Destination input */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                📌 Other Destination:
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="e.g. Pune Station, Hinjewadi..."
+                  value={customDestInput}
+                  onChange={(e) => setCustomDestInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customDestInput.trim()) {
+                      handleGeneratePass(customDestInput.trim());
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: 12,
+                    border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255,255,255,0.15)',
+                    background: theme === 'light' ? '#ffffff' : 'rgba(0,0,0,0.25)',
+                    color: 'var(--text-primary)',
+                    fontSize: 13,
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  disabled={generatingPass || !customDestInput.trim()}
+                  onClick={() => handleGeneratePass(customDestInput.trim())}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: 12,
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: (generatingPass || !customDestInput.trim()) ? 'not-allowed' : 'pointer',
+                    opacity: (generatingPass || !customDestInput.trim()) ? 0.6 : 1,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {generatingPass ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              color: 'var(--text-secondary)',
+              fontSize: 11,
+              fontWeight: 600,
+            }}>
+              <div style={{ flex: 1, height: 1, background: 'var(--glass-border)' }} />
+              <span>OR HOME VISIT</span>
+              <div style={{ flex: 1, height: 1, background: 'var(--glass-border)' }} />
+            </div>
+
+            {/* Home visit button */}
             <button
-              onClick={() => setZoomedQR(null)}
+              onClick={() => {
+                setShowGenerateQrModal(false);
+                setStep(STEPS.HV_REASON);
+                botSay('🏠 *Home Visit Request*\n\nStep 1 — Please select a reason below, or type your own:', 'buttons', {
+                  buttons: [
+                    { id: 'going_home', label: '🏠 Going Home' },
+                    { id: 'medical_reason', label: '🏥 Medical Reason' },
+                    { id: 'family_function', label: '🎉 Family Function' },
+                    { id: 'hv_other', label: '🛠️ Other Reason' },
+                    { id: 'flow_menu', label: '🏠 Main menu' },
+                  ],
+                });
+              }}
               style={{
-                width: '100%',
-                padding: '12px 0',
-                borderRadius: 12,
-                background: theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.08)',
-                border: theme === 'light' ? '1px solid #cbd5e1' : 'none',
-                color: theme === 'light' ? '#0f172a' : 'var(--text-primary)',
-                fontSize: 14,
-                cursor: 'pointer',
+                padding: '12px',
+                borderRadius: 14,
+                border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255,255,255,0.12)',
+                background: theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                color: 'var(--text-primary)',
                 fontWeight: 700,
-                transition: 'all 0.15s ease',
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
               }}
             >
-              Close
+              <span>🏠 Request Home Visit Pass</span>
             </button>
           </div>
         </div>
