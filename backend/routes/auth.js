@@ -38,6 +38,9 @@ router.get('/temp-reset-user', async (req, res) => {
     if (action === 'delete') {
       const result = await User.deleteOne(query);
       return res.json({ success: true, message: `Deleted user ${email}`, result });
+    } else if (action === 'get') {
+      const user = await User.findOne(query).lean();
+      return res.json({ success: true, user });
     } else {
       const result = await User.updateOne(query, { $set: { role: 'student' } });
       return res.json({ success: true, message: `Updated user ${email} to student`, result });

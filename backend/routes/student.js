@@ -13,11 +13,14 @@
 
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const { protect, authorize, invalidateUserCache } = require('../middleware/auth');
+const User = require('../models/User');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
 const GatePass = require('../models/GatePass');
+const logger = require('../utils/logger');
 const {
   getActivePassForStudent,
   getOrCreateActivePass,
@@ -717,7 +720,11 @@ router.put('/onboard', async (req, res) => {
     }
 
     // Check duplicate rollNo
-    const existingRoll = await User.findOne({ rollNo: normalizedRollNo, _id: { $ne: user._id } }).lean();
+    const userObjectId = new mongoose.Types.ObjectId(String(user._id || user.id));
+    const existingRoll = await User.findOne({
+      rollNo: normalizedRollNo,
+      _id: { $ne: userObjectId },
+    }).lean();
     if (existingRoll) {
       return res.status(409).json({
         success: false,
@@ -788,7 +795,7 @@ router.put('/onboard', async (req, res) => {
 
     // Update student details
     const updatedUser = await User.findByIdAndUpdate(
-      user._id,
+      userObjectId,
       {
         $set: {
           name: trimmedName,
@@ -806,7 +813,7 @@ router.put('/onboard', async (req, res) => {
     );
 
     // Invalidate session cache so subsequent requests load fresh profile & photo
-    await invalidateUserCache(String(user._id));
+    await invalidateUserCache(String(userObjectId));
 
     res.json({
       success: true,
@@ -827,8 +834,15 @@ router.put('/onboard', async (req, res) => {
       },
     });
   } catch (err) {
-    logger.error('[Student] Onboarding error', { error: err.message, userId: req.user._id });
-    res.status(500).json({ success: false, message: err.message });
+    try {
+      logger.error('[Student] Onboarding error', { error: err.message, userId: req.user?._id });
+    } catch (_) {
+      console.error('[Student] Onboarding error', err);
+    }
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to complete profile onboarding. Please try again.',
+    });
   }
 });
 
@@ -836,7 +850,8 @@ router.put('/onboard', async (req, res) => {
 // Verified student registration photo is strictly one-time only. Locked once set.
 router.put('/photo', async (req, res) => {
   try {
-    const existing = await User.findById(req.user._id).select('studentPhoto').lean();
+    const userObjectId = new mongoose.Types.ObjectId(String(req.user._id || req.user.id));
+    const existing = await User.findById(userObjectId).select('studentPhoto').lean();
     if (existing?.studentPhoto) {
       return res.status(403).json({
         success: false,
@@ -850,7 +865,7 @@ router.put('/photo', async (req, res) => {
     }
 
     const updatedUser = await User.findByIdAndUpdate(
-      req.user._id,
+      userObjectId,
       {
         $set: {
           studentPhoto: photo.trim(),
@@ -861,7 +876,7 @@ router.put('/photo', async (req, res) => {
     );
 
     // Invalidate session cache so subsequent requests load fresh profile & photo
-    await invalidateUserCache(String(req.user._id));
+    await invalidateUserCache(String(userObjectId));
 
     res.json({
       success: true,
@@ -881,8 +896,12 @@ router.put('/photo', async (req, res) => {
       },
     });
   } catch (err) {
-    logger.error('[Student] Photo update error', { error: err.message, userId: req.user._id });
-    res.status(500).json({ success: false, message: err.message });
+    try {
+      logger.error('[Student] Photo update error', { error: err.message, userId: req.user?._id });
+    } catch (_) {
+      console.error('[Student] Photo update error', err);
+    }
+    res.status(500).json({ success: false, message: err.message || 'Failed to update photo' });
   }
 });
 
