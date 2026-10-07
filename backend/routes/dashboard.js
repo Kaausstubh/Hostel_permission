@@ -117,8 +117,8 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
 
     const studentSelect =
       req.user.role === 'security'
-        ? 'name rollNo hostel createdAt'
-        : 'name rollNo hostel phone email parentPhone parentPhone2 createdAt isActive';
+        ? 'name rollNo hostel roomNo createdAt'
+        : 'name rollNo hostel roomNo phone email parentPhone parentPhone2 createdAt isActive';
 
     const [rawStudents, count] = await Promise.all([
       User.find(filter)

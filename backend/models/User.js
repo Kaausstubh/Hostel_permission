@@ -81,6 +81,12 @@ const userSchema = new mongoose.Schema(
       enum: ['BH1', 'BH2', 'GH', null],
       default: null,
     },
+    roomNo: {
+      // Applicable to students: Room number e.g. "101", "B-204"
+      type: String,
+      trim: true,
+      default: null,
+    },
     phone: {
       // Optional — OAuth providers don't always return a phone number
       // Stored as E.164, e.g. "+919876543210"

@@ -2299,7 +2299,7 @@ export default function StudentDashboard() {
                 {user?.name}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                {user?.rollNo} · {getHostelLabel(user?.hostel)}
+                {user?.rollNo} · {getHostelLabel(user?.hostel)}{user?.roomNo ? ` · Room ${user.roomNo}` : ''}
               </div>
             </div>
           </div>

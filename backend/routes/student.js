@@ -523,14 +523,14 @@ router.post('/validate-place', async (req, res) => {
 // Complete student profile onboarding (called once after first Google OAuth login)
 router.put('/onboard', async (req, res) => {
   try {
-    const { name, rollNo, phone, parentPhone, parentPhone2, hostel, photo } = req.body;
+    const { name, rollNo, phone, parentPhone, parentPhone2, hostel, roomNo, photo } = req.body;
     const user = req.user;
 
-    // Validate presence (including compulsory face photo)
-    if (!name || !rollNo || !phone || !parentPhone || !parentPhone2 || !hostel) {
+    // Validate presence (including compulsory face photo & room number)
+    if (!name || !rollNo || !phone || !parentPhone || !parentPhone2 || !hostel || !roomNo) {
       return res.status(400).json({
         success: false,
-        message: 'Name, Roll/MIS number, phone, both parent phone numbers, and hostel selection are required.',
+        message: 'Name, Roll/MIS number, phone, both parent phone numbers, hostel selection, and room number are required.',
       });
     }
 
@@ -630,6 +630,15 @@ router.put('/onboard', async (req, res) => {
       });
     }
 
+    // Validate room number format
+    const trimmedRoomNo = String(roomNo).trim().toUpperCase();
+    if (trimmedRoomNo.length < 1 || trimmedRoomNo.length > 20) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room number must be between 1 and 20 characters.',
+      });
+    }
+
     // Update student details
     const updatedUser = await User.findByIdAndUpdate(
       user._id,
@@ -641,6 +650,7 @@ router.put('/onboard', async (req, res) => {
           parentPhone: normalizedParentPhone,
           parentPhone2: normalizedParentPhone2,
           hostel: normalizedHostel,
+          roomNo: trimmedRoomNo,
           picture: photo.trim(),
           studentPhoto: photo.trim(),
         },
@@ -662,6 +672,7 @@ router.put('/onboard', async (req, res) => {
         picture:      updatedUser.studentPhoto || updatedUser.picture || null,
         studentPhoto: updatedUser.studentPhoto || null,
         hostel:       updatedUser.hostel || null,
+        roomNo:       updatedUser.roomNo || null,
         rollNo:       updatedUser.rollNo || null,
         phone:        updatedUser.phone || null,
         parentPhone:  updatedUser.parentPhone || null,

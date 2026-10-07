@@ -343,7 +343,14 @@ export default function WardenStudents() {
                         </td>
                         <td>
                           {student.hostel ? (
-                            <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
+                              {student.roomNo && (
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                  Room {student.roomNo}
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>
                           )}

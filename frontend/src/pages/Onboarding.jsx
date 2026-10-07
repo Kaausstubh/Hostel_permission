@@ -19,6 +19,7 @@ import {
   MdPhone,
   MdPeople,
   MdHome,
+  MdMeetingRoom,
   MdLightMode,
   MdDarkMode,
   MdLock,
@@ -62,6 +63,7 @@ export default function Onboarding() {
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
   const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
+  const [roomNo, setRoomNo] = useState(user?.roomNo || '');
 
   // Face photo states: compulsory and human face only
   const [photo, setPhoto] = useState('');
@@ -275,6 +277,10 @@ export default function Onboarding() {
       return toast.error('Please select your hostel.');
     }
 
+    if (!roomNo || !roomNo.trim()) {
+      return toast.error('Please enter your room number.');
+    }
+
     if (!agreeTerms) {
       return toast.error('Please accept the Hostel Terms and Conditions to complete registration.');
     }
@@ -288,6 +294,7 @@ export default function Onboarding() {
         parentPhone: parentCheck.e164,
         parentPhone2: parent2Check.e164,
         hostel,
+        roomNo: roomNo.trim(),
         photo,
       });
 
@@ -731,47 +738,80 @@ export default function Onboarding() {
             📌 <strong>Rule:</strong> All 3 phone numbers must be unique, valid 10-digit Indian numbers (Accepted: <code>9876543210</code>, <code>+919876543210</code>, or <code>+91 9876543210</code>).
           </div>
 
-          {/* Hostel Selection Dropdown */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Select Hostel Block *
-            </label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MdHome size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
-              <select
-                value={hostel}
-                onChange={(e) => setHostel(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '10px 14px 10px 38px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                  background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
-                  color: 'var(--text-primary)',
-                  fontSize: '13.5px',
-                  outline: 'none',
-                  appearance: 'none',
-                  cursor: 'pointer',
-                }}
-                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
-              >
-                <option value="" disabled style={{ background: 'var(--bg-card, #13192c)' }}>Choose Hostel</option>
-                <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Brahmaputra (BH1)</option>
-                <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Krishna (BH2)</option>
-                <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Indrayani (GH)</option>
-              </select>
-              <div style={{
-                position: 'absolute',
-                right: '15px',
-                pointerEvents: 'none',
-                border: 'solid var(--text-muted)',
-                borderWidth: '0 2px 2px 0',
-                display: 'inline-block',
-                padding: '3px',
-                transform: 'rotate(45deg)',
-              }} />
+          {/* Hostel Selection & Room Number in 2-Columns */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
+            {/* Hostel Selection Dropdown */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Select Hostel Block *
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <MdHome size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
+                <select
+                  value={hostel}
+                  onChange={(e) => setHostel(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px 10px 38px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                    background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
+                    color: 'var(--text-primary)',
+                    fontSize: '13.5px',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer',
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                  onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
+                >
+                  <option value="" disabled style={{ background: 'var(--bg-card, #13192c)' }}>Choose Hostel</option>
+                  <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Brahmaputra (BH1)</option>
+                  <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Krishna (BH2)</option>
+                  <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Indrayani (GH)</option>
+                </select>
+                <div style={{
+                  position: 'absolute',
+                  right: '15px',
+                  pointerEvents: 'none',
+                  border: 'solid var(--text-muted)',
+                  borderWidth: '0 2px 2px 0',
+                  display: 'inline-block',
+                  padding: '3px',
+                  transform: 'rotate(45deg)',
+                }} />
+              </div>
+            </div>
+
+            {/* Room Number Input */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Room Number *
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <MdMeetingRoom size={17} style={{ position: 'absolute', left: '12px', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="e.g. 101 or B-204"
+                  value={roomNo}
+                  onChange={(e) => setRoomNo(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px 10px 38px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                    background: 'var(--bg-input, rgba(255, 255, 255, 0.03))',
+                    color: 'var(--text-primary)',
+                    fontSize: '13.5px',
+                    outline: 'none',
+                    transition: 'border-color 0.2s ease',
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                  onBlur={(e) => (e.target.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.08))')}
+                />
+              </div>
             </div>
           </div>
         </div>
