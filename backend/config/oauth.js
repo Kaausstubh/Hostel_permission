@@ -32,13 +32,14 @@ const HOSTEL_STAFF_ALLOWED_EMAILS = [
   'angadborge691@gmail.com',
   'saurabhkumar78540@gmail.com',
   'navinthakur@iiitp.ac.in',
-  'kirti.more@iiitp.ac.in',
-  'minakshi@iiitp.ac.in',
+  // 'kirti.more@iiitp.ac.in',
+  // 'minakshi@iiitp.ac.in',
   'kaaustubhkhandare@gmail.com',
   'sjyotik2005@gmail.com',
   'aniketwandre2914@gmail.com',
   'parthrajsolanke@gmail.com',
   'mohitmoksh810@gmail.com',
+  'abhimanyukadampatil0000@gmail.com',
   'mahesh.joshi@iiitp.ac.in',
 ];
 
