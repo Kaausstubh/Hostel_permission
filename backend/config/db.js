@@ -34,12 +34,12 @@ const connectDB = async () => {
   const isAtlasM0 = (process.env.MONGODB_URI || '').includes('mongodb+srv');
   const defaultPool = process.env.MONGODB_TIER === 'paid' || !isAtlasM0
     ? '50'   // Self-hosted Docker / paid cluster default
-    : '5';   // Atlas M0 free tier default
+    : '25';  // Atlas default: 25 concurrent connections handles peak curfew rush easily
 
   const options = {
     // ── Connection Pool ───────────────────────────────────────────────────────
     maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL_SIZE || defaultPool, 10),
-    minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '1', 10),
+    minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '5', 10),
 
     // Close idle connections quickly
     maxIdleTimeMS: 15_000,

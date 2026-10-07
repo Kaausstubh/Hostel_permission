@@ -20,14 +20,30 @@ const runNotReturnedAlert = async () => {
   console.log(`\n🔔 [CRON] Running not-returned alert job for ${today}...`);
 
   // Find all OUT entries today with no return and alert not yet sent
-  const logs = await InOutLog.find({
+  // Exclude students on approved Home Visits (multi-day leaves with parent consent)
+  const HomeVisitLog = require('../models/HomeVisitLog');
+  const activeHomeVisits = await HomeVisitLog.find({
+    overall_status: { $in: ['approved', 'completed'] },
+    leave_date: { $lte: today },
+    return_date: { $gte: today },
+  }).distinct('student_id');
+
+  const filter = {
     status: 'OUT',
     returned: false,
     date: today,
     alertSent: false,
-  }).populate('student_id', 'name phone rollNo hostel parentPhone').lean();
+  };
 
-  console.log(`   Found ${logs.length} student(s) not returned.`);
+  if (activeHomeVisits && activeHomeVisits.length > 0) {
+    filter.student_id = { $nin: activeHomeVisits };
+  }
+
+  const logs = await InOutLog.find(filter)
+    .populate('student_id', 'name phone rollNo hostel parentPhone')
+    .lean();
+
+  console.log(`   Found ${logs.length} student(s) not returned past 8:00 PM curfew.`);
 
   // Find warden(s) to notify
   const wardens = await User.find({ role: 'warden' }).select('phone name').lean();
@@ -50,7 +66,7 @@ const runNotReturnedAlert = async () => {
       if (student.phone) {
         await enqueueWhatsAppMessage({
           to: student.phone,
-          body: `🚨 *HOSTEL ALERT*\n\nYou have *not returned* to the hostel today.\nYou checked OUT at ${exitTime}.\n\nPlease report to the hostel immediately or contact the warden.\n\n_This is an automated alert from HEIMDALL System._`,
+          body: `🚨 *HOSTEL CURFEW ALERT*\n\nYou have *not returned* to the hostel before the 8:00 PM curfew.\nYou checked OUT at ${exitTime}.\n\nPlease report to the hostel gate immediately or contact the warden.\n\n_This is an automated alert from HEIMDALL System._`,
         });
       }
 
@@ -59,7 +75,7 @@ const runNotReturnedAlert = async () => {
         if (!warden.phone) continue;
         await enqueueWhatsAppMessage({
           to: warden.phone,
-          body: `🚨 *RETURN ALERT — Action Required*\n\nStudent: *${student.name}*\nRoll No: ${student.rollNo || 'N/A'}\nHostel: ${student.hostel || 'N/A'}\nExit Time: ${exitTime}\n\nThis student checked OUT at ${exitTime} and has *NOT returned* today.\n\nPlease take necessary action.`,
+          body: `🚨 *CURFEW BREACH (8:00 PM) — Action Required*\n\nStudent: *${student.name}*\nRoll No: ${student.rollNo || 'N/A'}\nHostel: ${student.hostel || 'N/A'}\nExit Time: ${exitTime}\n\nThis student checked OUT at ${exitTime} and has *NOT returned* before the 8:00 PM curfew.\n\nPlease take necessary action.`,
         });
       }
 
@@ -87,21 +103,37 @@ const runNotReturnedAlert = async () => {
 
 /**
  * Schedule the cron job.
- * Cron expression: "59 23 * * *" = every day at 11:59 PM
+ * Curfew is 8:00 PM IST.
+ * Primary: 8:05 PM IST ("5 20 * * *")
+ * Secondary final sweep: 11:59 PM IST ("59 23 * * *")
  */
 const scheduleNotReturnedAlert = () => {
+  // 1. Post-Curfew Alert: 8:05 PM IST
+  cron.schedule('5 20 * * *', async () => {
+    try {
+      console.log('⏰ Running 8:05 PM Post-Curfew Alert check...');
+      await runNotReturnedAlert();
+    } catch (error) {
+      console.error('❌ 8:05 PM Curfew alert failed:', error.message);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+
+  // 2. Midnight Final Check: 11:59 PM IST
   cron.schedule('59 23 * * *', async () => {
     try {
       await runNotReturnedAlert();
     } catch (error) {
-      console.error('❌ Cron job failed:', error.message);
+      console.error('❌ Midnight alert failed:', error.message);
     }
   }, {
     scheduled: true,
-    timezone: 'Asia/Kolkata', // IST timezone
+    timezone: 'Asia/Kolkata',
   });
 
-  console.log('⏰ Not-returned alert cron job scheduled for 11:59 PM IST');
+  console.log('⏰ Not-returned alert cron jobs scheduled for 8:05 PM & 11:59 PM IST');
 };
 
 module.exports = { scheduleNotReturnedAlert, runNotReturnedAlert };
