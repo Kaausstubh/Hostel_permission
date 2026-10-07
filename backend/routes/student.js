@@ -17,8 +17,16 @@ const { protect, authorize, invalidateUserCache } = require('../middleware/auth'
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
-const User = require('../models/User');
-const logger = require('../utils/logger');
+const GatePass = require('../models/GatePass');
+const {
+  getActivePassForStudent,
+  getOrCreateActivePass,
+} = require('../services/gatePassService');
+const {
+  issueHomeVisitGatePass,
+  isLegacyHomeJwtToken,
+  createHomeVisitCompactToken,
+} = require('../services/homeVisitQrService');
 const {
   INOUT_REQUEST_EXPIRY,
   createPendingInOutRequest,
@@ -26,12 +34,7 @@ const {
   removePendingInOutRequest,
 } = require('../services/inOutRequestService');
 const { renderQRFromToken } = require('../services/qrService');
-const {
-  issueHomeVisitGatePass,
-  isLegacyHomeJwtToken,
-} = require('../services/homeVisitQrService');
 const { normalizeToE164, validateIndianPhone } = require('../utils/phone');
-
 const { validatePlaceGeo } = require('../utils/placeValidator');
 
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -76,35 +79,31 @@ const getPagination = (query, defaultLimit = 20, maxLimit = 100) => {
 router.use(protect, authorize('student'));
 
 // ── GET /status ───────────────────────────────────────────────────────────────
+// ── GET /status ───────────────────────────────────────────────────────────────
 // Returns a summary card for the student: current IN/OUT, pending items
 router.get('/status', async (req, res) => {
   try {
     const studentId = req.user._id;
-
     const today = todayStr();
 
     const [
-      todayOut,
-      pendingInOutRequest,
+      unreturnedOut,
+      activePassInfo,
       activeVisitsRaw,
       recentVisitHistory,
       recentComplaints,
       todayLogs,
     ] = await Promise.all([
+      // Look for any unreturned OUT log across ALL dates (survives midnight & multi-day movements)
       InOutLog.findOne({
         student_id: studentId,
         status: 'OUT',
         returned: false,
-        date: today,
-      }).lean(),
-      (async () => {
-        const pending = await getPendingInOutRequest(studentId.toString());
-        if (pending?.expiresAt && new Date(pending.expiresAt).getTime() <= Date.now()) {
-          await removePendingInOutRequest(studentId.toString());
-          return null;
-        }
-        return pending;
-      })(),
+      })
+        .sort({ timestamp: -1 })
+        .lean(),
+      // Check MongoDB GatePass source of truth for active In/Out pass
+      getActivePassForStudent(studentId, req.user),
       HomeVisitLog.find({
         student_id: studentId,
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
@@ -131,9 +130,34 @@ router.get('/status', async (req, res) => {
         .lean(),
     ]);
 
+    let pendingInOutRequest = null;
+    if (activePassInfo) {
+      pendingInOutRequest = {
+        requestId: studentId.toString(),
+        requestType: 'inout_request',
+        studentId: studentId.toString(),
+        studentName: req.user.name,
+        hostel: req.user.hostel || 'N/A',
+        rollNumber: req.user.rollNo || 'N/A',
+        studentPhone: req.user.phone || '',
+        parentPhone: req.user.parentPhone || '',
+        studentPhoto: req.user.studentPhoto || req.user.picture || '',
+        place: activePassInfo.pass.place || unreturnedOut?.place || '',
+        reason: activePassInfo.pass.reason || unreturnedOut?.reason || '',
+        scanType: activePassInfo.scanType,
+        status: activePassInfo.status,
+        qrDataUrl: activePassInfo.qrDataUrl,
+        qrPublicUrl: activePassInfo.qrPublicUrl,
+        token: activePassInfo.token,
+        qrToken: activePassInfo.token,
+        expiresAt: null, // Persistent until return scan
+      };
+    }
+
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
       if (visit.overall_status !== 'approved') return visit;
+      // If student already scanned OUT, keep QR valid for return scan regardless of return_date passed
       if (!visit.qr_used_out && visit.return_date < today) return null;
 
       if (!visit.qr_token || isLegacyHomeJwtToken(visit.qr_token)) {
@@ -167,9 +191,9 @@ router.get('/status', async (req, res) => {
     res.json({
       success: true,
       status: {
-        currentStatus: todayOut ? 'OUT' : 'IN',
-        isOutside: !!todayOut,
-        outSince: todayOut ? todayOut.timestamp : null,
+        currentStatus: unreturnedOut ? 'OUT' : 'IN',
+        isOutside: !!unreturnedOut,
+        outSince: unreturnedOut ? (unreturnedOut.out_time || unreturnedOut.timestamp) : null,
         pendingInOutRequest,
         pendingVisits,
         approvedVisits,
@@ -184,76 +208,133 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// ── POST /get-or-create-pass ──────────────────────────────────────────────────
+// Dedicated endpoint for "Show QR Pass":
+// IF active pass exists (In/Out or Home Visit) -> returns existing QR
+// ELSE -> atomically creates a new persistent pass in MongoDB and returns it.
+router.post('/get-or-create-pass', async (req, res) => {
+  try {
+    const user = req.user;
+    const studentId = user._id.toString();
+    const today = todayStr();
+
+    // 1. Check for active approved Home Visit first
+    const activeHomeVisit = await HomeVisitLog.findOne({
+      student_id: user._id,
+      overall_status: 'approved',
+      qr_used_in: false,
+    }).sort({ leave_date: -1, createdAt: -1 });
+
+    if (activeHomeVisit) {
+      if (!activeHomeVisit.qr_used_out && activeHomeVisit.return_date < today) {
+        // Departure expired, continue to daily pass
+      } else {
+        let token = activeHomeVisit.qr_token;
+        let qrDataUrl;
+        if (!token || isLegacyHomeJwtToken(token)) {
+          const issued = await issueHomeVisitGatePass(activeHomeVisit);
+          token = issued.token;
+          qrDataUrl = issued.qrDataUrl;
+        } else {
+          const rendered = await renderQRFromToken(token, `hv_${activeHomeVisit._id}`);
+          qrDataUrl = rendered.qrDataUrl;
+        }
+
+        const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
+        return res.json({
+          success: true,
+          passKind: 'home_visit',
+          scanType: scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT',
+          scanPhase,
+          token,
+          qrToken: token,
+          qrDataUrl,
+          homeVisit: activeHomeVisit,
+          student: {
+            name: user.name,
+            rollNo: user.rollNo,
+            hostel: user.hostel,
+          },
+        });
+      }
+    }
+
+    // 2. Get or atomically create daily In/Out pass
+    const place = String(req.body.place || 'Campus / Local').trim();
+    const activeInOut = await getOrCreateActivePass(studentId, { place }, user);
+
+    res.json({
+      success: true,
+      passKind: 'inout',
+      scanType: activeInOut.scanType,
+      status: activeInOut.status,
+      token: activeInOut.token,
+      qrToken: activeInOut.token,
+      qrDataUrl: activeInOut.qrDataUrl,
+      qrPublicUrl: activeInOut.qrPublicUrl,
+      pass: activeInOut.pass,
+      student: {
+        name: user.name,
+        rollNo: user.rollNo,
+        hostel: user.hostel,
+      },
+    });
+  } catch (err) {
+    console.error('get-or-create-pass error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── POST /request-inout ───────────────────────────────────────────────────────
-// Create a short-lived IN or OUT request for security approval
+// Create or retrieve persistent IN or OUT request (stored in MongoDB)
 router.post('/request-inout', async (req, res) => {
   try {
     const user = req.user;
     const studentId = user._id.toString();
     const place = String(req.body.place || '').trim().slice(0, 120);
 
-    // Determine scan direction
+    // Determine scan direction without restricting to today's date
     const existingOut = await InOutLog.findOne({
       student_id: studentId,
       status: 'OUT',
       returned: false,
-      date: todayStr(),
-    });
+    }).sort({ timestamp: -1 });
+
     const scanType = existingOut ? 'IN' : 'OUT';
 
     if (scanType === 'OUT' && (!place || !(await validatePlaceGeo(place)))) {
       return res.status(400).json({ success: false, message: 'A valid destination (place) is required for going out (real city, town, village, or place name)' });
     }
 
-    let request = await getPendingInOutRequest(studentId);
-    if (request && request.scanType !== scanType) {
-      await removePendingInOutRequest(studentId);
-      request = null;
-    }
+    // Atomically get existing or create persistent pass in MongoDB
+    const activePass = await getOrCreateActivePass(
+      studentId,
+      { place: scanType === 'OUT' ? place : (existingOut?.place || place) },
+      user
+    );
 
-    if (request) {
-      return res.json({
-        success: true,
-        message: `Active ${request.scanType} request already exists`,
-        scan_type: request.scanType,
-        request,
-        qrDataUrl: request.qrDataUrl,
-        qrPublicUrl: request.qrPublicUrl,
-        token: request.token,
-        expiresIn: request.expiresAt ? `${INOUT_REQUEST_EXPIRY} seconds` : null,
-        student: {
-          name: user.name,
-          rollNo: user.rollNo,
-          hostel: user.hostel,
-        },
-      });
-    }
-
-    if (!request) {
-      request = await createPendingInOutRequest({
+    res.json({
+      success: true,
+      message: `In/Out pass ready for ${activePass.scanType}`,
+      scan_type: activePass.scanType,
+      place: activePass.pass.place || place,
+      request: {
+        requestId: studentId,
+        requestType: 'inout_request',
         studentId,
         studentName: user.name,
         hostel: user.hostel || 'N/A',
         rollNumber: user.rollNo || 'N/A',
-        studentPhone: user.phone || '',
-        parentPhone: user.parentPhone || '',
-        studentPhoto: user.studentPhoto || user.picture || '',
-        scanType,
-        place: scanType === 'OUT' ? place : (existingOut?.place || place),
-        reason: '',
-      });
-    }
-
-    res.json({
-      success: true,
-      message: `In/Out request sent for ${scanType}`,
-      scan_type: scanType,
-      place: request.place || place,
-      request,
-      qrDataUrl: request.qrDataUrl,
-      qrPublicUrl: request.qrPublicUrl,
-      token: request.token,
-      expiresIn: `${INOUT_REQUEST_EXPIRY} seconds`,
+        place: activePass.pass.place || place,
+        reason: activePass.pass.reason || '',
+        scanType: activePass.scanType,
+        status: activePass.status,
+      },
+      qrDataUrl: activePass.qrDataUrl,
+      qrPublicUrl: activePass.qrPublicUrl,
+      token: activePass.token,
+      qrToken: activePass.token,
+      expiresIn: 'Persistent until gate return scan',
       student: {
         name: user.name,
         rollNo: user.rollNo,
@@ -267,7 +348,7 @@ router.post('/request-inout', async (req, res) => {
 });
 
 // ── POST /home-visit ──────────────────────────────────────────────────────────
-// Submit a new home visit request
+// Submit a new home visit request with persistent MongoDB QR token
 router.post('/home-visit', async (req, res) => {
   try {
     const { reason, leave_date, return_date, place } = req.body;
@@ -326,8 +407,6 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
-    // Removed duplicated maxReturnDate check
-
     // Prevent multiple active passes from existing for overlapping periods.
     const overlappingVisit = await HomeVisitLog.findOne(
       buildOverlappingVisitFilter(user._id, leave_date, return_date)
@@ -342,6 +421,9 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
+    // Generate unique persistent token right upon creation
+    const persistentToken = createHomeVisitCompactToken();
+
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       name: user.name,
@@ -352,6 +434,20 @@ router.post('/home-visit', async (req, res) => {
       leave_date,
       return_date,
       place: String(place).trim().slice(0, 200),
+      qr_token: persistentToken,
+    });
+
+    // Mirror to GatePass model for unified MongoDB tracking
+    await GatePass.create({
+      student_id: user._id,
+      pass_type: 'HOME_VISIT',
+      home_visit_id: visit._id,
+      qr_token: persistentToken,
+      status: 'PENDING',
+      place: visit.place,
+      reason: visit.reason,
+    }).catch((gpErr) => {
+      console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
     res.status(201).json({

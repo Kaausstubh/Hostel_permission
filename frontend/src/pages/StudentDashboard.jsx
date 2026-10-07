@@ -1523,7 +1523,7 @@ export default function StudentDashboard() {
     try {
       const res = await api.get('/student/status');
       const s = res.data?.status;
-      const passes = parseActivePasses(s);
+      let passes = parseActivePasses(s);
       setActivePasses(passes);
 
       const qrMap = {};
@@ -1552,8 +1552,40 @@ export default function StudentDashboard() {
           dataUrl: passes[0].qrDataUrl,
           ...passes[0],
         });
-      } else if (s?.pendingVisits?.length > 0) {
+        return;
+      }
+
+      if (s?.pendingVisits?.length > 0) {
         toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
+        return;
+      }
+
+      // No active pass found -> Atomically get or create persistent pass in MongoDB
+      const createRes = await api.post('/student/get-or-create-pass');
+      if (createRes.data?.success) {
+        const passData = createRes.data;
+        const meta = {
+          qrDataUrl: passData.qrDataUrl,
+          qrToken: passData.token || passData.qrToken,
+          scanType: passData.scanType,
+          student: user,
+          place: passData.pass?.place || 'Campus / Local',
+          reason: passData.pass?.reason || '',
+          passKind: passData.passKind || 'inout',
+        };
+        const display = getPassDisplay(meta);
+        const newPass = {
+          ...meta,
+          ...display,
+          id: passData.passKind === 'home_visit' ? `hv_${passData.homeVisit?._id || 'active'}` : 'inout',
+          tabLabel: passData.passKind === 'home_visit' ? 'Home Visit' : 'Daily In/Out',
+        };
+        setActivePasses([newPass]);
+        setZoomedQR({
+          dataUrl: passData.qrDataUrl,
+          ...newPass,
+        });
+        toast.success('Gate Pass QR ready!');
       } else {
         toast('No active QR code found. You can request a pass from the chat menu.', { icon: 'ℹ️' });
       }

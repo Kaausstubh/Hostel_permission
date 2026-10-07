@@ -7,6 +7,9 @@
 
 const { getRedis } = require('./redisClient');
 const crypto = require('crypto');
+const GatePass = require('../models/GatePass');
+const InOutLog = require('../models/InOutLog');
+const User = require('../models/User');
 const { renderQRValue } = require('./qrService');
 
 const { INOUT_REQUEST_EXPIRY_SECONDS } = require('../config/campus');
@@ -88,7 +91,8 @@ const createPendingInOutRequest = async ({
   scanType,
 }) => {
   const createdAt = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + (INOUT_REQUEST_EXPIRY * 1000)).toISOString();
+  // Persistent request — no short 15-minute TTL so passes survive across hours/days
+  const expiresAt = null;
   const compactToken = createCompactToken();
   const { token, qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(
     compactToken,
@@ -115,7 +119,7 @@ const createPendingInOutRequest = async ({
     qrFilename,
   });
 
-  return persistEntry(entry, INOUT_REQUEST_EXPIRY);
+  return persistEntry(entry);
 };
 
 const movePendingRequestToReturn = async (entry) => {
@@ -162,12 +166,48 @@ const getPendingInOutRequest = async (studentId) => {
   }
 
   const entry = fallbackPendingRequests.get(studentId);
-  if (!entry) return null;
-  if (entry.expiresAt && new Date(entry.expiresAt).getTime() <= Date.now()) {
-    fallbackPendingRequests.delete(studentId);
-    return null;
+  if (entry) return entry;
+
+  // MongoDB fallback: check active GatePass
+  try {
+    const gatePass = await GatePass.findOne({
+      student_id: studentId,
+      status: { $in: ['PENDING', 'OUTSIDE'] },
+    }).sort({ createdAt: -1 });
+
+    if (gatePass) {
+      const user = await User.findById(studentId).lean();
+      const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(
+        gatePass.qr_token,
+        `inout_request_${studentId}_restored`,
+        { errorCorrectionLevel: 'H', width: 512, margin: 4 }
+      );
+      const restored = buildEntry({
+        studentId,
+        studentName: user?.name || '',
+        hostel: user?.hostel || 'N/A',
+        rollNumber: user?.rollNo || 'N/A',
+        studentPhone: user?.phone || '',
+        parentPhone: user?.parentPhone || '',
+        studentPhoto: user?.studentPhoto || user?.picture || '',
+        place: gatePass.place || '',
+        reason: gatePass.reason || '',
+        scanType: gatePass.status === 'OUTSIDE' ? 'IN' : 'OUT',
+        createdAt: gatePass.createdAt ? gatePass.createdAt.toISOString() : new Date().toISOString(),
+        expiresAt: null,
+        token: gatePass.qr_token,
+        qrDataUrl,
+        qrPublicUrl,
+        qrFilename,
+      });
+      await persistEntry(restored);
+      return restored;
+    }
+  } catch (err) {
+    console.warn('[inOutRequestService] MongoDB fallback warning:', err.message);
   }
-  return entry;
+
+  return null;
 };
 
 const getPendingInOutRequestByToken = async (token) => {
@@ -175,18 +215,26 @@ const getPendingInOutRequestByToken = async (token) => {
 
   if (redis) {
     const studentId = await redis.get(pendingRequestTokenKey(token));
-    if (!studentId) return null;
-    return getPendingInOutRequest(studentId);
+    if (studentId) {
+      const req = await getPendingInOutRequest(studentId);
+      if (req) return req;
+    }
   }
 
   for (const entry of fallbackPendingRequests.values()) {
     if (entry.token === token) {
-      if (entry.expiresAt && new Date(entry.expiresAt).getTime() <= Date.now()) {
-        fallbackPendingRequests.delete(entry.studentId);
-        return null;
-      }
       return entry;
     }
+  }
+
+  // MongoDB fallback by token
+  try {
+    const gatePass = await GatePass.findOne({ qr_token: token }).lean();
+    if (gatePass && ['PENDING', 'OUTSIDE'].includes(gatePass.status)) {
+      return getPendingInOutRequest(gatePass.student_id.toString());
+    }
+  } catch (err) {
+    console.warn('[inOutRequestService] Token MongoDB fallback warning:', err.message);
   }
 
   return null;

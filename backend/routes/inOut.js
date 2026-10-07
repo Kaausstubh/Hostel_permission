@@ -10,10 +10,12 @@
 const express = require('express');
 const router = express.Router();
 const InOutLog = require('../models/InOutLog');
+const GatePass = require('../models/GatePass');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const { generateQR, renderQRFromToken, validateQR, registerActiveQR, removeActiveQR, getActiveQRs } = require('../services/qrService');
 const { createPendingInOutRequest } = require('../services/inOutRequestService');
+const { getOrCreateActivePass, recordPassOut, recordPassIn } = require('../services/gatePassService');
 const { withScanLock } = require('../services/scanLockService');
 const logger = require('../utils/logger');
 const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
@@ -29,93 +31,26 @@ const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 // ─── Generate QR ──────────────────────────────────────────────────────────────
-// Student calls this to get a QR code they show at the gate
+// Student calls this to get a persistent QR code they show at the gate
 router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
   try {
     const studentId = req.user._id.toString();
 
-    // If there's an active session (OUT done but IN pending), re-issue the same QR.
-    const activeSession = await InOutLog.findOne({
-      student_id: studentId,
-      date: todayStr(),
-      returned: false,
-    }).sort({ createdAt: -1 }).lean();
-
-    if (activeSession) {
-      const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRFromToken(
-        activeSession.qr_token,
-        `inout_${studentId}_active`
-      );
-
-      await registerActiveQR(activeSession.qr_token, {
-        studentId,
-        studentName: req.user.name,
-        hostel: req.user.hostel || 'N/A',
-        rollNumber: req.user.rollNo || 'N/A',
-        scanType: activeSession.status === 'OUT' ? 'IN' : 'OUT',
-        qrFilename,
-        qrPublicUrl,
-        qrDataUrl,
-      });
-
-      return res.json({
-        success: true,
-        message: `Active gate pass found. Use the SAME QR for your next scan (${activeSession.status === 'OUT' ? 'IN' : 'OUT'}).`,
-        next_scan: activeSession.status === 'OUT' ? 'IN' : 'OUT',
-        qrDataUrl,
-        qrPublicUrl,
-        token: activeSession.qr_token,
-        expiresIn: `${process.env.QR_EXPIRY_SECONDS || 3600} seconds`,
-      });
-    }
-
-    const payload = {
-      // IMPORTANT: must match 'inout_request' so the unified /api/gatescan/scan
-      // endpoint can correctly route this QR type.
-      type: 'inout_request',
-      student_id: studentId,
-      date: todayStr(),
-    };
-
-    const { token, qrDataUrl, qrPublicUrl, qrFilename } = await generateQR(payload, `inout_${studentId}_${Date.now()}`);
-
-    // Register in active store and in-out request service so Security Dashboard & Scanner see pending QRs
-    await registerActiveQR(token, {
-      studentId: studentId,
-      studentName: req.user.name,
-      hostel: req.user.hostel || 'N/A',
-      rollNumber: req.user.rollNo || 'N/A',
-      scanType: 'OUT',
-      qrFilename,
-      qrPublicUrl,
-      qrDataUrl,
-    });
-
-    await createPendingInOutRequest({
-      studentId,
-      studentName: req.user.name,
-      hostel: req.user.hostel || 'N/A',
-      rollNumber: req.user.rollNo || 'N/A',
-      studentPhone: req.user.phone || '',
-      parentPhone: req.user.parentPhone || '',
-      studentPhoto: req.user.studentPhoto || req.user.picture || '',
-      scanType: 'OUT',
-      place: '',
-      reason: '',
-      token,
-      qrDataUrl,
-      qrPublicUrl,
-      qrFilename,
-    }).catch(() => {});
+    // Use MongoDB-backed atomic GatePass service
+    const activePass = await getOrCreateActivePass(studentId, {}, req.user);
 
     res.json({
       success: true,
-      message: `Gate pass QR generated. Use the SAME QR to scan OUT and then IN.`,
-      next_scan: 'OUT',
-      qrDataUrl,
-      qrPublicUrl,
-      token,
-      expiresIn: `${process.env.QR_EXPIRY_SECONDS || 3600} seconds`,
+      message: activePass.status === 'OUTSIDE'
+        ? 'Active gate pass found. Use the SAME QR to scan back IN.'
+        : 'Gate pass QR ready. Use the SAME QR to scan OUT and then IN.',
+      next_scan: activePass.scanType,
+      qrDataUrl: activePass.qrDataUrl,
+      qrPublicUrl: activePass.qrPublicUrl,
+      token: activePass.token,
+      qrToken: activePass.token,
+      status: activePass.status,
+      expiresIn: 'Persistent until gate return scan',
     });
   } catch (error) {
     console.error('Generate QR error:', error);
@@ -175,6 +110,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
             scannedBy: req.user._id,
             scanned_by_name: guardName,
           });
+          await recordPassOut(token, req.user._id, guardName).catch(() => {});
         } catch (err) {
           if (err?.code === 11000) {
             return { status: 200, body: { success: true, message: 'Student already marked as OUT',
@@ -210,6 +146,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
         log = await InOutLog.findByIdAndUpdate(existing._id, {
           $set: { status: 'IN', in_time: now, timestamp: now, returned: true, scannedBy: req.user._id, scanned_by_name: guardName }
         }, { new: true }).lean();
+        await recordPassIn(token, req.user._id, guardName).catch(() => {});
         await removeActiveQR(token);
       }
 

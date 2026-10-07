@@ -5,6 +5,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const HomeVisitLog = require('../models/HomeVisitLog');
+const GatePass = require('../models/GatePass');
 const {
   registerActiveQR,
   getHomeVisitExpiresInSeconds,
@@ -133,6 +134,7 @@ const issueHomeVisitGatePass = async (visit) => {
   });
 
   await HomeVisitLog.updateOne({ _id: visit._id }, { qr_token: token });
+  await GatePass.updateOne({ home_visit_id: visit._id }, { qr_token: token }).catch(() => {});
   const withToken = { ...visit, qr_token: token };
   await syncHomeVisitActiveQR(withToken, token);
 
@@ -257,6 +259,7 @@ const migrateAllLegacyHomeVisitQrs = async () => {
 };
 
 module.exports = {
+  createHomeVisitCompactToken,
   syncHomeVisitActiveQR,
   ensureHomeVisitQrToken,
   issueHomeVisitGatePass,

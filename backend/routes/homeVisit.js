@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const HomeVisitLog = require('../models/HomeVisitLog');
+const GatePass = require('../models/GatePass');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const {
@@ -18,7 +19,11 @@ const {
   normalizeScannedToken,
 } = require('../services/qrService');
 const { enqueueWhatsAppMessage } = require('../queues/whatsappQueue');
-const { issueHomeVisitGatePass, findHomeVisitByScanToken } = require('../services/homeVisitQrService');
+const {
+  issueHomeVisitGatePass,
+  findHomeVisitByScanToken,
+  createHomeVisitCompactToken,
+} = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
 const logger = require('../utils/logger');
@@ -111,8 +116,9 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       });
     }
 
-    // Create the request record
+    // Create the request record with a unique persistent token
     const studentPhoto = req.user.studentPhoto || (req.user.picture && !req.user.picture.includes('googleusercontent.com') ? req.user.picture : null) || req.user.picture || null;
+    const persistentToken = createHomeVisitCompactToken();
     const visit = await HomeVisitLog.create({
       student_id: req.user._id,
       reason,
@@ -124,7 +130,19 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       student_photo: studentPhoto,
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
       parent_phone_alt: req.user.parentPhone2 ? normalizeToE164(req.user.parentPhone2) : null,
+      qr_token: persistentToken,
     });
+
+    // Mirror to GatePass for single MongoDB source of truth
+    await GatePass.create({
+      student_id: req.user._id,
+      pass_type: 'HOME_VISIT',
+      home_visit_id: visit._id,
+      qr_token: persistentToken,
+      status: 'PENDING',
+      place: visit.place,
+      reason: visit.reason,
+    }).catch((gpErr) => console.warn('[HomeVisit] GatePass creation notice:', gpErr.message));
 
     // In the "warden calls parent" workflow, we do not require parent WhatsApp approval.
     // (Optional notifications can still be added later if you want.)
@@ -333,6 +351,21 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     }
 
     await visit.save();
+
+    // Sync GatePass status
+    if (visit.qr_token) {
+      if (scanResult === 'HOME OUT') {
+        await GatePass.updateOne(
+          { qr_token: visit.qr_token },
+          { $set: { status: 'OUTSIDE', out_time: new Date(), scanned_by_out: req.user._id, scanned_by_name: scannerName } }
+        ).catch(() => {});
+      } else if (scanResult === 'HOME IN') {
+        await GatePass.updateOne(
+          { qr_token: visit.qr_token },
+          { $set: { status: 'COMPLETED', in_time: new Date(), completed_at: new Date(), scanned_by_in: req.user._id, scanned_by_name: scannerName } }
+        ).catch(() => {});
+      }
+    }
 
     res.json({
       success: true,

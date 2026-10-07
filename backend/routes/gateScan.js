@@ -5,11 +5,13 @@
  */
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 
 const { protect, authorize } = require('../middleware/auth');
 const User = require('../models/User');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
+const GatePass = require('../models/GatePass');
 const {
   validateQR,
   normalizeScannedToken,
@@ -17,6 +19,10 @@ const {
   registerActiveQR,
   removeActiveQR,
 } = require('../services/qrService');
+const {
+  recordPassOut,
+  recordPassIn,
+} = require('../services/gatePassService');
 const {
   listPendingInOutRequests,
   getPendingInOutRequest,
@@ -120,6 +126,65 @@ const resolveScanPayload = async (token) => {
         pendingRequest: pendingCompact,
       };
     }
+
+    // Check MongoDB GatePass source of truth if Redis evicted or expired
+    const gatePass = await GatePass.findOne({ qr_token: token }).lean();
+    if (gatePass) {
+      if (gatePass.status === 'COMPLETED') {
+        return { error: 'QR code already fully used' };
+      }
+      if (gatePass.status === 'CANCELLED') {
+        return { error: 'Gate pass was cancelled' };
+      }
+      const student = await User.findById(gatePass.student_id).lean();
+      const pending = {
+        requestId: gatePass.student_id.toString(),
+        requestType: 'inout_request',
+        studentId: gatePass.student_id.toString(),
+        studentName: student?.name || '',
+        hostel: student?.hostel || 'N/A',
+        rollNumber: student?.rollNo || 'N/A',
+        studentPhone: student?.phone || '',
+        parentPhone: student?.parentPhone || '',
+        studentPhoto: student?.studentPhoto || student?.picture || '',
+        place: gatePass.place || '',
+        reason: gatePass.reason || '',
+        scanType: gatePass.status === 'OUTSIDE' ? 'IN' : 'OUT',
+        token,
+      };
+      return {
+        payload: { type: 'inout_request', student_id: gatePass.student_id.toString() },
+        pendingRequest: pending,
+      };
+    }
+
+    // Check MongoDB InOutLog unreturned log
+    const inOutLog = await InOutLog.findOne({ qr_token: token }).sort({ timestamp: -1 }).lean();
+    if (inOutLog) {
+      if (inOutLog.returned) {
+        return { error: 'QR code already fully used' };
+      }
+      const student = await User.findById(inOutLog.student_id).lean();
+      const pending = {
+        requestId: inOutLog.student_id.toString(),
+        requestType: 'inout_request',
+        studentId: inOutLog.student_id.toString(),
+        studentName: student?.name || inOutLog.name || '',
+        hostel: student?.hostel || inOutLog.hostel || 'N/A',
+        rollNumber: student?.rollNo || inOutLog.rollNo || 'N/A',
+        studentPhone: student?.phone || inOutLog.phone || '',
+        parentPhone: student?.parentPhone || inOutLog.parentPhone || '',
+        studentPhoto: student?.studentPhoto || student?.picture || inOutLog.student_photo || '',
+        place: inOutLog.place || '',
+        reason: inOutLog.reason || '',
+        scanType: 'IN',
+        token,
+      };
+      return {
+        payload: { type: 'inout_request', student_id: inOutLog.student_id.toString() },
+        pendingRequest: pending,
+      };
+    }
   }
 
   // 2. Ultra fast-path: Cryptographic Signed JWT (starts with eyJ)
@@ -128,7 +193,21 @@ const resolveScanPayload = async (token) => {
     if (valid && (payload?.type === 'inout_request' || payload?.type === 'inout' || payload?.type === 'home_visit')) {
       return { payload };
     }
+    // If expired, check if student is currently outside with this token to permit return scan
     if (error) {
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded?.student_id) {
+          const unreturned = await InOutLog.findOne({
+            student_id: decoded.student_id,
+            status: 'OUT',
+            returned: false,
+          }).lean();
+          if (unreturned && unreturned.qr_token === token) {
+            return { payload: { type: 'inout_request', student_id: String(decoded.student_id) } };
+          }
+        }
+      } catch (_) {}
       return { error };
     }
   }
@@ -201,14 +280,14 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
     return { status: 400, body: { success: false, message: 'Request not found or expired' } };
   }
 
-  // Fetch student and active log concurrently in a single parallel roundtrip
+  // Fetch student and active log concurrently (survives midnight & multi-day absence)
   const [student, activeLog] = await Promise.all([
     User.findById(payload.student_id)
       .select('name rollNo email phone parentPhone hostel studentPhoto picture')
       .lean(),
     InOutLog.findOne({
       student_id: payload.student_id,
-      date: todayStr(),
+      status: 'OUT',
       returned: false,
     })
       .sort({ createdAt: -1 })
@@ -289,6 +368,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       throw err;
     }
 
+    await recordPassOut(token, req.user._id, guardName).catch(() => {});
     await movePendingRequestToReturn(pendingRequest);
 
     return {
@@ -336,7 +416,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
   const log = await InOutLog.findOneAndUpdate(
     {
       student_id: payload.student_id,
-      date: todayStr(),
+      status: 'OUT',
       returned: false,
     },
     {
@@ -395,6 +475,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
     return { status: 400, body: { success: false, message: 'No active OUT record found for this student' } };
   }
 
+  await recordPassIn(token, req.user._id, guardName).catch(() => {});
   await removePendingInOutRequest(payload.student_id);
 
   return {
@@ -479,6 +560,10 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   if (visit) {
     const student = visit.student_id;
     await syncHomeVisitActiveQR(visit, activeToken);
+    await GatePass.updateOne(
+      { qr_token: activeToken },
+      { $set: { status: 'OUTSIDE', out_time: now, scanned_by_out: req.user._id, scanned_by_name: guardName } }
+    ).catch(() => {});
 
     return {
       status: 200,
@@ -527,6 +612,10 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   if (visit) {
     const student = visit.student_id;
     await removeActiveQR(activeToken);
+    await GatePass.updateOne(
+      { qr_token: activeToken },
+      { $set: { status: 'COMPLETED', in_time: now, completed_at: now, scanned_by_in: req.user._id, scanned_by_name: guardName } }
+    ).catch(() => {});
 
     return {
       status: 200,
