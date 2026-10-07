@@ -72,17 +72,10 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (!user || !hasToken) return <Navigate to="/login" replace />;
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return (
-      <div className="loading-page" style={{ height: 'var(--app-viewport-height)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 60 }}>🚫</div>
-          <div style={{ fontWeight: 700, marginTop: 16, fontSize: 20 }}>Access Denied</div>
-          <div style={{ color: 'var(--text-muted)', marginTop: 8 }}>
-            Your role (<code>{user.role}</code>) cannot access this page.
-          </div>
-        </div>
-      </div>
-    );
+    if (user.role === 'warden') return <Navigate to="/dashboard" replace />;
+    if (user.role === 'security') return <Navigate to="/scanner" replace />;
+    if (user.role === 'student') return <Navigate to="/student" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Student onboarding redirection guard — triggers ONLY ONCE at initial registration
@@ -221,7 +214,7 @@ function AppRoutes() {
 
         {/* ── Security Routes ── */}
         <Route path="/scanner" element={
-          <ProtectedRoute allowedRoles={['security', 'warden']}>
+          <ProtectedRoute allowedRoles={['security']}>
             <AppLayout><SecurityDashboard /></AppLayout>
           </ProtectedRoute>
         } />
