@@ -526,6 +526,25 @@ export default function StudentDashboard() {
   const [customDestInput, setCustomDestInput] = useState('');
   const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
+
+  // ── Pending Visitor Pass Approvals (Real-time Gate Visitor Popup) ──────────
+  const [pendingVisitorRequests, setPendingVisitorRequests] = useState([]);
+  const [activeVisitorModal, setActiveVisitorModal] = useState(null);
+  const [visitorActionLoading, setVisitorActionLoading] = useState(false);
+  const [visitorRemarks, setVisitorRemarks] = useState('');
+
+  const fetchPendingVisitorRequests = useCallback(async () => {
+    try {
+      const res = await api.get('/visitors/my-pending');
+      if (res.data?.success && Array.isArray(res.data.pendingRequests)) {
+        setPendingVisitorRequests(res.data.pendingRequests);
+        if (res.data.pendingRequests.length > 0) {
+          setActiveVisitorModal((curr) => curr || res.data.pendingRequests[0]);
+        }
+      }
+    } catch (_) {}
+  }, []);
+
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
@@ -670,6 +689,40 @@ export default function StudentDashboard() {
     const id = ++msgIdRef.current;
     push(makeMsg(id, BOT, '', 'qr', meta));
   }, [push]);
+
+  const handleVisitorResponse = useCallback(async (action) => {
+    if (!activeVisitorModal || visitorActionLoading) return;
+    setVisitorActionLoading(true);
+    try {
+      const res = await api.post(`/visitors/${activeVisitorModal._id}/student-response`, {
+        action,
+        remarks: visitorRemarks,
+      });
+      if (res.data?.success) {
+        const vName = activeVisitorModal.name || 'Visitor';
+        const pNum = activeVisitorModal.passNumber || '';
+        if (action === 'APPROVE') {
+          toast.success(`Entry approved for ${vName}! Gate security has been notified.`);
+          botSay(`✅ You *APPROVED* the visitor pass for *${vName}* ${pNum ? `(#${pNum})` : ''}. Gate security has been notified and entry is allowed.`);
+        } else {
+          toast.error(`Visitor request for ${vName} declined.`);
+          botSay(`🚫 You *DECLINED* the visitor pass for *${vName}*. Gate security has been notified.`);
+        }
+
+        const resolvedId = activeVisitorModal._id;
+        setPendingVisitorRequests((prev) => {
+          const remaining = prev.filter((p) => p._id !== resolvedId);
+          setActiveVisitorModal(remaining.length > 0 ? remaining[0] : null);
+          return remaining;
+        });
+        setVisitorRemarks('');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to submit response');
+    } finally {
+      setVisitorActionLoading(false);
+    }
+  }, [activeVisitorModal, visitorActionLoading, visitorRemarks, botSay]);
 
   const isMainMenuMessage = (m) =>
     m?.type === 'buttons' && m.content?.includes('What would you like to do today?');
@@ -1692,6 +1745,30 @@ export default function StudentDashboard() {
       socket.on('scan_verified', (data) => {
         handleInstantScanEvent(data);
       });
+
+      socket.on('visitor:request', (data) => {
+        const req = data?.visitor || data;
+        if (!req) return;
+        playScanChime();
+        setPendingVisitorRequests((prev) => {
+          if (prev.some((p) => p._id === req._id)) return prev;
+          return [req, ...prev];
+        });
+        setActiveVisitorModal(req);
+        toast('Visitor at gate waiting for your approval!', {
+          icon: '🔔',
+          id: `vis-req-${req._id}`,
+          duration: 7000,
+        });
+      });
+
+      socket.on('visitor:resolved', (data) => {
+        const resId = data?.visitor?._id || data?.visitorId;
+        if (resId) {
+          setPendingVisitorRequests((prev) => prev.filter((p) => p._id !== resId));
+          setActiveVisitorModal((curr) => (curr?._id === resId ? null : curr));
+        }
+      });
     } catch (err) {
       console.warn('[Socket] Connection failed:', err);
     }
@@ -1708,11 +1785,32 @@ export default function StudentDashboard() {
         } catch (_) {}
       });
 
+      eventSource.addEventListener('visitor_request', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const req = data?.visitor || data;
+          if (!req) return;
+          playScanChime();
+          setPendingVisitorRequests((prev) => {
+            if (prev.some((p) => p._id === req._id)) return prev;
+            return [req, ...prev];
+          });
+          setActiveVisitorModal(req);
+        } catch (_) {}
+      });
+
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
           if (data && (data.kind || data.log)) {
             handleInstantScanEvent(data);
+          } else if (data && data.visitor) {
+            playScanChime();
+            setPendingVisitorRequests((prev) => {
+              if (prev.some((p) => p._id === data.visitor._id)) return prev;
+              return [data.visitor, ...prev];
+            });
+            setActiveVisitorModal(data.visitor);
           }
         } catch (_) {}
       };
@@ -1723,6 +1821,8 @@ export default function StudentDashboard() {
     return () => {
       if (socket) {
         socket.off('scan_verified');
+        socket.off('visitor:request');
+        socket.off('visitor:resolved');
         socket.disconnect();
       }
       if (eventSource) {
@@ -1734,16 +1834,19 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!user) return;
     checkActivePassSilently();
+    fetchPendingVisitorRequests();
     // ⚡ Performance: Poll every 25s as silent fallback, pause when tab is hidden
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         checkActivePassSilently();
+        fetchPendingVisitorRequests();
       }
     }, 25000);
 
     const handleVisibilityChange = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
         checkActivePassSilently();
+        fetchPendingVisitorRequests();
       }
     };
     if (typeof document !== 'undefined') {
@@ -1756,7 +1859,7 @@ export default function StudentDashboard() {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [user, checkActivePassSilently]);
+  }, [user, checkActivePassSilently, fetchPendingVisitorRequests]);
 
   const handleQuickViewQR = async () => {
     setQrQuickLoading(true);
@@ -2618,6 +2721,32 @@ export default function StudentDashboard() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {/* Pending Visitor Notification Button */}
+                {pendingVisitorRequests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+                    style={{
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      color: '#000',
+                      border: 'none',
+                      fontWeight: 800,
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      cursor: 'pointer',
+                      boxShadow: '0 0 12px rgba(245, 158, 11, 0.45)',
+                    }}
+                    title="Visitor waiting at gate for approval"
+                  >
+                    <span>🔔</span>
+                    <span>Visitor ({pendingVisitorRequests.length})</span>
+                  </button>
+                )}
+
                 {/* View Status / Active QR Pass Button */}
                 <button
                   onClick={handleQuickViewQR}
@@ -2770,6 +2899,32 @@ export default function StudentDashboard() {
               </div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+              {/* Pending Visitor Notification Button */}
+              {pendingVisitorRequests.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#000',
+                    border: 'none',
+                    fontWeight: 800,
+                    padding: '8px 14px',
+                    fontSize: 12.5,
+                    borderRadius: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                    boxShadow: '0 0 16px rgba(245, 158, 11, 0.45)',
+                  }}
+                  title="Visitor waiting at gate for approval"
+                >
+                  <span style={{ fontSize: 14 }}>🔔</span>
+                  <span>Visitor Waiting ({pendingVisitorRequests.length})</span>
+                </button>
+              )}
+
               {/* View Status / Active QR Pass Button */}
               <button
                 onClick={handleQuickViewQR}
@@ -2833,6 +2988,36 @@ export default function StudentDashboard() {
                 🎓 Student
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Pending Visitor Top Alert Strip */}
+        {pendingVisitorRequests.length > 0 && !activeVisitorModal && (
+          <div
+            onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+            style={{
+              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.16))',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.4)',
+              padding: '9px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              fontSize: 13,
+              color: '#fbbf24',
+              fontWeight: 600,
+              zIndex: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🔔</span>
+              <span>
+                Visitor <strong>{pendingVisitorRequests[0].name}</strong> is waiting at the gate to meet you.
+              </span>
+            </div>
+            <span style={{ textDecoration: 'underline', fontSize: 12, fontWeight: 700 }}>
+              Tap to Approve / Reject →
+            </span>
           </div>
         )}
 
@@ -3850,6 +4035,313 @@ export default function StudentDashboard() {
             >
               Acknowledge & Continue
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Visitor Approval Modal */}
+      {activeVisitorModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10001,
+            backgroundColor: 'rgba(2, 6, 23, 0.82)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            animation: 'fadeInModal 0.22s ease-out',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !visitorActionLoading) {
+              setActiveVisitorModal(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 480,
+              backgroundColor: '#0f172a',
+              backgroundImage: 'linear-gradient(160deg, #1e293b 0%, #0f172a 100%)',
+              border: '1.5px solid rgba(245, 158, 11, 0.45)',
+              borderRadius: 24,
+              boxShadow: '0 25px 60px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(245, 158, 11, 0.22)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '92vh',
+            }}
+          >
+            {/* Ambient accent header */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 4,
+                background: 'linear-gradient(90deg, #f59e0b, #ef4444, #10b981)',
+              }}
+            />
+
+            {/* Header */}
+            <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      color: '#fbbf24',
+                      fontSize: 14,
+                      animation: 'pulse 1.8s infinite',
+                    }}
+                  >
+                    ⚡
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: '#fbbf24',
+                    }}
+                  >
+                    Visitor Approval Request
+                  </span>
+                </div>
+                {activeVisitorModal.passNumber && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#94a3b8',
+                      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                      padding: '3px 8px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    Pass #{activeVisitorModal.passNumber}
+                  </span>
+                )}
+              </div>
+              <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#f8fafc' }}>
+                Someone is waiting at the gate for you
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#94a3b8' }}>
+                Main Gate Security has registered a visitor wishing to meet you. Please verify and take action:
+              </p>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '16px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Visitor Highlight Card */}
+              <div
+                style={{
+                  background: 'rgba(30, 41, 59, 0.7)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 16,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Visitor Name
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#ffffff', marginTop: 2 }}>
+                      👤 {activeVisitorModal.name}
+                    </div>
+                  </div>
+                  {activeVisitorModal.phone && (
+                    <a
+                      href={`tel:${activeVisitorModal.phone}`}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 12px',
+                        borderRadius: 10,
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                        color: '#60a5fa',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      📞 Call {activeVisitorModal.phone}
+                    </a>
+                  )}
+                </div>
+
+                {/* Key metadata grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 10, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      Total Headcount
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
+                      👥 {activeVisitorModal.headcount || 1} Person(s)
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      Vehicle Details
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
+                      🚗 {activeVisitorModal.vehicleNumber || 'On Foot / None'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      Hostel & Gate
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
+                      🏢 {activeVisitorModal.hostel || 'Hostel'} • {activeVisitorModal.entryGate || 'Main Gate'}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                      Arrival Time
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
+                      ⏱️ {activeVisitorModal.entryTime || 'Just now'}
+                    </div>
+                  </div>
+                </div>
+
+                {activeVisitorModal.remarks && (
+                  <div style={{ paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.06)', fontSize: 12, color: '#94a3b8' }}>
+                    <strong style={{ color: '#cbd5e1' }}>Note from Gate: </strong>
+                    {activeVisitorModal.remarks}
+                  </div>
+                )}
+              </div>
+
+              {/* Remarks/Response Note Input */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#cbd5e1', marginBottom: 6 }}>
+                  Optional Note / Instructions for Security Guard
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., Ask them to wait at the reception / Meeting in common room"
+                  value={visitorRemarks}
+                  onChange={(e) => setVisitorRemarks(e.target.value)}
+                  disabled={visitorActionLoading}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                    color: '#f8fafc',
+                    fontSize: 13,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Multiple requests indicator if any */}
+              {pendingVisitorRequests.length > 1 && (
+                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, textAlign: 'center' }}>
+                  📌 You have {pendingVisitorRequests.length} pending visitor requests.
+                </div>
+              )}
+            </div>
+
+            {/* Footer Action Buttons */}
+            <div
+              style={{
+                padding: '14px 22px 20px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+              }}
+            >
+              <button
+                type="button"
+                disabled={visitorActionLoading}
+                onClick={() => handleVisitorResponse('REJECT')}
+                style={{
+                  padding: '13px 16px',
+                  borderRadius: 14,
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)',
+                  color: '#fca5a5',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={(e) => {
+                  if (!visitorActionLoading) e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(185, 28, 28, 0.45) 100%)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!visitorActionLoading) e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)';
+                }}
+              >
+                ✕ Decline Entry
+              </button>
+
+              <button
+                type="button"
+                disabled={visitorActionLoading}
+                onClick={() => handleVisitorResponse('APPROVE')}
+                style={{
+                  padding: '13px 16px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#ffffff',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 18px rgba(16, 185, 129, 0.45)',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={(e) => {
+                  if (!visitorActionLoading) {
+                    e.currentTarget.style.filter = 'brightness(1.1)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!visitorActionLoading) {
+                    e.currentTarget.style.filter = 'brightness(1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {visitorActionLoading ? 'Processing...' : '✓ Allow Entry'}
+              </button>
+            </div>
           </div>
         </div>
       )}

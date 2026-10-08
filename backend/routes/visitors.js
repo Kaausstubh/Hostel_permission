@@ -14,6 +14,7 @@
 const express = require('express');
 const router = express.Router();
 const VisitorLog = require('../models/VisitorLog');
+const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const {
@@ -25,7 +26,12 @@ const {
 } = require('../utils/visitorValidation');
 const { validateIndianPhone } = require('../utils/phone');
 const { VISITOR_PURPOSES, PURPOSE_STUDENT_REQUIRED, PURPOSE_OTHER } = require('../constants/visitorPurposes');
-const { getIO } = require('../services/socketService');
+const {
+  getIO,
+  broadcastVisitorRequest,
+  broadcastVisitorResponse,
+} = require('../services/socketService');
+const { invalidateDashboardCache } = require('../services/dashboardCache');
 
 // Helper: current date in Asia/Kolkata timezone
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -35,13 +41,13 @@ const sumHeadcount = (list = []) => list.reduce((acc, item) => acc + (Number(ite
 
 // ─── GET /api/visitors ────────────────────────────────────────────────────────
 // List all visitor logs with multi-field search and filters
-router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+router.get('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10), 1), 200);
     const skip = (page - 1) * limit;
 
-    const { search, hasVehicle, status, purpose, date } = req.query;
+    const { search, hasVehicle, status, studentApprovalStatus, purpose, date } = req.query;
     const filter = {};
 
     // Date filter
@@ -54,6 +60,11 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
       filter.status = status.toUpperCase();
     }
 
+    // Student approval filter
+    if (studentApprovalStatus && studentApprovalStatus !== 'all') {
+      filter.studentApprovalStatus = studentApprovalStatus.toUpperCase();
+    }
+
     // Purpose filter
     if (purpose && purpose !== 'all') {
       filter.purpose = purpose;
@@ -64,7 +75,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
       filter.hasVehicle = parseBoolean(hasVehicle);
     }
 
-    // Multi-field search: name, phone, studentName, vehicleNumber
+    // Multi-field search: name, phone, studentName, studentRollNo, vehicleNumber
     if (search && search.trim()) {
       const term = search.trim();
       const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -78,6 +89,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
         { name: searchRegex },
         { phone: searchRegex },
         { studentName: searchRegex },
+        { studentRollNo: searchRegex },
         { studentHostel: searchRegex },
         { studentRoomNo: searchRegex },
         { purposeDetails: searchRegex },
@@ -89,11 +101,12 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
     const today = todayStr();
 
     // Run parallel queries: Paginated list, total count, and summary aggregation
-    const [visitors, count, todayDocs, insideDocs] = await Promise.all([
-      VisitorLog.find(filter).sort({ entryTime: -1 }).skip(skip).limit(limit).lean(),
+    const [visitors, count, todayDocs, insideDocs, pendingDocs] = await Promise.all([
+      VisitorLog.find(filter).sort({ createdAt: -1, entryTime: -1 }).skip(skip).limit(limit).lean(),
       VisitorLog.countDocuments(filter),
       VisitorLog.find({ date: today }).select('visitorCount hasVehicle status').lean(),
       VisitorLog.find({ status: 'INSIDE' }).select('visitorCount hasVehicle').lean(),
+      VisitorLog.find({ status: 'PENDING' }).select('visitorCount hasVehicle').lean(),
     ]);
 
     // Headcount for currently filtered results
@@ -104,6 +117,9 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
     const totalInside = insideDocs.length;
     const totalInsideHeadcount = sumHeadcount(insideDocs);
     const vehiclesInside = insideDocs.filter((d) => d.hasVehicle).length;
+
+    const totalPending = pendingDocs.length;
+    const totalPendingHeadcount = sumHeadcount(pendingDocs);
 
     const totalToday = todayDocs.length;
     const totalTodayHeadcount = sumHeadcount(todayDocs);
@@ -120,6 +136,8 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
         totalInside,
         totalInsideHeadcount,
         vehiclesInside,
+        totalPending,
+        totalPendingHeadcount,
         totalToday,
         totalTodayHeadcount,
       },
@@ -133,7 +151,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, r
 
 // ─── GET /api/visitors/inside ─────────────────────────────────────────────────
 // Get all visitors currently inside with total headcount
-router.get('/inside', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+router.get('/inside', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const insideVisitors = await VisitorLog.find({ status: 'INSIDE' })
       .sort({ entryTime: -1 })
@@ -156,15 +174,176 @@ router.get('/inside', protect, authorize('warden', 'admin', 'security'), async (
   }
 });
 
+// ─── GET /api/visitors/students-search ────────────────────────────────────────
+// Search students for quick visitor pass creation autocomplete
+router.get('/students-search', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q || q.length < 1) {
+      return res.json({ success: true, students: [] });
+    }
+    const escapedTerm = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const searchRegex = new RegExp(escapedTerm, 'i');
+
+    const students = await User.find({
+      role: 'student',
+      $or: [
+        { name: searchRegex },
+        { rollNo: searchRegex },
+        { email: searchRegex },
+        { roomNo: searchRegex },
+      ],
+    })
+      .select('_id name email rollNo hostel roomNo phone')
+      .limit(15)
+      .lean();
+
+    res.json({ success: true, students });
+  } catch (err) {
+    logger.error('[Visitor Route] Student search failed', { error: err.message });
+    res.status(500).json({ success: false, message: 'Student search failed: ' + err.message });
+  }
+});
+
+// ─── GET /api/visitors/my-pending ─────────────────────────────────────────────
+// Get pending visitor requests for the logged-in student
+router.get('/my-pending', protect, authorize('student'), async (req, res) => {
+  try {
+    const studentId = req.user._id;
+    const pendingRequests = await VisitorLog.find({
+      student_id: studentId,
+      studentApprovalStatus: 'PENDING',
+      status: 'PENDING',
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, pendingRequests });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch pending requests', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch pending requests: ' + err.message });
+  }
+});
+
+// ─── POST /api/visitors/:id/student-response ──────────────────────────────────
+// Student Approves or Rejects a pending visitor pass request
+router.post('/:id/student-response', protect, authorize('student'), async (req, res) => {
+  try {
+    const { action, remarks } = req.body;
+    if (!['APPROVE', 'REJECT'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action must be APPROVE or REJECT.' });
+    }
+
+    const visitor = await VisitorLog.findById(req.params.id);
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: 'Visitor record not found.' });
+    }
+
+    if (!visitor.student_id || visitor.student_id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to respond to this visitor request.' });
+    }
+
+    if (visitor.studentApprovalStatus !== 'PENDING') {
+      return res.status(400).json({
+        success: false,
+        message: `This visitor request has already been ${visitor.studentApprovalStatus.toLowerCase()}.`,
+        visitor,
+      });
+    }
+
+    const now = new Date();
+    if (action === 'APPROVE') {
+      visitor.studentApprovalStatus = 'APPROVED';
+      visitor.status = 'INSIDE';
+      visitor.entryTime = now;
+      visitor.studentApprovalTime = now;
+      visitor.studentApprovalRemarks = String(remarks || '').trim();
+    } else {
+      visitor.studentApprovalStatus = 'REJECTED';
+      visitor.status = 'REJECTED';
+      visitor.studentApprovalTime = now;
+      visitor.studentApprovalRemarks = String(remarks || '').trim();
+    }
+
+    await visitor.save();
+
+    logger.info(`[Visitor] Student ${action.toLowerCase()}d visitor request`, {
+      visitorId: visitor._id,
+      passNumber: visitor.passNumber,
+      studentId: req.user._id,
+      action,
+    });
+
+    broadcastVisitorResponse(visitor, action, req.user.name);
+    invalidateDashboardCache().catch(() => {});
+
+    res.json({
+      success: true,
+      message: `Visitor request ${action === 'APPROVE' ? 'approved' : 'rejected'} successfully.`,
+      visitor,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to process student response', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to process response: ' + err.message });
+  }
+});
+
+// ─── POST /api/visitors/:id/staff-action ──────────────────────────────────────
+// Guard or Warden manual override to approve/reject or force admission
+router.post('/:id/staff-action', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
+  try {
+    const { action, remarks } = req.body;
+    if (!['APPROVE', 'REJECT'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action must be APPROVE or REJECT.' });
+    }
+
+    const visitor = await VisitorLog.findById(req.params.id);
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: 'Visitor record not found.' });
+    }
+
+    const now = new Date();
+    const staffName = req.user?.name || 'Staff';
+    if (action === 'APPROVE') {
+      visitor.studentApprovalStatus = 'APPROVED';
+      visitor.status = 'INSIDE';
+      visitor.entryTime = now;
+      visitor.studentApprovalTime = now;
+      visitor.studentApprovalRemarks = `Staff override (${staffName}): ${remarks ? String(remarks).trim() : 'Approved at gate'}`;
+    } else {
+      visitor.studentApprovalStatus = 'REJECTED';
+      visitor.status = 'REJECTED';
+      visitor.studentApprovalTime = now;
+      visitor.studentApprovalRemarks = `Staff override (${staffName}): ${remarks ? String(remarks).trim() : 'Rejected at gate'}`;
+    }
+
+    await visitor.save();
+
+    broadcastVisitorResponse(visitor, action, staffName);
+    invalidateDashboardCache().catch(() => {});
+
+    res.json({
+      success: true,
+      message: `Visitor request ${action === 'APPROVE' ? 'approved' : 'rejected'} by staff.`,
+      visitor,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to process staff action', { error: err.message });
+    res.status(500).json({ success: false, message: 'Staff action failed: ' + err.message });
+  }
+});
+
 // ─── POST /api/visitors ───────────────────────────────────────────────────────
 // Manual visitor check-in (Guard or Warden)
-router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+router.post('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const {
       name,
       phone,
       purpose,
       purposeDetails,
+      student_id,
+      studentRollNo,
       studentName,
       studentHostel,
       studentRoomNo,
@@ -194,15 +373,48 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
       return res.status(400).json({ success: false, message: 'Purpose of visit is required.' });
     }
 
-    // If purpose is 'Meeting a student', require student details
-    if (purpose === PURPOSE_STUDENT_REQUIRED) {
-      if (!studentName || !String(studentName).trim()) {
+    // Resolve Student Details if Purpose is 'Meeting a student'
+    const isStudentVisit = (purpose === PURPOSE_STUDENT_REQUIRED);
+    let resolvedStudentId = null;
+    let resolvedStudentName = studentName ? String(studentName).trim() : '';
+    let resolvedRollNo = studentRollNo ? String(studentRollNo).trim() : '';
+    let resolvedStudentHostel = studentHostel ? String(studentHostel).trim() : '';
+    let resolvedStudentRoom = studentRoomNo ? String(studentRoomNo).trim() : '';
+
+    if (isStudentVisit) {
+      if (student_id) {
+        const targetUser = await User.findById(student_id);
+        if (targetUser) {
+          resolvedStudentId = targetUser._id;
+          resolvedStudentName = targetUser.name || resolvedStudentName;
+          resolvedRollNo = targetUser.rollNo || resolvedRollNo;
+          resolvedStudentHostel = targetUser.hostel || resolvedStudentHostel;
+          resolvedStudentRoom = targetUser.roomNo || resolvedStudentRoom;
+        }
+      } else if (resolvedRollNo || resolvedStudentName) {
+        // Fallback match by roll number or name
+        const matchCriteria = [];
+        if (resolvedRollNo) matchCriteria.push({ rollNo: resolvedRollNo });
+        if (resolvedStudentName) matchCriteria.push({ name: new RegExp(`^${resolvedStudentName}$`, 'i') });
+        if (matchCriteria.length > 0) {
+          const targetUser = await User.findOne({ role: 'student', $or: matchCriteria });
+          if (targetUser) {
+            resolvedStudentId = targetUser._id;
+            resolvedStudentName = targetUser.name || resolvedStudentName;
+            resolvedRollNo = targetUser.rollNo || resolvedRollNo;
+            resolvedStudentHostel = targetUser.hostel || resolvedStudentHostel;
+            resolvedStudentRoom = targetUser.roomNo || resolvedStudentRoom;
+          }
+        }
+      }
+
+      if (!resolvedStudentName) {
         return res.status(400).json({ success: false, message: 'Student name is required when purpose is "Meeting a student".' });
       }
-      if (!studentHostel || !String(studentHostel).trim()) {
+      if (!resolvedStudentHostel) {
         return res.status(400).json({ success: false, message: 'Student hostel is required.' });
       }
-      if (!studentRoomNo || !String(studentRoomNo).trim()) {
+      if (!resolvedStudentRoom) {
         return res.status(400).json({ success: false, message: 'Student room number is required.' });
       }
     }
@@ -234,6 +446,9 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
     const passNumber = `VIS-${date.replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const loggedByName = req.user?.name || req.user?.email || 'Duty Guard';
 
+    const status = isStudentVisit ? 'PENDING' : 'INSIDE';
+    const studentApprovalStatus = isStudentVisit ? 'PENDING' : 'NA';
+
     const newVisitor = await VisitorLog.create({
       name: String(name).trim(),
       phone: normalizedPhone,
@@ -242,10 +457,13 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
       vehicleNumber,
       purpose: String(purpose).trim(),
       purposeDetails: purposeDetails ? String(purposeDetails).trim() : '',
-      studentName: studentName ? String(studentName).trim() : '',
-      studentHostel: studentHostel ? String(studentHostel).trim() : '',
-      studentRoomNo: studentRoomNo ? String(studentRoomNo).trim() : '',
-      status: 'INSIDE',
+      student_id: resolvedStudentId,
+      studentName: resolvedStudentName,
+      studentRollNo: resolvedRollNo,
+      studentHostel: resolvedStudentHostel,
+      studentRoomNo: resolvedStudentRoom,
+      studentApprovalStatus,
+      status,
       entryTime: now,
       exitTime: null,
       date,
@@ -257,10 +475,13 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
     });
 
     // Mask phone and vehicle in application logs for privacy
-    logger.info('[Visitor] New visitor entry recorded', {
+    logger.info('[Visitor] New visitor pass recorded', {
       visitorId: newVisitor._id,
       passNumber,
       purpose: newVisitor.purpose,
+      status,
+      studentApprovalStatus,
+      studentId: resolvedStudentId,
       visitorCount,
       hasVehicle,
       maskedPhone: maskPhone(normalizedPhone),
@@ -268,24 +489,34 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
       guard: loggedByName,
     });
 
-    // Real-time broadcast via Socket.IO
-    const io = getIO();
-    if (io) {
-      io.of('/dashboard').emit('visitor:new', {
-        action: 'entry',
-        visitor: newVisitor,
-        timestamp: now.toISOString(),
-      });
-      io.of('/scanner').emit('visitor:new', {
-        action: 'entry',
-        visitor: newVisitor,
-        timestamp: now.toISOString(),
-      });
+    // Real-time broadcast
+    if (isStudentVisit) {
+      broadcastVisitorRequest(newVisitor, resolvedStudentId);
+    } else {
+      const io = getIO();
+      if (io) {
+        io.of('/dashboard').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+        io.of('/scanner').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+      }
     }
+
+    invalidateDashboardCache().catch(() => {});
 
     res.status(201).json({
       success: true,
-      message: 'Visitor entry recorded successfully.',
+      message: isStudentVisit
+        ? (resolvedStudentId
+            ? 'Visitor pass issued — approval request sent to student.'
+            : 'Visitor pass issued awaiting student approval.')
+        : 'Visitor entry recorded successfully.',
       visitor: newVisitor,
     });
   } catch (err) {
@@ -296,7 +527,7 @@ router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, 
 
 // ─── POST /api/visitors/:id/exit ──────────────────────────────────────────────
 // Mark a visitor as EXITED
-router.post('/:id/exit', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+router.post('/:id/exit', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const visitor = await VisitorLog.findById(req.params.id);
     if (!visitor) {
@@ -333,6 +564,8 @@ router.post('/:id/exit', protect, authorize('warden', 'admin', 'security'), asyn
         timestamp: now.toISOString(),
       });
     }
+
+    invalidateDashboardCache().catch(() => {});
 
     res.json({
       success: true,
@@ -473,7 +706,7 @@ router.post('/webhook', async (req, res) => {
 
 // ─── GET /api/visitors/export-data ────────────────────────────────────────────
 // Compile visitor data and summary for official PDF / Excel export
-router.get('/export-data', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+router.get('/export-data', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const { date, status, purpose, hasVehicle } = req.query;
     const filter = {};
@@ -521,7 +754,7 @@ router.get('/export-data', protect, authorize('warden', 'admin', 'security'), as
 
 // ─── DELETE /api/visitors/:id ─────────────────────────────────────────────────
 // Delete visitor log (Warden/Admin only)
-router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+router.delete('/:id', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
   try {
     const visitor = await VisitorLog.findByIdAndDelete(req.params.id);
     if (!visitor) {

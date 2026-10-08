@@ -22,6 +22,8 @@ import {
 } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { getHostelLabel } from '../utils/hostel';
+import { resolveBackendOrigin } from '../services/backendUrl';
+import io from 'socket.io-client';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const READY_STATUS = 'Camera ready — hold QR in view';
@@ -169,6 +171,51 @@ export default function SecurityDashboard() {
       // Audio not supported — silent fallback
     }
   }, []);
+
+  // Real-time visitor pass alerts at security gate (audio chime + toast)
+  useEffect(() => {
+    let socket;
+    try {
+      const backendOrigin = resolveBackendOrigin();
+      socket = io(`${backendOrigin}/scanner`, {
+        transports: ['websocket', 'polling'],
+        auth: { token: localStorage.getItem('token') },
+      });
+
+      socket.on('visitor:new', (data) => {
+        if (data?.action === 'request') {
+          toast(`🔔 Visitor pass created for ${data?.visitor?.name || 'Visitor'} — awaiting student response`, {
+            id: 'sec-vis-req',
+            duration: 4500,
+          });
+        }
+      });
+
+      socket.on('visitor:student_response', (data) => {
+        const sName = data?.studentName || 'Student';
+        const vName = data?.visitor?.name || 'Visitor';
+        if (data?.action === 'APPROVE') {
+          playTone('success');
+          toast.success(`🟢 ${sName} APPROVED ${vName}'s visitor pass! Entry permitted.`, {
+            id: `sec-vis-${data?.visitor?._id}`,
+            duration: 6500,
+          });
+        } else {
+          playTone('error');
+          toast.error(`🔴 ${sName} REJECTED ${vName}'s visitor pass. Do NOT allow entry.`, {
+            id: `sec-vis-${data?.visitor?._id}`,
+            duration: 6500,
+          });
+        }
+      });
+    } catch (e) {
+      console.warn('[SecurityDashboard] Socket connection error:', e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [playTone]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
