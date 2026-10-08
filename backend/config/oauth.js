@@ -17,7 +17,10 @@
  */
 
 // ── Student domain whitelist ───────────────────────────────────────────────────
+// Students register with their personal or institutional Google Gmail accounts.
 const STUDENT_ALLOWED_DOMAINS = [
+  'gmail.com',
+  'googlemail.com',
   'cse.iiitp.ac.in',
   'ece.iiitp.ac.in',
   'cysec.iiitp.ac.in',

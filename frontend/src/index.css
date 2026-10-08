@@ -658,6 +658,8 @@ body {
 .main-content > .fade-in {
   flex: 1;
   min-height: 0;
+  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -667,9 +669,30 @@ body {
   flex-shrink: 0;
 }
 
+.main-content > :not(.fade-in) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-container,
+.attendance-page-container,
+.attendance-floor-page,
+.attendance-setup-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
 .page-area {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: auto !important;
   overflow-x: hidden;
   min-height: 0;
   min-width: 0;

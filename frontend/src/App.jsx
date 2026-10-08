@@ -47,6 +47,13 @@ const WardenStudents      = lazyWithRetry(() => import('./pages/WardenStudents')
 const StudentSimulator    = lazyWithRetry(() => import('./pages/StudentSimulator'));
 const ParentHomeVisitRespond = lazyWithRetry(() => import('./pages/ParentHomeVisitRespond'));
 const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
+const AttendanceRoundSetup = lazyWithRetry(() => import('./pages/AttendanceRoundSetup'));
+const AttendanceFloorRound = lazyWithRetry(() => import('./pages/AttendanceFloorRound'));
+const AttendanceReports    = lazyWithRetry(() => import('./pages/AttendanceReports'));
+const AttendanceSummary    = lazyWithRetry(() => import('./pages/AttendanceSummary'));
+const RoomAllocations          = lazyWithRetry(() => import('./pages/RoomAllocations'));
+const SecurityRoomLookup       = lazyWithRetry(() => import('./pages/SecurityRoomLookup'));
+const AllocationImportPreview  = lazyWithRetry(() => import('./pages/AllocationImportPreview'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -174,6 +181,41 @@ function AppRoutes() {
         <Route path="/dashboard" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><WardenDashboard /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/allocations" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><RoomAllocations /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/allocations/import" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><AllocationImportPreview /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/allocations/security" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><SecurityRoomLookup /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/attendance" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><AttendanceRoundSetup /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/attendance/round/:roundId" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><AttendanceFloorRound /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/attendance/reports" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><AttendanceReports /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/attendance/summary" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><AttendanceSummary /></AppLayout>
           </ProtectedRoute>
         } />
         <Route path="/students" element={

@@ -30,11 +30,14 @@ import {
   MdDashboard, MdPerson, MdLightMode, MdDarkMode, MdDeleteOutline,
   MdCalendarMonth, MdChevronRight, MdExitToApp,
   MdPhotoCamera, MdUpload, MdClose, MdCheckCircle,
-  MdRefresh,
+  MdRefresh, MdMeetingRoom,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import iiitLogo from '../assets/iiitpune-logo.webp';
 import StudentAvatar from '../components/StudentAvatar';
+import StudentAttendancePrompt from '../components/StudentAttendancePrompt';
+import StudentAttendanceHistoryModal from '../components/StudentAttendanceHistoryModal';
+import StudentRoomInfoModal from '../components/StudentRoomInfoModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
@@ -526,6 +529,9 @@ export default function StudentDashboard() {
   const [customDestInput, setCustomDestInput] = useState('');
   const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
+  const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
+  const [showRoomInfoModal, setShowRoomInfoModal] = useState(false);
+  const [activeSocket, setActiveSocket] = useState(null);
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
@@ -1692,6 +1698,8 @@ export default function StudentDashboard() {
       socket.on('scan_verified', (data) => {
         handleInstantScanEvent(data);
       });
+
+      setActiveSocket(socket);
     } catch (err) {
       console.warn('[Socket] Connection failed:', err);
     }
@@ -1721,6 +1729,7 @@ export default function StudentDashboard() {
     }
 
     return () => {
+      setActiveSocket(null);
       if (socket) {
         socket.off('scan_verified');
         socket.disconnect();
@@ -2508,9 +2517,12 @@ export default function StudentDashboard() {
         {/* Nav */}
         <nav style={{ padding: '12px 0', flex: 1 }}>
           {[
-            { icon: <MdDashboard />, label: 'My Chatbot', active: true },
+            { icon: <MdDashboard />, label: 'My Chatbot', active: true, onClick: () => {} },
+            { icon: <MdCalendarMonth />, label: 'Attendance History', active: false, onClick: () => setAttendanceHistoryOpen(true) },
           ].map((item) => (
-            <div key={item.label} style={{
+            <div key={item.label}
+              onClick={item.onClick}
+              style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 20px', fontSize: 13.5, fontWeight: 600,
               background: item.active ? 'rgba(99,102,241,0.15)' : 'transparent',
@@ -2547,6 +2559,20 @@ export default function StudentDashboard() {
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowRoomInfoModal(true)}
+            style={{
+              width: '100%', padding: '7px 0', marginBottom: 8,
+              borderRadius: 8, border: '1px solid var(--glass-border)',
+              background: 'rgba(139,92,246,0.12)', color: 'var(--primary-light)',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <MdMeetingRoom size={15} /> My Room & Roommates
+          </button>
           <button onClick={handleLogout}
             style={{
               width: '100%', padding: '8px 0', borderRadius: 8,
@@ -2564,6 +2590,7 @@ export default function StudentDashboard() {
 
       {/* ── Chat Area ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+        <StudentAttendancePrompt user={user} socket={activeSocket} />
 
         {/* Header */}
         {isMobile ? (
@@ -3896,6 +3923,16 @@ export default function StudentDashboard() {
           100% { top: calc(100% - 15px); opacity: 0.85; }
         }
       `}</style>
+      {attendanceHistoryOpen && (
+        <StudentAttendanceHistoryModal onClose={() => setAttendanceHistoryOpen(false)} />
+      )}
+      {showRoomInfoModal && (
+        <StudentRoomInfoModal
+          isOpen={showRoomInfoModal}
+          onClose={() => setShowRoomInfoModal(false)}
+          studentId={user?._id}
+        />
+      )}
       </div>
   );
 }

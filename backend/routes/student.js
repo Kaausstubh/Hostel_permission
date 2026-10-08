@@ -709,16 +709,6 @@ router.put('/onboard', async (req, res) => {
       });
     }
 
-    // Ensure Roll/MIS matches student's college email if present
-    const emailLocalPart = (user.email ? user.email.split('@')[0] : '').trim();
-    const emailMisMatch = emailLocalPart.match(/\d+/);
-    if (emailMisMatch && normalizedRollNo !== emailMisMatch[0].toUpperCase()) {
-      return res.status(400).json({
-        success: false,
-        message: `Roll/MIS must match your registered college email (${emailMisMatch[0]}).`,
-      });
-    }
-
     // Check duplicate rollNo
     const userObjectId = new mongoose.Types.ObjectId(String(user._id || user.id));
     const existingRoll = await User.findOne({
@@ -811,6 +801,78 @@ router.put('/onboard', async (req, res) => {
       },
       { new: true }
     );
+
+    // Auto-sync room allocation directly into room directory without PDF dependency
+    try {
+      const Hostel = require('../models/Hostel');
+      const HostelFloor = require('../models/HostelFloor');
+      const HostelRoom = require('../models/HostelRoom');
+      const RoomAllocation = require('../models/RoomAllocation');
+
+      const hostelDoc = await Hostel.findOne({ code: normalizedHostel }).lean();
+      if (hostelDoc) {
+        let roomDoc = await HostelRoom.findOne({
+          hostel_id: hostelDoc._id,
+          room_number: trimmedRoomNo,
+        });
+
+        if (!roomDoc) {
+          let floorNum = 0;
+          if (trimmedRoomNo.startsWith('B')) floorNum = -1;
+          else {
+            const parsed = parseInt(trimmedRoomNo[0], 10);
+            if (!isNaN(parsed)) floorNum = parsed;
+          }
+
+          let floorDoc = await HostelFloor.findOne({ hostel_id: hostelDoc._id, floor_number: floorNum });
+          if (!floorDoc) {
+            floorDoc = await HostelFloor.create({
+              hostel_id: hostelDoc._id,
+              floor_number: floorNum,
+              label: floorNum === -1 ? 'Basement' : floorNum === 0 ? 'Ground Floor' : `Floor ${floorNum}`,
+            });
+          }
+
+          roomDoc = await HostelRoom.create({
+            hostel_id: hostelDoc._id,
+            floor_id: floorDoc._id,
+            room_number: trimmedRoomNo,
+            capacity: 2,
+            occupantsCount: 0,
+            vacantBeds: 2,
+            status: 'active',
+          });
+        }
+
+        if (roomDoc) {
+          await RoomAllocation.findOneAndUpdate(
+            { student_id: userObjectId, status: 'active' },
+            {
+              student_id: userObjectId,
+              room_id: roomDoc._id,
+              status: 'active',
+              allocated_by: userObjectId,
+              notes: 'Self-registered during onboarding',
+              allocated_on: new Date(),
+            },
+            { upsert: true, new: true }
+          );
+
+          const occCount = await RoomAllocation.countDocuments({ room_id: roomDoc._id, status: 'active' });
+          await HostelRoom.updateOne(
+            { _id: roomDoc._id },
+            {
+              $set: {
+                occupantsCount: occCount,
+                vacantBeds: Math.max(0, (roomDoc.capacity || 2) - occCount),
+              },
+            }
+          );
+        }
+      }
+    } catch (allocErr) {
+      logger.warn('[Student Onboard] Room allocation auto-sync skipped', { error: allocErr.message });
+    }
 
     // Invalidate session cache so subsequent requests load fresh profile & photo
     await invalidateUserCache(String(userObjectId));

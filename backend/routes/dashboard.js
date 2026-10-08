@@ -147,6 +147,52 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
   }
 });
 
+// ── Delete All Students (Bulk Clear Directory) ──────────────────────────────
+router.delete('/students', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const RoomAllocation = require('../models/RoomAllocation');
+    const HostelRoom = require('../models/HostelRoom');
+    const StudentDevice = require('../models/StudentDevice');
+    const AttendanceRecord = require('../models/AttendanceRecord');
+
+    const [userRes, allocRes, devRes, attRes, inoutRes, homeRes, complaintRes] = await Promise.all([
+      User.deleteMany({ role: 'student' }),
+      RoomAllocation.deleteMany({}),
+      StudentDevice.deleteMany({}),
+      AttendanceRecord.deleteMany({}),
+      InOutLog.deleteMany({ role: 'student' }),
+      HomeVisitLog.deleteMany({ role: 'student' }),
+      Complaint.deleteMany({ role: 'student' }),
+    ]);
+
+    // Reset room occupancies
+    const rooms = await HostelRoom.find({}).lean();
+    for (const r of rooms) {
+      await HostelRoom.updateOne(
+        { _id: r._id },
+        { $set: { occupantsCount: 0, vacantBeds: r.capacity || 2 } }
+      );
+    }
+
+    await invalidateLogsCache();
+
+    logger.info('[Dashboard] All students cleared by warden', {
+      wardenId: req.user._id,
+      deletedStudents: userRes.deletedCount,
+      clearedAllocations: allocRes.deletedCount,
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully removed ${userRes.deletedCount} students from directory and reset room allocations.`,
+      deletedCount: userRes.deletedCount,
+    });
+  } catch (error) {
+    logger.error('[Dashboard] Bulk delete students error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ── Delete Individual Student ────────────────────────────────────────────────
 router.delete('/students/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
