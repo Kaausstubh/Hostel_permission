@@ -207,14 +207,25 @@ router.get('/students-search', protect, authorize('warden', 'hostel_staff', 'adm
 
 // ─── GET /api/visitors/my-pending ─────────────────────────────────────────────
 // Get pending visitor requests for the logged-in student
-router.get('/my-pending', protect, authorize('student'), async (req, res) => {
+router.get('/my-pending', protect, authorize('student', 'admin'), async (req, res) => {
   try {
     const studentId = req.user._id;
-    const pendingRequests = await VisitorLog.find({
-      student_id: studentId,
+    const studentRollNo = req.user.rollNo ? String(req.user.rollNo).trim() : null;
+
+    const query = {
       studentApprovalStatus: 'PENDING',
       status: 'PENDING',
-    })
+    };
+
+    if (req.user.role !== 'admin') {
+      const orClauses = [{ student_id: studentId }];
+      if (studentRollNo) {
+        orClauses.push({ studentRollNo: { $regex: new RegExp(`^${studentRollNo}$`, 'i') } });
+      }
+      query.$or = orClauses;
+    }
+
+    const pendingRequests = await VisitorLog.find(query)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -227,7 +238,7 @@ router.get('/my-pending', protect, authorize('student'), async (req, res) => {
 
 // ─── POST /api/visitors/:id/student-response ──────────────────────────────────
 // Student Approves or Rejects a pending visitor pass request
-router.post('/:id/student-response', protect, authorize('student'), async (req, res) => {
+router.post('/:id/student-response', protect, authorize('student', 'admin'), async (req, res) => {
   try {
     const { action, remarks } = req.body;
     if (!['APPROVE', 'REJECT'].includes(action)) {
@@ -239,8 +250,22 @@ router.post('/:id/student-response', protect, authorize('student'), async (req, 
       return res.status(404).json({ success: false, message: 'Visitor record not found.' });
     }
 
-    if (!visitor.student_id || visitor.student_id.toString() !== req.user._id.toString()) {
+    const reqUserId = String(req.user._id || req.user.id || '');
+    const visitorStudentId = visitor.student_id ? String(visitor.student_id) : '';
+    const reqRollNo = String(req.user.rollNo || '').trim().toUpperCase();
+    const visitorRollNo = String(visitor.studentRollNo || '').trim().toUpperCase();
+
+    const isMatch =
+      (visitorStudentId && visitorStudentId === reqUserId) ||
+      (reqRollNo && visitorRollNo && reqRollNo === visitorRollNo) ||
+      (req.user.role === 'admin');
+
+    if (!isMatch) {
       return res.status(403).json({ success: false, message: 'You are not authorized to respond to this visitor request.' });
+    }
+
+    if (!visitor.student_id && req.user.role === 'student') {
+      visitor.student_id = req.user._id;
     }
 
     if (visitor.studentApprovalStatus !== 'PENDING') {

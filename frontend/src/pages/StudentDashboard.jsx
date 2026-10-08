@@ -532,6 +532,7 @@ export default function StudentDashboard() {
   const [activeVisitorModal, setActiveVisitorModal] = useState(null);
   const [visitorActionLoading, setVisitorActionLoading] = useState(false);
   const [visitorRemarks, setVisitorRemarks] = useState('');
+  const [visitorResponseResult, setVisitorResponseResult] = useState(null);
 
   const fetchPendingVisitorRequests = useCallback(async () => {
     try {
@@ -701,6 +702,8 @@ export default function StudentDashboard() {
       if (res.data?.success) {
         const vName = activeVisitorModal.name || 'Visitor';
         const pNum = activeVisitorModal.passNumber || '';
+        playScanChime();
+
         if (action === 'APPROVE') {
           toast.success(`Entry approved for ${vName}! Gate security has been notified.`);
           botSay(`✅ You *APPROVED* the visitor pass for *${vName}* ${pNum ? `(#${pNum})` : ''}. Gate security has been notified and entry is allowed.`);
@@ -709,13 +712,22 @@ export default function StudentDashboard() {
           botSay(`🚫 You *DECLINED* the visitor pass for *${vName}*. Gate security has been notified.`);
         }
 
-        const resolvedId = activeVisitorModal._id;
-        setPendingVisitorRequests((prev) => {
-          const remaining = prev.filter((p) => p._id !== resolvedId);
-          setActiveVisitorModal(remaining.length > 0 ? remaining[0] : null);
-          return remaining;
+        setVisitorResponseResult({
+          action,
+          name: vName,
+          passNumber: pNum,
         });
-        setVisitorRemarks('');
+
+        setTimeout(() => {
+          const resolvedId = activeVisitorModal._id;
+          setPendingVisitorRequests((prev) => {
+            const remaining = prev.filter((p) => p._id !== resolvedId);
+            setActiveVisitorModal(remaining.length > 0 ? remaining[0] : null);
+            return remaining;
+          });
+          setVisitorResponseResult(null);
+          setVisitorRemarks('');
+        }, 1800);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to submit response');
@@ -4046,7 +4058,7 @@ export default function StudentDashboard() {
             position: 'fixed',
             inset: 0,
             zIndex: 10001,
-            backgroundColor: 'rgba(2, 6, 23, 0.82)',
+            backgroundColor: theme === 'light' ? 'rgba(15, 23, 42, 0.65)' : 'rgba(2, 6, 23, 0.85)',
             backdropFilter: 'blur(10px)',
             WebkitBackdropFilter: 'blur(10px)',
             display: 'flex',
@@ -4056,7 +4068,7 @@ export default function StudentDashboard() {
             animation: 'fadeInModal 0.22s ease-out',
           }}
           onClick={(e) => {
-            if (e.target === e.currentTarget && !visitorActionLoading) {
+            if (e.target === e.currentTarget && !visitorActionLoading && !visitorResponseResult) {
               setActiveVisitorModal(null);
             }
           }}
@@ -4066,11 +4078,18 @@ export default function StudentDashboard() {
               position: 'relative',
               width: '100%',
               maxWidth: 480,
-              backgroundColor: '#0f172a',
-              backgroundImage: 'linear-gradient(160deg, #1e293b 0%, #0f172a 100%)',
-              border: '1.5px solid rgba(245, 158, 11, 0.45)',
+              backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
+              backgroundImage: theme === 'light'
+                ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+                : 'linear-gradient(160deg, #1e293b 0%, #0f172a 100%)',
+              border: theme === 'light'
+                ? '1.5px solid #cbd5e1'
+                : '1.5px solid rgba(245, 158, 11, 0.45)',
               borderRadius: 24,
-              boxShadow: '0 25px 60px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(245, 158, 11, 0.22)',
+              boxShadow: theme === 'light'
+                ? '0 25px 60px -12px rgba(15, 23, 42, 0.25), 0 0 25px rgba(245, 158, 11, 0.15)'
+                : '0 25px 60px -12px rgba(0, 0, 0, 0.75), 0 0 35px rgba(245, 158, 11, 0.22)',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
@@ -4089,259 +4108,344 @@ export default function StudentDashboard() {
               }}
             />
 
-            {/* Header */}
-            <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      background: 'rgba(245, 158, 11, 0.2)',
-                      color: '#fbbf24',
-                      fontSize: 14,
-                      animation: 'pulse 1.8s infinite',
-                    }}
-                  >
-                    ⚡
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 800,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: '#fbbf24',
-                    }}
-                  >
-                    Visitor Approval Request
-                  </span>
+            {/* In-Modal Confirmation State */}
+            {visitorResponseResult ? (
+              <div style={{ padding: '42px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 68,
+                    height: 68,
+                    borderRadius: '50%',
+                    background: visitorResponseResult.action === 'APPROVE'
+                      ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.2)')
+                      : (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.2)'),
+                    border: visitorResponseResult.action === 'APPROVE'
+                      ? '2.5px solid #10b981'
+                      : '2.5px solid #ef4444',
+                    color: visitorResponseResult.action === 'APPROVE' ? '#059669' : '#dc2626',
+                    fontSize: 34,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 900,
+                    boxShadow: visitorResponseResult.action === 'APPROVE'
+                      ? '0 0 25px rgba(16, 185, 129, 0.4)'
+                      : '0 0 25px rgba(239, 68, 68, 0.4)',
+                  }}
+                >
+                  {visitorResponseResult.action === 'APPROVE' ? '✓' : '✕'}
                 </div>
-                {activeVisitorModal.passNumber && (
+                <h3 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff' }}>
+                  {visitorResponseResult.action === 'APPROVE' ? 'Entry Approved!' : 'Visitor Request Declined'}
+                </h3>
+                <p style={{ margin: 0, fontSize: 14, color: theme === 'light' ? '#475569' : '#cbd5e1', maxWidth: 360, lineHeight: 1.5 }}>
+                  {visitorResponseResult.action === 'APPROVE'
+                    ? `You allowed entry for ${visitorResponseResult.name}. Gate Security has been notified in real time.`
+                    : `You declined entry for ${visitorResponseResult.name}. Gate Security will not permit entry.`}
+                </p>
+                {visitorResponseResult.passNumber && (
                   <span
                     style={{
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 700,
-                      color: '#94a3b8',
-                      backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                      padding: '3px 8px',
+                      color: theme === 'light' ? '#475569' : '#94a3b8',
+                      backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
+                      padding: '4px 10px',
                       borderRadius: 8,
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
                     }}
                   >
-                    Pass #{activeVisitorModal.passNumber}
+                    Pass #{visitorResponseResult.passNumber}
                   </span>
                 )}
               </div>
-              <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#f8fafc' }}>
-                Someone is waiting at the gate for you
-              </h3>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#94a3b8' }}>
-                Main Gate Security has registered a visitor wishing to meet you. Please verify and take action:
-              </p>
-            </div>
-
-            {/* Body */}
-            <div style={{ padding: '16px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Visitor Highlight Card */}
-              <div
-                style={{
-                  background: 'rgba(30, 41, 59, 0.7)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: 16,
-                  padding: 16,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Visitor Name
+            ) : (
+              <>
+                {/* Header */}
+                <div style={{ padding: '20px 22px 14px', borderBottom: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          background: theme === 'light' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.2)',
+                          color: '#f59e0b',
+                          fontSize: 14,
+                        }}
+                      >
+                        ⚡
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          color: theme === 'light' ? '#b45309' : '#fbbf24',
+                        }}
+                      >
+                        Visitor Approval Request
+                      </span>
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#ffffff', marginTop: 2 }}>
-                      👤 {activeVisitorModal.name}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {activeVisitorModal.passNumber && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: theme === 'light' ? '#475569' : '#94a3b8',
+                            backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.06)',
+                            padding: '3px 8px',
+                            borderRadius: 8,
+                            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
+                          }}
+                        >
+                          Pass #{activeVisitorModal.passNumber}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setActiveVisitorModal(null)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: theme === 'light' ? '#64748b' : '#94a3b8',
+                          fontSize: 18,
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                          borderRadius: 6,
+                          lineHeight: 1,
+                        }}
+                        title="Close / Review Later"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
-                  {activeVisitorModal.phone && (
-                    <a
-                      href={`tel:${activeVisitorModal.phone}`}
+                  <h3 style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff' }}>
+                    Someone is waiting at the gate for you
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: theme === 'light' ? '#475569' : '#cbd5e1' }}>
+                    Main Gate Security has registered a visitor wishing to meet you. Please verify and take action:
+                  </p>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '16px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Visitor Highlight Card */}
+                  <div
+                    style={{
+                      background: theme === 'light' ? '#f8fafc' : 'rgba(30, 41, 59, 0.75)',
+                      border: theme === 'light' ? '1.5px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: 16,
+                      padding: 16,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Visitor Name
+                        </div>
+                        <div style={{ fontSize: 19, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          👤 {activeVisitorModal.name}
+                        </div>
+                      </div>
+                      {activeVisitorModal.phone && (
+                        <a
+                          href={`tel:${activeVisitorModal.phone}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 12px',
+                            borderRadius: 10,
+                            backgroundColor: theme === 'light' ? '#eff6ff' : 'rgba(59, 130, 246, 0.15)',
+                            border: theme === 'light' ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.3)',
+                            color: theme === 'light' ? '#1d4ed8' : '#60a5fa',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          📞 Call {activeVisitorModal.phone}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Key metadata grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 10, borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.06)' }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Total Headcount
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          👥 {activeVisitorModal.visitorCount || activeVisitorModal.headcount || 1} Person(s)
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Vehicle Details
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          🚗 {activeVisitorModal.vehicleNumber || 'On Foot / None'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Hostel & Gate
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          🏢 {activeVisitorModal.studentHostel || activeVisitorModal.hostel || 'Hostel'} • {activeVisitorModal.entryGate || 'Main Gate'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Arrival Time
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          ⏱️ {(() => {
+                            const t = activeVisitorModal.entryTime || activeVisitorModal.createdAt;
+                            if (!t) return 'Just now';
+                            try {
+                              const d = new Date(t);
+                              return isNaN(d.getTime()) ? String(t) : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                            } catch {
+                              return 'Just now';
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(activeVisitorModal.remarks || activeVisitorModal.purposeDetails) && (
+                      <div style={{ paddingTop: 8, borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.06)', fontSize: 12, color: theme === 'light' ? '#334155' : '#cbd5e1' }}>
+                        <strong style={{ color: theme === 'light' ? '#0f172a' : '#ffffff' }}>Note from Gate: </strong>
+                        {activeVisitorModal.remarks || activeVisitorModal.purposeDetails}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remarks/Response Note Input */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#f8fafc', marginBottom: 6 }}>
+                      Optional Note / Instructions for Security Guard
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Ask them to wait at the reception / Meeting in common room"
+                      value={visitorRemarks}
+                      onChange={(e) => setVisitorRemarks(e.target.value)}
+                      disabled={visitorActionLoading}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 12px',
-                        borderRadius: 10,
-                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                        color: '#60a5fa',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        textDecoration: 'none',
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: 12,
+                        border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(255, 255, 255, 0.2)',
+                        backgroundColor: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.75)',
+                        color: theme === 'light' ? '#0f172a' : '#ffffff',
+                        fontSize: 13,
+                        outline: 'none',
+                        boxSizing: 'border-box',
                       }}
-                    >
-                      📞 Call {activeVisitorModal.phone}
-                    </a>
+                    />
+                  </div>
+
+                  {/* Multiple requests indicator if any */}
+                  {pendingVisitorRequests.length > 1 && (
+                    <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, textAlign: 'center' }}>
+                      📌 You have {pendingVisitorRequests.length} pending visitor requests.
+                    </div>
                   )}
                 </div>
 
-                {/* Key metadata grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 10, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      Total Headcount
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
-                      👥 {activeVisitorModal.headcount || 1} Person(s)
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      Vehicle Details
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
-                      🚗 {activeVisitorModal.vehicleNumber || 'On Foot / None'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      Hostel & Gate
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
-                      🏢 {activeVisitorModal.hostel || 'Hostel'} • {activeVisitorModal.entryGate || 'Main Gate'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      Arrival Time
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginTop: 2 }}>
-                      ⏱️ {activeVisitorModal.entryTime || 'Just now'}
-                    </div>
-                  </div>
-                </div>
-
-                {activeVisitorModal.remarks && (
-                  <div style={{ paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.06)', fontSize: 12, color: '#94a3b8' }}>
-                    <strong style={{ color: '#cbd5e1' }}>Note from Gate: </strong>
-                    {activeVisitorModal.remarks}
-                  </div>
-                )}
-              </div>
-
-              {/* Remarks/Response Note Input */}
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#cbd5e1', marginBottom: 6 }}>
-                  Optional Note / Instructions for Security Guard
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., Ask them to wait at the reception / Meeting in common room"
-                  value={visitorRemarks}
-                  onChange={(e) => setVisitorRemarks(e.target.value)}
-                  disabled={visitorActionLoading}
+                {/* Footer Action Buttons */}
+                <div
                   style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-                    color: '#f8fafc',
-                    fontSize: 13,
-                    outline: 'none',
-                    boxSizing: 'border-box',
+                    padding: '14px 22px 20px',
+                    borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 12,
                   }}
-                />
-              </div>
+                >
+                  <button
+                    type="button"
+                    disabled={visitorActionLoading}
+                    onClick={() => handleVisitorResponse('REJECT')}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: theme === 'light' ? '1.5px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
+                      background: theme === 'light' ? '#fef2f2' : 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)',
+                      color: theme === 'light' ? '#dc2626' : '#fca5a5',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(0.95)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1)';
+                      }
+                    }}
+                  >
+                    ✕ Decline Entry
+                  </button>
 
-              {/* Multiple requests indicator if any */}
-              {pendingVisitorRequests.length > 1 && (
-                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, textAlign: 'center' }}>
-                  📌 You have {pendingVisitorRequests.length} pending visitor requests.
+                  <button
+                    type="button"
+                    disabled={visitorActionLoading}
+                    onClick={() => handleVisitorResponse('APPROVE')}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#ffffff',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 18px rgba(16, 185, 129, 0.45)',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1.1)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }
+                    }}
+                  >
+                    {visitorActionLoading ? 'Processing...' : '✓ Allow Entry'}
+                  </button>
                 </div>
-              )}
-            </div>
-
-            {/* Footer Action Buttons */}
-            <div
-              style={{
-                padding: '14px 22px 20px',
-                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 12,
-              }}
-            >
-              <button
-                type="button"
-                disabled={visitorActionLoading}
-                onClick={() => handleVisitorResponse('REJECT')}
-                style={{
-                  padding: '13px 16px',
-                  borderRadius: 14,
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)',
-                  color: '#fca5a5',
-                  fontSize: 14,
-                  fontWeight: 800,
-                  cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-                onMouseEnter={(e) => {
-                  if (!visitorActionLoading) e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(185, 28, 28, 0.45) 100%)';
-                }}
-                onMouseLeave={(e) => {
-                  if (!visitorActionLoading) e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)';
-                }}
-              >
-                ✕ Decline Entry
-              </button>
-
-              <button
-                type="button"
-                disabled={visitorActionLoading}
-                onClick={() => handleVisitorResponse('APPROVE')}
-                style={{
-                  padding: '13px 16px',
-                  borderRadius: 14,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  color: '#ffffff',
-                  fontSize: 14,
-                  fontWeight: 800,
-                  cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 4px 18px rgba(16, 185, 129, 0.45)',
-                  transition: 'all 0.15s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-                onMouseEnter={(e) => {
-                  if (!visitorActionLoading) {
-                    e.currentTarget.style.filter = 'brightness(1.1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!visitorActionLoading) {
-                    e.currentTarget.style.filter = 'brightness(1)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }
-                }}
-              >
-                {visitorActionLoading ? 'Processing...' : '✓ Allow Entry'}
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
