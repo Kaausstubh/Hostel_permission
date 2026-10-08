@@ -324,7 +324,7 @@ export default function WardenStudents() {
                     <th>Room</th>
                     <th>Contact Info</th>
                     <th>Joined</th>
-                    {user?.role === 'warden' && <th>Action</th>}
+                    {['warden', 'hostel_staff', 'admin'].includes(user?.role) && <th>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -416,7 +416,7 @@ export default function WardenStudents() {
                               })
                             : '—'}
                         </td>
-                        {user?.role === 'warden' && (
+                        {['warden', 'hostel_staff', 'admin'].includes(user?.role) && (
                           <td>
                             <button
                               type="button"
@@ -444,7 +444,7 @@ export default function WardenStudents() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={user?.role === 'warden' ? '6' : '5'} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                      <td colSpan={['warden', 'hostel_staff', 'admin'].includes(user?.role) ? '6' : '5'} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
                         No students found matching your criteria.
                       </td>
                     </tr>

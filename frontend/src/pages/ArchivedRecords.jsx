@@ -529,7 +529,7 @@ export default function ArchivedRecords() {
                     <th>Home Visits</th>
                     <th>Total Records</th>
                     <th>Export PDF</th>
-                    {['warden', 'admin'].includes(user?.role) && <th>Storage Maintenance</th>}
+                    {['warden', 'hostel_staff', 'admin'].includes(user?.role) && <th>Storage Maintenance</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -552,7 +552,7 @@ export default function ArchivedRecords() {
                           <MdFileDownload size={15} /> Download {m.month}.pdf
                         </button>
                       </td>
-                      {['warden', 'admin'].includes(user?.role) && (
+                      {['warden', 'hostel_staff', 'admin'].includes(user?.role) && (
                         <td>
                           <button
                             type="button"
@@ -577,7 +577,7 @@ export default function ArchivedRecords() {
         </div>
 
         {/* ── 4. Secure Purge / Storage Reclamation Section (Warden Only) ── */}
-        {['warden', 'admin'].includes(user?.role) && (
+        {['warden', 'hostel_staff', 'admin'].includes(user?.role) && (
           <div style={{
             background: 'rgba(239, 68, 68, 0.04)',
             border: '1px solid rgba(239, 68, 68, 0.25)',

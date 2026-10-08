@@ -34,7 +34,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const navItems = ['warden', 'admin'].includes(user?.role) ? wardenNav : securityNav;
+  const navItems = ['warden', 'hostel_staff', 'admin'].includes(user?.role) ? wardenNav : securityNav;
 
   const handleLogout = async () => {
     try {

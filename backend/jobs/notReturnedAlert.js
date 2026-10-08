@@ -45,8 +45,8 @@ const runNotReturnedAlert = async () => {
 
   console.log(`   Found ${logs.length} student(s) not returned past 8:00 PM curfew.`);
 
-  // Find warden(s) to notify
-  const wardens = await User.find({ role: 'warden' }).select('phone name').lean();
+  // Find hostel staff / warden(s) to notify
+  const wardens = await User.find({ role: { $in: ['warden', 'hostel_staff'] } }).select('phone name').lean();
 
   const alertedStudents = [];
   const processedLogIds = [];

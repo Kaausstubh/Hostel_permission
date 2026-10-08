@@ -56,7 +56,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [homeHasMore, setHomeHasMore] = useState(false);
   const [activeTab, setActiveTab] = useState(defaultTab);
   const { user } = useAuth();
-  const isWarden = ['warden', 'admin'].includes(user?.role);
+  const isWarden = ['warden', 'hostel_staff', 'admin'].includes(user?.role);
 
   useEffect(() => {
     setActiveTab(defaultTab);

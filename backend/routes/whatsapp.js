@@ -407,8 +407,8 @@ const handleParentReply = async (phone, visitId, action) => {
       );
     }
 
-    // Notify warden
-    const warden = await User.findOne({ role: 'warden' });
+    // Notify hostel staff / warden
+    const warden = await User.findOne({ role: { $in: ['warden', 'hostel_staff'] } });
     if (warden && warden.phone) {
       await sendWhatsAppMessage(
         warden.phone,

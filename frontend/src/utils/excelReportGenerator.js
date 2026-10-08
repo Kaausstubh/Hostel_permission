@@ -182,7 +182,7 @@ export const downloadGateRecordsExcel = async ({
   const XLSX = await getXLSX();
   const wb = XLSX.utils.book_new();
   const dateStamp = dateFilter || new Date().toISOString().slice(0, 10);
-  const officerRole = (user?.role === 'warden' ? 'HOSTEL STAFF' : (user?.role || 'Staff')).toUpperCase();
+  const officerRole = (['warden', 'hostel_staff'].includes(user?.role) ? 'HOSTEL STAFF' : (user?.role || 'Staff')).toUpperCase();
   const generatedBy = `${user?.name || 'Authorized Staff'} (${officerRole})`;
 
   // Determine what to export
@@ -294,7 +294,7 @@ export const downloadVisitorRecordsExcel = async ({
   const XLSX = await getXLSX();
   const wb = XLSX.utils.book_new();
   const dateStamp = dateFilter || new Date().toISOString().slice(0, 10);
-  const officerRole = (user?.role === 'warden' ? 'HOSTEL STAFF' : (user?.role || 'Staff')).toUpperCase();
+  const officerRole = (['warden', 'hostel_staff'].includes(user?.role) ? 'HOSTEL STAFF' : (user?.role || 'Staff')).toUpperCase();
   const generatedBy = `${user?.name || 'Authorized Staff'} (${officerRole})`;
 
   if (visitorLogs.length === 0) {
