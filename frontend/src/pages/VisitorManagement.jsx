@@ -27,6 +27,7 @@ import { VISITOR_PURPOSES, PURPOSE_STUDENT_REQUIRED, PURPOSE_OTHER } from '../co
 import { getHostelLabel } from '../utils/hostel';
 import { downloadVisitorRecordsExcel } from '../utils/excelReportGenerator';
 import { downloadVisitorRecordsPDF } from '../utils/pdfReportGenerator';
+import { resolveBackendOrigin } from '../services/backendUrl';
 import io from 'socket.io-client';
 
 const HOSTELS = [
@@ -135,9 +136,8 @@ export default function VisitorManagement() {
   useEffect(() => {
     let socket;
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || window.location.origin;
-      const socketUrl = backendUrl.replace(/\/api$/, '');
-      socket = io(`${socketUrl}/dashboard`, {
+      const backendOrigin = resolveBackendOrigin();
+      socket = io(`${backendOrigin}/dashboard`, {
         transports: ['websocket', 'polling'],
         auth: { token: localStorage.getItem('token') },
       });

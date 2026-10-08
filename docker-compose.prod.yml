@@ -23,7 +23,7 @@ services:
     networks:
       - heimdall-net
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,16 +40,13 @@ services:
     container_name: heimdall-redis
     restart: always
     command: >
-      redis-server
-      --appendonly yes
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
       - heimdall-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +81,7 @@ services:
     networks:
       - heimdall-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
       interval: 20s
       timeout: 5s
       retries: 3
