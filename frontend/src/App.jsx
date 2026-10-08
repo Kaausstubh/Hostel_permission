@@ -47,6 +47,7 @@ const WardenStudents      = lazyWithRetry(() => import('./pages/WardenStudents')
 const StudentSimulator    = lazyWithRetry(() => import('./pages/StudentSimulator'));
 const ParentHomeVisitRespond = lazyWithRetry(() => import('./pages/ParentHomeVisitRespond'));
 const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
+const VisitorManagement   = lazyWithRetry(() => import('./pages/VisitorManagement'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -72,11 +73,15 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (loading) return <PageLoader />;
   if (!user || !hasToken) return <Navigate to="/login" replace />;
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    if (user.role === 'warden') return <Navigate to="/dashboard" replace />;
-    if (user.role === 'security') return <Navigate to="/scanner" replace />;
-    if (user.role === 'student') return <Navigate to="/student" replace />;
-    return <Navigate to="/login" replace />;
+  if (allowedRoles) {
+    const rolesList = [...allowedRoles];
+    if (rolesList.includes('warden')) rolesList.push('hostel_staff');
+    if (!rolesList.includes(user.role)) {
+      if (['warden', 'hostel_staff'].includes(user.role)) return <Navigate to="/dashboard" replace />;
+      if (user.role === 'security') return <Navigate to="/scanner" replace />;
+      if (user.role === 'student') return <Navigate to="/student" replace />;
+      return <Navigate to="/login" replace />;
+    }
   }
 
   // Student onboarding redirection guard — triggers ONLY ONCE at initial registration
@@ -199,6 +204,11 @@ function AppRoutes() {
         <Route path="/complaints" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><ComplaintDashboard /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/visitors" element={
+          <ProtectedRoute allowedRoles={['warden', 'security', 'admin']}>
+            <AppLayout><VisitorManagement /></AppLayout>
           </ProtectedRoute>
         } />
         <Route path="/logs" element={

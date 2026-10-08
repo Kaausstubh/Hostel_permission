@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema(
     // ── Role & Status ─────────────────────────────────────────────────────────
     role: {
       type: String,
-      enum: ['student', 'warden', 'security', 'admin'],
+      enum: ['student', 'hostel_staff', 'security', 'admin'],
       default: 'student',
     },
     isActive: {

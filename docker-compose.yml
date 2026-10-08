@@ -22,7 +22,7 @@ services:
       - mongo_data:/data/db
       - mongo_config:/data/configdb
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,17 +36,13 @@ services:
     container_name: heimdall-redis
     restart: unless-stopped
     command: >
-      redis-server
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-      --appendonly yes
-      --requirepass ${REDIS_PASSWORD:-changeme_in_production}
+      redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme_in_production}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_in_production}", "ping"]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_in_production}", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -96,7 +92,7 @@ services:
       # IMPORTANT: Use cloud storage (S3) in multi-instance production
       - qr_images:/app/public/qr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/api/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -124,7 +120,7 @@ services:
     ports:
       - "80:80"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/index.html"]
+      test: [ "CMD", "curl", "-f", "http://localhost:80/index.html" ]
       interval: 30s
       timeout: 10s
       retries: 3

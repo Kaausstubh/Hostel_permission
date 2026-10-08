@@ -21,6 +21,11 @@ Heimdall is a high-performance, production-ready, secure, and highly scalable QR
     *   Students request home visits with custom duration.
     *   Interactive parent approval via WhatsApp simulation / webhook responses.
     *   Dedicated QR flow for Home Visits separate from normal daily in/out entries.
+*   **🚗 Campus Visitor Entry & Vehicle Access Control**:
+    *   **Headcount Tracking**: Track party size (`visitorCount`: 1–20) for accurate campus occupancy headcounts.
+    *   **Vehicle Logging**: Conditional vehicle registration capture (`hasVehicle`, normalized `vehicleNumber`).
+    *   **Google Form Self Check-In**: Automated multi-section Google Form webhook integration via Google Apps Script.
+    *   **Institutional Exports**: Official PDF & Excel exports with formula injection neutralization and headcount summaries.
 *   **📬 Scalable Notification Engine**:
     *   Asynchronous messaging queue via BullMQ and Redis to process parent notifications without blocking the API thread.
 *   **⚙️ Free-Tier Optimization Mode**:
@@ -52,7 +57,7 @@ Heimdall is a high-performance, production-ready, secure, and highly scalable QR
 │   ├── config/                # DB and Redis configuration
 │   ├── loadtest/              # Autocannon stress testing scripts
 │   ├── middleware/            # Auth, rate-limiter, validator middlewares
-│   ├── models/                # MongoDB Schema models (User, InOutLog, HomeVisitLog, Complaint)
+│   ├── models/                # MongoDB Schema models (User, InOutLog, HomeVisitLog, Complaint, VisitorLog)
 │   ├── routes/                # API route controllers
 │   ├── services/              # Business logic (QR, ScanLock, Cache, WebSockets, WhatsApp)
 │   ├── utils/                 # Logging, Twilio client, helpers
