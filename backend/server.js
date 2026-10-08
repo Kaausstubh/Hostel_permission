@@ -57,6 +57,7 @@ const whatsappRoutes  = require('./routes/whatsapp');
 const studentRoutes   = require('./routes/student');
 const gateScanRoutes  = require('./routes/gateScan');
 const archiveRoutes   = require('./routes/archive');
+const visitorRoutes   = require('./routes/visitors');
 
 // ── App & HTTP server (shared with Socket.IO) ─────────────────────────────────
 const app = express();
@@ -271,6 +272,7 @@ app.use('/api/whatsapp',   whatsappRoutes);
 app.use('/api/student',    studentRoutes);
 app.use('/api/gatescan',   gateScanRoutes);
 app.use('/api/archive',    archiveRoutes);
+app.use('/api/visitors',   visitorRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 const handleHealth = (req, res) => {
@@ -426,4 +428,5 @@ process.on('unhandledRejection', (reason) => {
   logger.error('[Server] Unhandled promise rejection', { reason: String(reason) });
 });
 
+// HEIMDALL Server Export
 module.exports = app;

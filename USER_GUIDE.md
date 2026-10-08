@@ -74,15 +74,29 @@ The Administrative Console is designed for IT managers and campus directors. It 
 
 ---
 
-## 6. Security & Architectural Safeguards
-1.  **Anti-Duplicate Lock (`ScanLockService`)**: An atomic locking service that blocks a student's QR code from being scanned twice within a 5-second window to prevent double-read database race conditions.
-2.  **Free-Tier DB Optimizations**: MongoDB connection pool capped at 5 in free tier (`MONGODB_TIER=free`) with 15-second idle cleanups.
-3.  **Queue-Driven Notifications**: Parent WhatsApp notifications are handled in the background by BullMQ worker threads.
-4.  **Dynamic QR Encryption**: QR payloads include JWT structures containing user identifiers signed with an HS256 secret.
+## 6. The Visitor & Vehicle Management Portal
+The Visitor Access Module provides campus security and warden administration with total control over campus guests, commercial vendors, delivery personnel, and visiting vehicles.
+
+### Key Functions:
+*   **Visitor Headcount Tracking**: Automatically counts exact party headcount (`visitorCount`: 1 to 20 people) to provide true campus occupancy statistics.
+*   **Vehicle Logging & Normalization**: Seamlessly captures and normalizes vehicle numbers (e.g. `MH12AB1234`).
+*   **Automated Google Form Self Check-In**: Guests can scan a QR at the main entrance gate to self-register via Google Form with section branching.
+*   **Search & Audit Controls**: Instant search across visitor name, phone, student host, or vehicle registration number.
+*   **Real-Time Exit Check**: Security guards can mark guests as EXITED with a single click as they leave the campus gate.
+*   **Institutional Reports**: Export comprehensive Excel (.xlsx / .csv) and PDF reports complete with official letterhead and headcount summaries.
 
 ---
 
-## 7. Default Test Credentials
+## 7. Security & Architectural Safeguards
+1.  **Anti-Duplicate Lock (`ScanLockService`)**: An atomic locking service that blocks a student's QR code from being scanned twice within a 5-second window to prevent double-read database race conditions.
+2.  **Privacy Protection**: Full vehicle registration numbers and visitor phone numbers are never written into plaintext application logs.
+3.  **Free-Tier DB Optimizations**: MongoDB connection pool capped at 5 in free tier (`MONGODB_TIER=free`) with 15-second idle cleanups.
+4.  **Queue-Driven Notifications**: Parent WhatsApp notifications are handled in the background by BullMQ worker threads.
+5.  **Dynamic QR Encryption**: QR payloads include JWT structures containing user identifiers signed with an HS256 secret.
+
+---
+
+## 8. Default Test Credentials
 
 | Role | Default Email | Password |
 | :--- | :--- | :--- |

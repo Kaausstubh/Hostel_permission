@@ -1,0 +1,543 @@
+/**
+ * Visitor Routes
+ *
+ * GET  /api/visitors          - List visitor records with search (name, phone, student, vehicleNumber),
+ *                               hasVehicle filter, status, purpose, date, and headcount statistics.
+ * GET  /api/visitors/inside   - Quick list of all visitors currently inside campus with headcount sum.
+ * POST /api/visitors          - Manual visitor entry (Duty Guard / Warden).
+ * POST /api/visitors/:id/exit - Mark visitor as exited.
+ * POST /api/visitors/webhook  - Webhook for Google Form submissions (via Apps Script).
+ * GET  /api/visitors/export   - Export visitor data with aggregated headcount for PDF/Excel.
+ * DELETE /api/visitors/:id    - Delete visitor log (Warden / Admin only).
+ */
+
+const express = require('express');
+const router = express.Router();
+const VisitorLog = require('../models/VisitorLog');
+const { protect, authorize } = require('../middleware/auth');
+const logger = require('../utils/logger');
+const {
+  normalizeVehicleNumber,
+  parseVisitorCount,
+  parseBoolean,
+  maskPhone,
+  maskVehicle,
+} = require('../utils/visitorValidation');
+const { validateIndianPhone } = require('../utils/phone');
+const { VISITOR_PURPOSES, PURPOSE_STUDENT_REQUIRED, PURPOSE_OTHER } = require('../constants/visitorPurposes');
+const { getIO } = require('../services/socketService');
+
+// Helper: current date in Asia/Kolkata timezone
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+// Helper: calculate total headcount sum from an array or query
+const sumHeadcount = (list = []) => list.reduce((acc, item) => acc + (Number(item.visitorCount) || 1), 0);
+
+// ─── GET /api/visitors ────────────────────────────────────────────────────────
+// List all visitor logs with multi-field search and filters
+router.get('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10), 1), 200);
+    const skip = (page - 1) * limit;
+
+    const { search, hasVehicle, status, purpose, date } = req.query;
+    const filter = {};
+
+    // Date filter
+    if (date && date.trim()) {
+      filter.date = date.trim();
+    }
+
+    // Status filter
+    if (status && status !== 'all') {
+      filter.status = status.toUpperCase();
+    }
+
+    // Purpose filter
+    if (purpose && purpose !== 'all') {
+      filter.purpose = purpose;
+    }
+
+    // hasVehicle filter
+    if (hasVehicle !== undefined && hasVehicle !== '' && hasVehicle !== 'all') {
+      filter.hasVehicle = parseBoolean(hasVehicle);
+    }
+
+    // Multi-field search: name, phone, studentName, vehicleNumber
+    if (search && search.trim()) {
+      const term = search.trim();
+      const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escapedTerm, 'i');
+
+      // Also create a stripped version for vehicle lookup (e.g., "MH 12" -> "MH12")
+      const strippedTerm = term.toUpperCase().replace(/[\s-]/g, '');
+      const vehicleRegex = new RegExp(strippedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+      filter.$or = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { studentName: searchRegex },
+        { studentHostel: searchRegex },
+        { studentRoomNo: searchRegex },
+        { purposeDetails: searchRegex },
+        { vehicleNumber: vehicleRegex },
+        { passNumber: searchRegex },
+      ];
+    }
+
+    const today = todayStr();
+
+    // Run parallel queries: Paginated list, total count, and summary aggregation
+    const [visitors, count, todayDocs, insideDocs] = await Promise.all([
+      VisitorLog.find(filter).sort({ entryTime: -1 }).skip(skip).limit(limit).lean(),
+      VisitorLog.countDocuments(filter),
+      VisitorLog.find({ date: today }).select('visitorCount hasVehicle status').lean(),
+      VisitorLog.find({ status: 'INSIDE' }).select('visitorCount hasVehicle').lean(),
+    ]);
+
+    // Headcount for currently filtered results
+    const filteredAllDocs = await VisitorLog.find(filter).select('visitorCount').lean();
+    const totalFilteredHeadcount = sumHeadcount(filteredAllDocs);
+
+    // Summary calculations
+    const totalInside = insideDocs.length;
+    const totalInsideHeadcount = sumHeadcount(insideDocs);
+    const vehiclesInside = insideDocs.filter((d) => d.hasVehicle).length;
+
+    const totalToday = todayDocs.length;
+    const totalTodayHeadcount = sumHeadcount(todayDocs);
+
+    res.json({
+      success: true,
+      count,
+      totalHeadcount: totalFilteredHeadcount,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit) || 1,
+      hasMore: skip + visitors.length < count,
+      summary: {
+        totalInside,
+        totalInsideHeadcount,
+        vehiclesInside,
+        totalToday,
+        totalTodayHeadcount,
+      },
+      visitors,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch visitor logs', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch visitor logs: ' + err.message });
+  }
+});
+
+// ─── GET /api/visitors/inside ─────────────────────────────────────────────────
+// Get all visitors currently inside with total headcount
+router.get('/inside', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const insideVisitors = await VisitorLog.find({ status: 'INSIDE' })
+      .sort({ entryTime: -1 })
+      .lean();
+
+    const totalEntries = insideVisitors.length;
+    const totalHeadcount = sumHeadcount(insideVisitors);
+    const vehiclesCount = insideVisitors.filter((v) => v.hasVehicle).length;
+
+    res.json({
+      success: true,
+      totalEntries,
+      totalHeadcount,
+      vehiclesCount,
+      visitors: insideVisitors,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch inside visitors', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch inside visitors: ' + err.message });
+  }
+});
+
+// ─── POST /api/visitors ───────────────────────────────────────────────────────
+// Manual visitor check-in (Guard or Warden)
+router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      purpose,
+      purposeDetails,
+      studentName,
+      studentHostel,
+      studentRoomNo,
+      visitorCount: rawVisitorCount,
+      hasVehicle: rawHasVehicle,
+      vehicleNumber: rawVehicleNumber,
+      entryGate,
+    } = req.body;
+
+    // Validate Name
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor name is required.' });
+    }
+
+    // Validate Phone
+    if (!phone || !String(phone).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor phone number is required.' });
+    }
+    const phoneValidation = validateIndianPhone(phone, 'Visitor phone');
+    if (!phoneValidation.valid) {
+      return res.status(400).json({ success: false, message: phoneValidation.error });
+    }
+    const normalizedPhone = phoneValidation.e164 || String(phone).trim();
+
+    // Validate Purpose
+    if (!purpose || !String(purpose).trim()) {
+      return res.status(400).json({ success: false, message: 'Purpose of visit is required.' });
+    }
+
+    // If purpose is 'Meeting a student', require student details
+    if (purpose === PURPOSE_STUDENT_REQUIRED) {
+      if (!studentName || !String(studentName).trim()) {
+        return res.status(400).json({ success: false, message: 'Student name is required when purpose is "Meeting a student".' });
+      }
+      if (!studentHostel || !String(studentHostel).trim()) {
+        return res.status(400).json({ success: false, message: 'Student hostel is required.' });
+      }
+      if (!studentRoomNo || !String(studentRoomNo).trim()) {
+        return res.status(400).json({ success: false, message: 'Student room number is required.' });
+      }
+    }
+
+    // If purpose is 'Other', require purpose details
+    if (purpose === PURPOSE_OTHER || String(purpose).trim().toLowerCase() === 'other') {
+      if (!purposeDetails || !String(purposeDetails).trim()) {
+        return res.status(400).json({ success: false, message: 'Specific reason / details is required when purpose is "Other".' });
+      }
+    }
+
+    // Parse visitor count defensively
+    const countRes = parseVisitorCount(rawVisitorCount);
+    if (!countRes.valid) {
+      return res.status(400).json({ success: false, message: countRes.error });
+    }
+    const visitorCount = countRes.count;
+
+    // Parse hasVehicle & vehicleNumber
+    const hasVehicle = parseBoolean(rawHasVehicle);
+    const vehicleRes = normalizeVehicleNumber(rawVehicleNumber, hasVehicle);
+    if (!vehicleRes.valid) {
+      return res.status(400).json({ success: false, message: vehicleRes.error });
+    }
+    const vehicleNumber = vehicleRes.normalized;
+
+    const now = new Date();
+    const date = todayStr();
+    const passNumber = `VIS-${date.replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const loggedByName = req.user?.name || req.user?.email || 'Duty Guard';
+
+    const newVisitor = await VisitorLog.create({
+      name: String(name).trim(),
+      phone: normalizedPhone,
+      visitorCount,
+      hasVehicle,
+      vehicleNumber,
+      purpose: String(purpose).trim(),
+      purposeDetails: purposeDetails ? String(purposeDetails).trim() : '',
+      studentName: studentName ? String(studentName).trim() : '',
+      studentHostel: studentHostel ? String(studentHostel).trim() : '',
+      studentRoomNo: studentRoomNo ? String(studentRoomNo).trim() : '',
+      status: 'INSIDE',
+      entryTime: now,
+      exitTime: null,
+      date,
+      entryGate: entryGate ? String(entryGate).trim() : 'Main Gate',
+      loggedBy: req.user?._id || null,
+      logged_by_name: loggedByName,
+      source: 'MANUAL',
+      passNumber,
+    });
+
+    // Mask phone and vehicle in application logs for privacy
+    logger.info('[Visitor] New visitor entry recorded', {
+      visitorId: newVisitor._id,
+      passNumber,
+      purpose: newVisitor.purpose,
+      visitorCount,
+      hasVehicle,
+      maskedPhone: maskPhone(normalizedPhone),
+      maskedVehicle: maskVehicle(vehicleNumber),
+      guard: loggedByName,
+    });
+
+    // Real-time broadcast via Socket.IO
+    const io = getIO();
+    if (io) {
+      io.of('/dashboard').emit('visitor:new', {
+        action: 'entry',
+        visitor: newVisitor,
+        timestamp: now.toISOString(),
+      });
+      io.of('/scanner').emit('visitor:new', {
+        action: 'entry',
+        visitor: newVisitor,
+        timestamp: now.toISOString(),
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Visitor entry recorded successfully.',
+      visitor: newVisitor,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to create visitor log', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to record visitor: ' + err.message });
+  }
+});
+
+// ─── POST /api/visitors/:id/exit ──────────────────────────────────────────────
+// Mark a visitor as EXITED
+router.post('/:id/exit', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const visitor = await VisitorLog.findById(req.params.id);
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: 'Visitor record not found.' });
+    }
+
+    if (visitor.status === 'EXITED') {
+      return res.status(400).json({ success: false, message: 'Visitor is already marked as EXITED.' });
+    }
+
+    const now = new Date();
+    visitor.status = 'EXITED';
+    visitor.exitTime = now;
+    await visitor.save();
+
+    logger.info('[Visitor] Visitor marked as exited', {
+      visitorId: visitor._id,
+      passNumber: visitor.passNumber,
+      maskedPhone: maskPhone(visitor.phone),
+      maskedVehicle: maskVehicle(visitor.vehicleNumber),
+      exitTime: now.toISOString(),
+    });
+
+    const io = getIO();
+    if (io) {
+      io.of('/dashboard').emit('visitor:exit', {
+        action: 'exit',
+        visitor,
+        timestamp: now.toISOString(),
+      });
+      io.of('/scanner').emit('visitor:exit', {
+        action: 'exit',
+        visitor,
+        timestamp: now.toISOString(),
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Visitor exit recorded successfully.',
+      visitor,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to record exit', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to record visitor exit: ' + err.message });
+  }
+});
+
+// ─── POST /api/visitors/webhook ───────────────────────────────────────────────
+// Webhook endpoint for Google Forms & Apps Script automation
+router.post('/webhook', async (req, res) => {
+  try {
+    // Optional secret verification
+    const configuredSecret = process.env.VISITOR_WEBHOOK_SECRET;
+    if (configuredSecret) {
+      const headerSecret = req.headers['x-webhook-secret'] || req.query.secret;
+      if (headerSecret !== configuredSecret) {
+        logger.warn('[Visitor Webhook] Unauthorized webhook attempt: invalid secret');
+        return res.status(401).json({ success: false, message: 'Invalid webhook secret token.' });
+      }
+    }
+
+    const {
+      purpose,
+      purposeDetails,
+      studentName,
+      studentHostel,
+      studentRoomNo,
+      name,
+      phone,
+      visitorCount: rawVisitorCount,
+      hasVehicle: rawHasVehicle,
+      vehicleNumber: rawVehicleNumber,
+      entryGate,
+    } = req.body;
+
+    // Validate Name
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor name is required.' });
+    }
+
+    // Validate Phone
+    if (!phone || !String(phone).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor phone is required.' });
+    }
+    const phoneValidation = validateIndianPhone(phone, 'Visitor phone');
+    const normalizedPhone = phoneValidation.valid ? phoneValidation.e164 : String(phone).trim();
+
+    // Validate Purpose
+    const sanitizedPurpose = purpose ? String(purpose).trim() : 'Other';
+
+    // If purpose is 'Other', require purpose details
+    if (sanitizedPurpose === PURPOSE_OTHER || sanitizedPurpose.toLowerCase() === 'other') {
+      if (!purposeDetails || !String(purposeDetails).trim()) {
+        return res.status(400).json({ success: false, message: 'Specific reason / details is required when purpose is "Other".' });
+      }
+    }
+
+    // Parse visitor count defensively from form string
+    const countRes = parseVisitorCount(rawVisitorCount);
+    const visitorCount = countRes.valid ? countRes.count : 1;
+
+    // Parse hasVehicle boolean
+    const hasVehicle = parseBoolean(rawHasVehicle);
+
+    // Normalize vehicle number if hasVehicle is true; otherwise ignore and set to null
+    let vehicleNumber = null;
+    if (hasVehicle) {
+      const vehRes = normalizeVehicleNumber(rawVehicleNumber, true);
+      vehicleNumber = vehRes.valid ? vehRes.normalized : (rawVehicleNumber ? String(rawVehicleNumber).trim().toUpperCase().replace(/[\s-]/g, '') : null);
+    }
+
+    const now = new Date();
+    const date = todayStr();
+    const passNumber = `VIS-GF-${date.replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    const newVisitor = await VisitorLog.create({
+      name: String(name).trim(),
+      phone: normalizedPhone,
+      visitorCount,
+      hasVehicle,
+      vehicleNumber,
+      purpose: sanitizedPurpose,
+      purposeDetails: purposeDetails ? String(purposeDetails).trim() : '',
+      studentName: studentName ? String(studentName).trim() : '',
+      studentHostel: studentHostel ? String(studentHostel).trim() : '',
+      studentRoomNo: studentRoomNo ? String(studentRoomNo).trim() : '',
+      status: 'INSIDE',
+      entryTime: now,
+      exitTime: null,
+      date,
+      entryGate: entryGate ? String(entryGate).trim() : 'Google Form Gate',
+      loggedBy: null,
+      logged_by_name: 'Google Form Self Check-In',
+      source: 'GOOGLE_FORM',
+      passNumber,
+    });
+
+    logger.info('[Visitor Webhook] Google Form check-in recorded', {
+      visitorId: newVisitor._id,
+      passNumber,
+      purpose: sanitizedPurpose,
+      visitorCount,
+      hasVehicle,
+      maskedPhone: maskPhone(normalizedPhone),
+      maskedVehicle: maskVehicle(vehicleNumber),
+    });
+
+    const io = getIO();
+    if (io) {
+      io.of('/dashboard').emit('visitor:new', {
+        action: 'entry',
+        visitor: newVisitor,
+        timestamp: now.toISOString(),
+      });
+      io.of('/scanner').emit('visitor:new', {
+        action: 'entry',
+        visitor: newVisitor,
+        timestamp: now.toISOString(),
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Visitor pass created from Google Form webhook.',
+      passNumber,
+      visitorId: newVisitor._id,
+    });
+  } catch (err) {
+    logger.error('[Visitor Webhook] Failed to process webhook submission', { error: err.message });
+    res.status(500).json({ success: false, message: 'Webhook processing error: ' + err.message });
+  }
+});
+
+// ─── GET /api/visitors/export-data ────────────────────────────────────────────
+// Compile visitor data and summary for official PDF / Excel export
+router.get('/export-data', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
+  try {
+    const { date, status, purpose, hasVehicle } = req.query;
+    const filter = {};
+
+    if (date && date.trim()) filter.date = date.trim();
+    if (status && status !== 'all') filter.status = status.toUpperCase();
+    if (purpose && purpose !== 'all') filter.purpose = purpose;
+    if (hasVehicle !== undefined && hasVehicle !== '' && hasVehicle !== 'all') {
+      filter.hasVehicle = parseBoolean(hasVehicle);
+    }
+
+    const records = await VisitorLog.find(filter).sort({ entryTime: -1 }).lean();
+    const totalEntries = records.length;
+    const totalHeadcount = sumHeadcount(records);
+    const insideCount = records.filter((r) => r.status === 'INSIDE').length;
+    const insideHeadcount = sumHeadcount(records.filter((r) => r.status === 'INSIDE'));
+    const exitedCount = records.filter((r) => r.status === 'EXITED').length;
+    const exitedHeadcount = sumHeadcount(records.filter((r) => r.status === 'EXITED'));
+    const vehiclesCount = records.filter((r) => r.hasVehicle).length;
+
+    res.json({
+      success: true,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        generatedBy: req.user?.name || 'Authorized Staff',
+        role: req.user?.role || 'Staff',
+        filter: { date: date || 'All Dates', status: status || 'All Statuses', purpose: purpose || 'All Purposes' },
+      },
+      summary: {
+        totalEntries,
+        totalHeadcount,
+        insideCount,
+        insideHeadcount,
+        exitedCount,
+        exitedHeadcount,
+        vehiclesCount,
+      },
+      records,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to compile export data', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to generate export data: ' + err.message });
+  }
+});
+
+// ─── DELETE /api/visitors/:id ─────────────────────────────────────────────────
+// Delete visitor log (Warden/Admin only)
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const visitor = await VisitorLog.findByIdAndDelete(req.params.id);
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: 'Visitor record not found.' });
+    }
+
+    logger.info('[Visitor] Record deleted by admin/warden', {
+      visitorId: req.params.id,
+      deletedBy: req.user?.name,
+    });
+
+    res.json({ success: true, message: 'Visitor log deleted successfully.' });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to delete visitor log', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to delete record: ' + err.message });
+  }
+});
+
+module.exports = router;

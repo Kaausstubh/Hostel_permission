@@ -1,10 +1,24 @@
 let xlsxPromise = null;
 import { getHostelLabel } from './hostel';
+
 const getXLSX = () => {
   if (!xlsxPromise) {
     xlsxPromise = import('xlsx');
   }
   return xlsxPromise;
+};
+
+/**
+ * Formula injection neutralization:
+ * If a string starts with =, +, -, @, \t, or \r, prepend a single quote to neutralize formula execution.
+ */
+export const sanitizeFormula = (val) => {
+  if (val === null || val === undefined) return '';
+  const str = String(val);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return `'${str}`;
+  }
+  return str;
 };
 
 /**
@@ -49,18 +63,18 @@ export const formatGateLogsForExcel = (logs = []) => {
 
     return {
       'S.No': index + 1,
-      'Student Name': student?.name || log.name || 'Unknown',
-      'Roll Number': student?.rollNo || log.rollNo || '—',
-      'Hostel': getHostelLabel(student?.hostel || log.hostel),
-      'Room Number': log.roomNo || student?.roomNo || '—',
-      'Status': log.status || 'OUT',
-      'Destination / Place': log.place || 'City / Local',
-      'Date': log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—'),
-      'Out Time': outTimeStr,
-      'In Time': inTimeStr,
+      'Student Name': sanitizeFormula(student?.name || log.name || 'Unknown'),
+      'Roll Number': sanitizeFormula(student?.rollNo || log.rollNo || '—'),
+      'Hostel': sanitizeFormula(getHostelLabel(student?.hostel || log.hostel)),
+      'Room Number': sanitizeFormula(log.roomNo || student?.roomNo || '—'),
+      'Status': sanitizeFormula(log.status || 'OUT'),
+      'Destination / Place': sanitizeFormula(log.place || 'City / Local'),
+      'Date': sanitizeFormula(log.date || (log.timestamp ? new Date(log.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '—')),
+      'Out Time': sanitizeFormula(outTimeStr),
+      'In Time': sanitizeFormula(inTimeStr),
       'Returned': log.returned ? 'Yes' : 'No',
-      'Duty Guard / Scanned By': scannedByName,
-      'Record ID': String(log._id || ''),
+      'Duty Guard / Scanned By': sanitizeFormula(scannedByName),
+      'Record ID': sanitizeFormula(String(log._id || '')),
     };
   });
 };
@@ -90,36 +104,71 @@ export const formatHomeLogsForExcel = (homeLogs = []) => {
 
     return {
       'S.No': index + 1,
-      'Student Name': student?.name || visit.name || 'Unknown',
-      'Roll Number': student?.rollNo || visit.rollNo || '—',
-      'Hostel': getHostelLabel(student?.hostel || visit.hostel),
-      'Room Number': visit.roomNo || student?.roomNo || '—',
-      'Destination Place': visit.place || '—',
-      'Reason': visit.reason || '—',
-      'Leave Date': visit.leave_date || '—',
-      'Return Date': visit.return_date || '—',
-      'Home Out Time': outTimeStr,
-      'Home In Time': inTimeStr,
-      'Status': statusStr,
+      'Student Name': sanitizeFormula(student?.name || visit.name || 'Unknown'),
+      'Roll Number': sanitizeFormula(student?.rollNo || visit.rollNo || '—'),
+      'Hostel': sanitizeFormula(getHostelLabel(student?.hostel || visit.hostel)),
+      'Room Number': sanitizeFormula(visit.roomNo || student?.roomNo || '—'),
+      'Destination Place': sanitizeFormula(visit.place || '—'),
+      'Reason': sanitizeFormula(visit.reason || '—'),
+      'Leave Date': sanitizeFormula(visit.leave_date || '—'),
+      'Return Date': sanitizeFormula(visit.return_date || '—'),
+      'Home Out Time': sanitizeFormula(outTimeStr),
+      'Home In Time': sanitizeFormula(inTimeStr),
+      'Status': sanitizeFormula(statusStr),
       'Returned': visit.qr_used_in ? 'Yes' : (visit.actual_in_time ? 'Yes' : 'No'),
-      'Parent Contact': student?.parentPhone || visit.parent_phone || '—',
-      'Staff / Guard': scannedByName,
-      'Record ID': String(visit._id || ''),
+      'Parent Contact': sanitizeFormula(student?.parentPhone || visit.parent_phone || '—'),
+      'Staff / Guard': sanitizeFormula(scannedByName),
+      'Record ID': sanitizeFormula(String(visit._id || '')),
+    };
+  });
+};
+
+/**
+ * Formats Visitor Entry/Exit Records into tabular rows
+ */
+export const formatVisitorLogsForExcel = (visitorLogs = []) => {
+  return visitorLogs.map((log, index) => {
+    const entryTimeStr = log.entryTime
+      ? new Date(log.entryTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : '—';
+    const exitTimeStr = log.exitTime
+      ? new Date(log.exitTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : '—';
+
+    let details = '—';
+    if (log.purpose === 'Meeting a student') {
+      details = [
+        log.studentName ? `Student: ${log.studentName}` : '',
+        log.studentHostel ? `Hostel: ${getHostelLabel(log.studentHostel)}` : '',
+        log.studentRoomNo ? `Room: ${log.studentRoomNo}` : '',
+      ].filter(Boolean).join(', ') || '—';
+    } else if (log.purposeDetails) {
+      details = log.purposeDetails;
+    }
+
+    return {
+      'S.No': index + 1,
+      'Visitor Name': sanitizeFormula(log.name || 'Unknown'),
+      'Phone Number': sanitizeFormula(log.phone || '—'),
+      'Visitors': Number(log.visitorCount) || 1,
+      'Has Vehicle': log.hasVehicle ? 'Yes' : 'No',
+      'Vehicle No': sanitizeFormula(log.hasVehicle && log.vehicleNumber ? log.vehicleNumber : ''),
+      'Purpose': sanitizeFormula(log.purpose || 'General Visit'),
+      'Student / Details': sanitizeFormula(details),
+      'Status': sanitizeFormula(log.status || 'INSIDE'),
+      'Date': sanitizeFormula(log.date || '—'),
+      'Entry Time': sanitizeFormula(entryTimeStr),
+      'Exit Time': sanitizeFormula(exitTimeStr),
+      'Duty Guard / Logged By': sanitizeFormula(log.logged_by_name || 'Duty Guard'),
+      'Pass Number': sanitizeFormula(log.passNumber || '—'),
+      'Source': sanitizeFormula(log.source || 'MANUAL'),
+      'Record ID': sanitizeFormula(String(log._id || '')),
     };
   });
 };
 
 /**
  * Generate and download an Excel spreadsheet (.xlsx or .csv) from Gate & Home visit logs
- *
- * @param {Object} options
- * @param {Array} options.gateLogs - Array of raw gate scan logs
- * @param {Array} options.homeLogs - Array of raw home visit logs
- * @param {Object} options.user - Current logged in user
- * @param {string} options.dateFilter - Currently active date filter
- * @param {string} options.activeTab - 'gate' or 'home'
- * @param {string} options.exportScope - 'current' | 'gate' | 'home' | 'all' | 'csv'
- * @param {string} [options.customFileName] - Optional file name
  */
 export const downloadGateRecordsExcel = async ({
   gateLogs = [],
@@ -196,12 +245,11 @@ export const downloadGateRecordsExcel = async ({
     addedSheets++;
   }
 
-  // If no records in chosen scope
   if (addedSheets === 0) {
     throw new Error('No records available in the selected scope to export.');
   }
 
-  // Add Summary Audit Sheet for professional institutional records
+  // Add Summary Audit Sheet
   const totalGate = gateLogs.length;
   const totalHome = homeLogs.length;
   const exits = gateLogs.filter((l) => l.status === 'OUT').length;
@@ -228,5 +276,84 @@ export const downloadGateRecordsExcel = async ({
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Audit Summary');
 
   // Trigger browser file download
+  XLSX.writeFile(wb, fileName);
+};
+
+/**
+ * Generate and download an Excel spreadsheet (.xlsx or .csv) for Visitor Entry/Exit logs
+ * Includes Total Visitor Headcount in the summary and tabular records.
+ */
+export const downloadVisitorRecordsExcel = async ({
+  visitorLogs = [],
+  user = {},
+  dateFilter = '',
+  statusFilter = '',
+  customFileName = '',
+  asCsv = false,
+}) => {
+  const XLSX = await getXLSX();
+  const wb = XLSX.utils.book_new();
+  const dateStamp = dateFilter || new Date().toISOString().slice(0, 10);
+  const officerRole = (user?.role === 'warden' ? 'HOSTEL STAFF' : (user?.role || 'Staff')).toUpperCase();
+  const generatedBy = `${user?.name || 'Authorized Staff'} (${officerRole})`;
+
+  if (visitorLogs.length === 0) {
+    throw new Error('No visitor records found to export.');
+  }
+
+  const formattedRows = formatVisitorLogsForExcel(visitorLogs);
+  const defaultName = `IIITP_HEIMDALL_Visitor_Logs_${dateStamp}.${asCsv ? 'csv' : 'xlsx'}`;
+  const fileName = customFileName || defaultName;
+
+  if (asCsv) {
+    const ws = XLSX.utils.json_to_sheet(formattedRows);
+    const csvContent = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  // Excel (.xlsx) mode
+  const wsVisitors = XLSX.utils.json_to_sheet(formattedRows);
+  wsVisitors['!cols'] = autoFitColumns(formattedRows, 14);
+  XLSX.utils.book_append_sheet(wb, wsVisitors, 'Visitor Logs');
+
+  // Summary Sheet with Total Headcount calculation
+  const totalEntries = visitorLogs.length;
+  const totalHeadcount = visitorLogs.reduce((acc, v) => acc + (Number(v.visitorCount) || 1), 0);
+  const insideEntries = visitorLogs.filter((v) => v.status === 'INSIDE').length;
+  const insideHeadcount = visitorLogs.filter((v) => v.status === 'INSIDE').reduce((acc, v) => acc + (Number(v.visitorCount) || 1), 0);
+  const exitedEntries = visitorLogs.filter((v) => v.status === 'EXITED').length;
+  const exitedHeadcount = visitorLogs.filter((v) => v.status === 'EXITED').reduce((acc, v) => acc + (Number(v.visitorCount) || 1), 0);
+  const visitorsWithVehicles = visitorLogs.filter((v) => v.hasVehicle).length;
+
+  const summaryData = [
+    { 'Audit Property': 'INSTITUTION', 'Value': 'INDIAN INSTITUTE OF INFORMATION TECHNOLOGY, PUNE (IIITP)' },
+    { 'Audit Property': 'SYSTEM', 'Value': 'HEIMDALL — Campus Visitor Entry/Exit Management' },
+    { 'Audit Property': 'OFFICE', 'Value': 'Office of Campus Security & Hostel Administration' },
+    { 'Audit Property': 'REPORT GENERATED AT', 'Value': new Date().toLocaleString('en-IN') },
+    { 'Audit Property': 'GENERATED BY', 'Value': generatedBy },
+    { 'Audit Property': 'DATE FILTER', 'Value': dateFilter || 'All Recorded Dates' },
+    { 'Audit Property': 'STATUS FILTER', 'Value': statusFilter || 'All Records' },
+    { 'Audit Property': 'TOTAL VISITOR ENTRIES (PASSES)', 'Value': totalEntries },
+    { 'Audit Property': 'TOTAL VISITOR HEADCOUNT (PEOPLE)', 'Value': totalHeadcount },
+    { 'Audit Property': 'CURRENTLY INSIDE (PASSES)', 'Value': insideEntries },
+    { 'Audit Property': 'CURRENTLY INSIDE HEADCOUNT (PEOPLE)', 'Value': insideHeadcount },
+    { 'Audit Property': 'EXITED ENTRIES (PASSES)', 'Value': exitedEntries },
+    { 'Audit Property': 'EXITED HEADCOUNT (PEOPLE)', 'Value': exitedHeadcount },
+    { 'Audit Property': 'VISITORS WITH VEHICLES', 'Value': visitorsWithVehicles },
+  ];
+
+  const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+  wsSummary['!cols'] = [{ wch: 38 }, { wch: 55 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Visitor Summary');
+
   XLSX.writeFile(wb, fileName);
 };
