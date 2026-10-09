@@ -31,13 +31,13 @@ const userSchema = new mongoose.Schema(
       // Which OAuth provider authenticated this user
       type: String,
       enum: ['google'],
-      required: [true, 'OAuth provider is required'],
+      default: 'google',
     },
     oauthId: {
       // The provider's unique user ID (stable identifier)
       type: String,
-      required: [true, 'OAuth ID is required'],
       trim: true,
+      default: undefined,
     },
     picture: {
       // Profile photo URL from OAuth provider (may be null)
@@ -111,7 +111,7 @@ const userSchema = new mongoose.Schema(
 
 // ── Indexes ────────────────────────────────────────────────────────────────────
 // Fast OAuth login lookup (primary auth path)
-userSchema.index({ oauthId: 1, oauthProvider: 1 }, { unique: true });
+userSchema.index({ oauthId: 1, oauthProvider: 1 }, { unique: true, sparse: true });
 // Fast roll number lookup — sparse so null values don't conflict
 userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
 // Fast role-based queries (dashboard counts, lists)
