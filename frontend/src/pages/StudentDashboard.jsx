@@ -524,8 +524,9 @@ export default function StudentDashboard() {
   const [scanAlertModal, setScanAlertModal] = useState(null);
   const [showGenerateQrModal, setShowGenerateQrModal] = useState(false);
   const [customDestInput, setCustomDestInput] = useState('');
-  const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
+  const [qrCountdown, setQrCountdown] = useState(15);
+  const [isRotatingQr, setIsRotatingQr] = useState(false);
 
   // ── Pending Visitor Pass Approvals (Real-time Gate Visitor Popup) ──────────
   const [pendingVisitorRequests, setPendingVisitorRequests] = useState([]);
@@ -573,6 +574,72 @@ export default function StudentDashboard() {
       window.removeEventListener('heimdall-portal-backgrounded', handleHidePass);
     };
   }, []);
+
+  // ── Dynamic Anti-Replay QR Rotation Effect ────────────────────────────────
+  // Automatically rotates tokens every 15s with a fresh short-lived (20s) token
+  // while the QR Pass screen is open, preventing unauthorized screenshot sharing.
+  useEffect(() => {
+    if (!zoomedQR) return;
+
+    let countdown = 15;
+    setQrCountdown(15);
+
+    const refreshPass = async () => {
+      try {
+        setIsRotatingQr(true);
+        const res = await api.get('/student/active-qr-pass');
+        if (res.data?.success && res.data?.hasActivePass && res.data?.qrDataUrl) {
+          const freshDataUrl = res.data.qrDataUrl;
+          const freshToken = res.data.token;
+          setZoomedQR((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              dataUrl: freshDataUrl,
+              qrDataUrl: freshDataUrl,
+              qrToken: freshToken,
+              token: freshToken,
+            };
+          });
+          setActivePasses((prevList) =>
+            prevList.map((p) => {
+              if (
+                p.passKind === res.data.passKind ||
+                p.id === res.data.passKind ||
+                (res.data.passKind === 'inout' && (!p.passKind || p.passKind === 'inout'))
+              ) {
+                return {
+                  ...p,
+                  qrDataUrl: freshDataUrl,
+                  qrToken: freshToken,
+                  token: freshToken,
+                };
+              }
+              return p;
+            })
+          );
+        }
+      } catch (err) {
+        // Silent background refresh
+      } finally {
+        setIsRotatingQr(false);
+        countdown = 15;
+        setQrCountdown(15);
+      }
+    };
+
+    const interval = setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) {
+        countdown = 15;
+        refreshPass();
+      } else {
+        setQrCountdown(countdown);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [zoomedQR ? (zoomedQR.id || zoomedQR.passKind || 'active') : null]);
 
   // Complaint photo states
   const [complaintPhoto, setComplaintPhoto] = useState(null);
@@ -3324,6 +3391,38 @@ export default function StudentDashboard() {
               <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
             </div>
 
+            {/* Dynamic Anti-Screenshot Rotating Badge */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 16px',
+                borderRadius: 999,
+                background: theme === 'light' ? '#f0fdf4' : 'rgba(99, 102, 241, 0.14)',
+                border: theme === 'light' ? '1px solid #bbf7d0' : '1px solid rgba(99, 102, 241, 0.35)',
+                color: theme === 'light' ? '#15803d' : '#a5b4fc',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  animation: isRotatingQr ? 'spin 0.8s linear infinite' : 'none',
+                  fontSize: 14,
+                }}
+              >
+                🔄
+              </span>
+              <span>
+                {isRotatingQr
+                  ? 'Refreshing secure token…'
+                  : `Dynamic Anti-Replay Pass • Rotating in ${qrCountdown}s`}
+              </span>
+            </div>
+
             {/* QR image */}
             <div style={{
               background: '#ffffff',
@@ -3352,6 +3451,17 @@ export default function StudentDashboard() {
                   WebkitUserDrag: 'none',
                 }}
               />
+            </div>
+
+            {/* Security limitation notice */}
+            <div style={{
+              fontSize: 11,
+              color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.55)',
+              textAlign: 'center',
+              maxWidth: 320,
+              lineHeight: 1.35,
+            }}>
+              🔒 Screenshots expire in 20s. Present this live screen directly to the security guard at the gate for photo verification.
             </div>
 
             {/* Directional instruction banner at downside */}

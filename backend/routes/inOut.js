@@ -18,6 +18,11 @@ const { createPendingInOutRequest } = require('../services/inOutRequestService')
 const { getOrCreateActivePass, recordPassOut, recordPassIn } = require('../services/gatePassService');
 const { withScanLock } = require('../services/scanLockService');
 const logger = require('../utils/logger');
+const {
+  verifyDynamicPassToken,
+  consumeDynamicTokenAtomic,
+  cacheScanIdempotentResult,
+} = require('../services/dynamicQrService');
 const { recordDeletionAudit, getStorageStats } = require('../services/storageStatsService');
 const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
 const getPagination = (query, defaultLimit = 50, maxLimit = 200) => {
@@ -60,7 +65,7 @@ router.post('/generate-qr', protect, authorize('student'), async (req, res) => {
 
 // ─── Scan QR (Legacy — prefer /api/gatescan/scan for new flows) ──────────────
 // This endpoint is kept for backward compatibility.
-// It now uses the distributed scan lock for race condition protection.
+// It now uses the distributed scan lock and dynamic token anti-replay verification.
 router.post('/scan', protect, authorize('security', 'warden'), async (req, res) => {
   const scanStart = Date.now();
   try {
@@ -68,17 +73,37 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
     if (!token) return res.status(400).json({ success: false, message: 'Token required' });
 
     const result = await withScanLock(token, async () => {
-      // Validate JWT signature + expiry
-      const { valid, payload, error } = validateQR(token);
-      if (!valid) return { status: 400, body: { success: false, message: error } };
-
-      // Accept both 'inout' (old) and 'inout_request' (new) types
-      if (payload.type !== 'inout' && payload.type !== 'inout_request') {
-        return { status: 400, body: { success: false, message: 'Invalid QR type for this scanner' } };
+      let payload;
+      const dynamicCheck = verifyDynamicPassToken(token);
+      if (dynamicCheck.valid) {
+        payload = dynamicCheck.payload;
+        if (payload.jti) {
+          const consumeCheck = await consumeDynamicTokenAtomic(payload.jti, payload);
+          if (consumeCheck.status === 'IDEMPOTENT_REPLAY') {
+            return { status: 200, body: consumeCheck.cachedResult };
+          }
+          if (consumeCheck.status === 'ALREADY_USED') {
+            return {
+              status: 409,
+              body: { success: false, code: 'ALREADY_USED', message: consumeCheck.error || 'QR code already scanned. Replay rejected.' },
+            };
+          }
+        }
+      } else {
+        if (dynamicCheck.code === 'EXPIRED') {
+          return { status: 400, body: { success: false, code: 'EXPIRED', message: dynamicCheck.error } };
+        }
+        const { valid, payload: legacyPayload, error } = validateQR(token);
+        if (!valid) return { status: 400, body: { success: false, code: 'INVALID', message: dynamicCheck.error || error } };
+        payload = legacyPayload;
       }
 
-      const student = await User.findById(payload.student_id).lean();
-      if (!student) return { status: 404, body: { success: false, message: 'Student not found' } };
+      const studentId = payload.sub || payload.student_id;
+      const student = await User.findById(studentId).lean();
+      if (!student) return { status: 404, body: { success: false, code: 'INVALID', message: 'Student not found' } };
+      if (student.isActive === false) {
+        return { status: 403, body: { success: false, code: 'REVOKED', message: 'Student account has been deactivated / revoked' } };
+      }
 
       const existing = await InOutLog.findOne({ qr_token: token }).lean().maxTimeMS(5000);
       const now = new Date();
@@ -150,15 +175,26 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
         await removeActiveQR(token);
       }
 
+      const responseBody = {
+        success: true,
+        code: 'VALID',
+        message: `Student marked as ${status}`,
+        student: {
+          id: student._id?.toString(),
+          name: student.name,
+          rollNumber: student.rollNo,
+          hostel: student.hostel,
+          picture: student.studentPhoto || student.picture || '',
+        },
+        log: { status, timestamp: log.timestamp, out_time: log.out_time, in_time: log.in_time, returned: log.returned },
+        scanDuration: Date.now() - scanStart,
+      };
+
+      if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
+
       return {
         status: 200,
-        body: {
-          success: true,
-          message: `Student marked as ${status}`,
-          student: { name: student.name, rollNumber: student.rollNo, hostel: student.hostel },
-          log: { status, timestamp: log.timestamp, out_time: log.out_time, in_time: log.in_time, returned: log.returned },
-          scanDuration: Date.now() - scanStart,
-        },
+        body: responseBody,
       };
     });
 

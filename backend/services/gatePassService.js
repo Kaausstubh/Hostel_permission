@@ -6,6 +6,7 @@
  */
 
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const GatePass = require('../models/GatePass');
 const InOutLog = require('../models/InOutLog');
 const User = require('../models/User');
@@ -260,9 +261,16 @@ const getOrCreateActivePass = async (studentId, { place = '', reason = '' } = {}
 /**
  * Transition pass from PENDING to OUTSIDE when student scans OUT
  */
-const recordPassOut = async (token, guardId, guardName) => {
+const recordPassOut = async (tokenOrId, guardId, guardName) => {
+  const query = { status: 'PENDING' };
+  if (tokenOrId && mongoose.isValidObjectId(tokenOrId)) {
+    query.$or = [{ _id: tokenOrId }, { qr_token: tokenOrId }];
+  } else {
+    query.qr_token = tokenOrId;
+  }
+
   const pass = await GatePass.findOneAndUpdate(
-    { qr_token: token, status: 'PENDING' },
+    query,
     {
       $set: {
         status: 'OUTSIDE',
@@ -283,10 +291,17 @@ const recordPassOut = async (token, guardId, guardName) => {
 /**
  * Transition pass from OUTSIDE to COMPLETED when student scans IN
  */
-const recordPassIn = async (token, guardId, guardName) => {
+const recordPassIn = async (tokenOrId, guardId, guardName) => {
   const now = new Date();
+  const query = { status: { $in: ['OUTSIDE', 'PENDING'] } };
+  if (tokenOrId && mongoose.isValidObjectId(tokenOrId)) {
+    query.$or = [{ _id: tokenOrId }, { qr_token: tokenOrId }];
+  } else {
+    query.qr_token = tokenOrId;
+  }
+
   const pass = await GatePass.findOneAndUpdate(
-    { qr_token: token, status: { $in: ['OUTSIDE', 'PENDING'] } },
+    query,
     {
       $set: {
         status: 'COMPLETED',

@@ -6,6 +6,13 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
+const {
+  verifyDynamicPassToken,
+  consumeDynamicTokenAtomic,
+  cacheScanIdempotentResult,
+} = require('../services/dynamicQrService');
 
 const { protect, authorize } = require('../middleware/auth');
 const User = require('../models/User');
@@ -117,173 +124,101 @@ const homeVisitPayloadFromRecord = (visit) => ({
 
 /** Resolve compact HV-*, IO-*, JWT, or DB token into a scan payload */
 const resolveScanPayload = async (token) => {
-  // 1. Ultra fast-path: Compact Daily In/Out Token (starts with IO-)
-  if (/^IO-/i.test(token)) {
-    const pendingCompact = await getPendingInOutRequestByToken(token);
-    if (pendingCompact) {
-      return {
-        payload: { type: 'inout_request', student_id: String(pendingCompact.studentId) },
-        pendingRequest: pendingCompact,
-      };
-    }
-
-    // Check MongoDB GatePass source of truth if Redis evicted or expired
-    const gatePass = await GatePass.findOne({ qr_token: token }).lean();
-    if (gatePass) {
-      if (gatePass.status === 'COMPLETED') {
-        return { error: 'QR code already fully used' };
-      }
-      if (gatePass.status === 'CANCELLED') {
-        return { error: 'Gate pass was cancelled' };
-      }
-      const student = await User.findById(gatePass.student_id).lean();
-      const pending = {
-        requestId: gatePass.student_id.toString(),
-        requestType: 'inout_request',
-        studentId: gatePass.student_id.toString(),
-        studentName: student?.name || '',
-        hostel: student?.hostel || 'N/A',
-        rollNumber: student?.rollNo || 'N/A',
-        studentPhone: student?.phone || '',
-        parentPhone: student?.parentPhone || '',
-        studentPhoto: student?.studentPhoto || student?.picture || '',
-        place: gatePass.place || '',
-        reason: gatePass.reason || '',
-        scanType: gatePass.status === 'OUTSIDE' ? 'IN' : 'OUT',
-        token,
-      };
-      return {
-        payload: { type: 'inout_request', student_id: gatePass.student_id.toString() },
-        pendingRequest: pending,
-      };
-    }
-
-    // Check MongoDB InOutLog unreturned log
-    const inOutLog = await InOutLog.findOne({ qr_token: token }).sort({ timestamp: -1 }).lean();
-    if (inOutLog) {
-      if (inOutLog.returned) {
-        return { error: 'QR code already fully used' };
-      }
-      const student = await User.findById(inOutLog.student_id).lean();
-      const pending = {
-        requestId: inOutLog.student_id.toString(),
-        requestType: 'inout_request',
-        studentId: inOutLog.student_id.toString(),
-        studentName: student?.name || inOutLog.name || '',
-        hostel: student?.hostel || inOutLog.hostel || 'N/A',
-        rollNumber: student?.rollNo || inOutLog.rollNo || 'N/A',
-        studentPhone: student?.phone || inOutLog.phone || '',
-        parentPhone: student?.parentPhone || inOutLog.parentPhone || '',
-        studentPhoto: student?.studentPhoto || student?.picture || inOutLog.student_photo || '',
-        place: inOutLog.place || '',
-        reason: inOutLog.reason || '',
-        scanType: 'IN',
-        token,
-      };
-      return {
-        payload: { type: 'inout_request', student_id: inOutLog.student_id.toString() },
-        pendingRequest: pending,
-      };
-    }
+  // 1. Dynamic short-lived token (primary security path)
+  const dynamicCheck = verifyDynamicPassToken(token);
+  if (!dynamicCheck.valid) {
+    return { error: dynamicCheck.error, code: dynamicCheck.code };
   }
 
-  // 2. Ultra fast-path: Cryptographic Signed JWT (starts with eyJ)
-  if (token.startsWith('eyJ')) {
-    const { valid, payload, error } = validateQR(token);
-    if (valid && (payload?.type === 'inout_request' || payload?.type === 'inout' || payload?.type === 'home_visit')) {
-      return { payload };
-    }
-    // If expired, check if student is currently outside with this token to permit return scan
-    if (error) {
-      try {
-        const decoded = jwt.decode(token);
-        if (decoded?.student_id) {
-          const unreturned = await InOutLog.findOne({
-            student_id: decoded.student_id,
-            status: 'OUT',
-            returned: false,
-          }).lean();
-          if (unreturned && unreturned.qr_token === token) {
-            return { payload: { type: 'inout_request', student_id: String(decoded.student_id) } };
-          }
-        }
-      } catch (_) {}
-      return { error };
-    }
-  }
-
-  // 3. Ultra fast-path: Compact Home Visit Token (starts with HV-)
-  if (/^HV-/i.test(token)) {
-    const homeVisit = await findHomeVisitByScanToken(token);
-    if (homeVisit) {
-      return homeVisitPayloadFromRecord(homeVisit);
-    }
-
-    const usedHomeVisit = await HomeVisitLog.findOne({
-      qr_token: token,
-      qr_used_in: true,
-    }).lean();
-    if (usedHomeVisit) {
-      return { error: 'QR code already fully used' };
-    }
-
-    const pendingHome = await HomeVisitLog.findOne({
-      qr_token: token,
-      overall_status: { $in: ['pending', 'parent_approved'] },
-    }).lean();
-    if (pendingHome) {
-      return { error: 'Home visit not approved yet — hostel staff must approve first' };
-    }
-
-    return { error: 'Home visit pass not found or expired — student should open View My Status for a fresh QR' };
-  }
-
-  // 4. Fallback for untyped or legacy formats
-  const homeVisit = await findHomeVisitByScanToken(token);
-  if (homeVisit) {
-    return homeVisitPayloadFromRecord(homeVisit);
-  }
-
-  const { valid, payload, error } = validateQR(token);
-  if (valid && (payload?.type === 'inout_request' || payload?.type === 'inout')) {
-    return { payload };
-  }
-  if (valid && payload?.type === 'home_visit') {
-    return { payload };
-  }
-
-  const pendingCompact = await getPendingInOutRequestByToken(token);
-  if (pendingCompact) {
+  const { payload } = dynamicCheck;
+  if (payload.type === 'dynamic_gate_pass') {
     return {
-      payload: { type: 'inout_request', student_id: String(pendingCompact.studentId) },
-      pendingRequest: pendingCompact,
+      payload: {
+        type: payload.pass_kind === 'home_visit' ? 'home_visit' : 'inout_request',
+        student_id: String(payload.sub || payload.student_id),
+        pass_kind: payload.pass_kind,
+        pass_id: payload.pass_id,
+        visit_id: payload.pass_id,
+        master_token: payload.master_token,
+        scan_type: payload.scan_type,
+        jti: payload.jti,
+      },
+      dynamicPayload: payload,
     };
   }
 
-  return { error: error || 'Invalid or expired QR code' };
+  // 2. Fallback for test/legacy signed JWTs
+  return {
+    payload: {
+      ...payload,
+      jti: payload.jti || crypto.randomUUID(),
+    },
+  };
 };
 
 const tokensMatch = (a, b) => String(a || '').trim() === String(b || '').trim();
 
 const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingRequest = null) => {
-  // Use preloaded pending request if already resolved to avoid redundant lookups
   let pendingRequest = preloadedPendingRequest;
   if (!pendingRequest) {
-    const [byId, byToken] = await Promise.all([
-      getPendingInOutRequest(payload.student_id),
-      getPendingInOutRequestByToken(token),
-    ]);
-    pendingRequest = byId || byToken;
+    pendingRequest = await getPendingInOutRequest(payload.student_id);
+    if (!pendingRequest) {
+      const gatePass = await GatePass.findOne({
+        student_id: payload.student_id,
+        status: { $in: ['PENDING', 'OUTSIDE'] },
+      }).sort({ createdAt: -1 }).lean();
+
+      if (gatePass) {
+        pendingRequest = {
+          requestId: payload.student_id,
+          requestType: 'inout_request',
+          studentId: payload.student_id,
+          scanType: gatePass.status === 'OUTSIDE' ? 'IN' : 'OUT',
+          place: gatePass.place || '',
+          reason: gatePass.reason || '',
+          token: gatePass.qr_token,
+          passId: gatePass._id.toString(),
+        };
+      }
+    }
   }
 
-  if (!pendingRequest || !tokensMatch(pendingRequest.token, token)) {
-    return { status: 400, body: { success: false, message: 'Request not found or expired' } };
+  // If student is returning IN but has no pending in Redis, check unreturned log
+  if (!pendingRequest) {
+    const unreturned = await InOutLog.findOne({
+      student_id: payload.student_id,
+      status: 'OUT',
+      returned: false,
+    }).sort({ createdAt: -1 }).lean();
+
+    if (unreturned) {
+      pendingRequest = {
+        requestId: payload.student_id,
+        requestType: 'inout_request',
+        studentId: payload.student_id,
+        scanType: 'IN',
+        place: unreturned.place || '',
+        reason: unreturned.reason || '',
+        token: unreturned.qr_token,
+      };
+    }
+  }
+
+  if (!pendingRequest) {
+    return {
+      status: 400,
+      body: {
+        success: false,
+        code: 'INVALID',
+        message: 'No active gate pass found for this student. Student must generate a pass from dashboard.',
+      },
+    };
   }
 
   // Fetch student and active log concurrently (survives midnight & multi-day absence)
   const [student, activeLog] = await Promise.all([
     User.findById(payload.student_id)
-      .select('name rollNo email phone parentPhone hostel studentPhoto picture')
+      .select('name rollNo email phone parentPhone hostel studentPhoto picture isActive')
       .lean(),
     InOutLog.findOne({
       student_id: payload.student_id,
@@ -295,14 +230,17 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
   ]);
 
   if (!student) {
-    return { status: 404, body: { success: false, message: 'Student not found' } };
+    return { status: 404, body: { success: false, code: 'INVALID', message: 'Student not found' } };
+  }
+  if (student.isActive === false) {
+    return { status: 403, body: { success: false, code: 'REVOKED', message: 'Student account has been deactivated / revoked' } };
   }
 
   const guardName = req.user?.name || req.user?.rollNo || req.user?.email || 'Security Guard';
   const effectiveStudentPhoto = student.studentPhoto || student.picture || '';
 
   const now = new Date();
-  const scanType = pendingRequest.scanType;
+  const scanType = pendingRequest.scanType || payload.scan_type || (activeLog ? 'IN' : 'OUT');
 
   if (scanType === 'OUT') {
     if (activeLog) {
@@ -311,6 +249,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
         status: 409,
         body: {
           success: false,
+          code: 'ALREADY_OUT',
           message: scanTooSoon
             ? `Exit just recorded. 30s cooldown active — wait ${scanTooSoon}s before scanning back IN.`
             : 'Student is already marked OUT',
@@ -344,70 +283,74 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       });
     } catch (err) {
       if (err?.code === 11000) {
-    return {
-      status: 200,
-      body: {
-        success: true,
-        message: 'Student already marked as OUT',
-        kind: 'inout_request',
-        guardInCharge: guardName,
-        scannedByName: guardName,
-        student: {
-          name: student.name,
-          rollNumber: student.rollNo,
-          hostel: student.hostel,
-          studentPhone: student.phone || null,
-          parentPhone: student.parentPhone || null,
-          picture: effectiveStudentPhoto || null,
-        },
-        log: { status: 'OUT', timestamp: now, place: pendingRequest.place || '', reason: pendingRequest.reason || '' },
-        scanDuration: Date.now() - scanStart,
-      },
-    };
+        const dupResponse = {
+          success: true,
+          code: 'VALID',
+          message: 'Student already marked as OUT',
+          kind: 'inout_request',
+          guardInCharge: guardName,
+          scannedByName: guardName,
+          student: {
+            id: String(student._id || payload.student_id),
+            name: student.name,
+            rollNumber: student.rollNo,
+            hostel: student.hostel,
+            studentPhone: student.phone || null,
+            parentPhone: student.parentPhone || null,
+            picture: effectiveStudentPhoto || null,
+          },
+          log: { status: 'OUT', timestamp: now, place: pendingRequest.place || '', reason: pendingRequest.reason || '' },
+          scanDuration: Date.now() - scanStart,
+        };
+        if (payload.jti) await cacheScanIdempotentResult(payload.jti, dupResponse);
+        return { status: 200, body: dupResponse };
       }
       throw err;
     }
 
-    await recordPassOut(token, req.user._id, guardName).catch(() => {});
-    await movePendingRequestToReturn(pendingRequest);
+    await recordPassOut(payload.pass_id || payload.master_token || token, req.user._id, guardName).catch(() => {});
+    await movePendingRequestToReturn(pendingRequest).catch(() => {});
 
-    return {
-      status: 200,
-      body: {
-        success: true,
-        message: 'Student marked as OUT',
-        kind: 'inout_request',
-        guardInCharge: guardName,
-        scannedByName: guardName,
-        student: {
-          id: String(student._id || payload.student_id),
-          name: student.name,
-          rollNumber: student.rollNo,
-          hostel: student.hostel,
-          studentPhone: student.phone || null,
-          parentPhone: student.parentPhone || null,
-          picture: effectiveStudentPhoto || null,
-        },
-        log: {
-          status: 'OUT',
-          timestamp: log.timestamp,
-          out_time: log.out_time,
-          in_time: log.in_time,
-          returned: log.returned,
-          place: log.place || '',
-          reason: log.reason || '',
-        },
-        scanDuration: Date.now() - scanStart,
+    const responseBody = {
+      success: true,
+      code: 'VALID',
+      message: 'Student marked as OUT',
+      kind: 'inout_request',
+      guardInCharge: guardName,
+      scannedByName: guardName,
+      student: {
+        id: String(student._id || payload.student_id),
+        name: student.name,
+        rollNumber: student.rollNo,
+        hostel: student.hostel,
+        studentPhone: student.phone || null,
+        parentPhone: student.parentPhone || null,
+        picture: effectiveStudentPhoto || null,
       },
+      log: {
+        status: 'OUT',
+        timestamp: log.timestamp,
+        out_time: log.out_time,
+        in_time: log.in_time,
+        returned: log.returned,
+        place: log.place || '',
+        reason: log.reason || '',
+      },
+      scanDuration: Date.now() - scanStart,
     };
+
+    if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
+    return { status: 200, body: responseBody };
   }
 
+  // ── IN scan ──
   const scanTooSoonIn = getPhaseGuardSecondsLeft(activeLog?.out_time || activeLog?.timestamp);
   if (scanTooSoonIn) {
     return {
       status: 409,
       body: {
         success: false,
+        code: 'COOLDOWN',
         message: `Exit was just recorded. 30s cooldown active — wait ${scanTooSoonIn}s before scanning back IN.`,
         cooldownSecondsLeft: scanTooSoonIn,
       },
@@ -443,22 +386,21 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       .lean();
 
     if (alreadyIn) {
-      const studentDoc = student;
-    return {
-      status: 200,
-      body: {
+      const alreadyInResponse = {
         success: true,
+        code: 'VALID',
         message: 'Student already marked as IN',
         kind: 'inout_request',
         guardInCharge: guardName,
         scannedByName: guardName,
         student: {
-          id: String(studentDoc._id || payload.student_id),
-          name: studentDoc.name,
-          rollNumber: studentDoc.rollNo,
-          hostel: studentDoc.hostel,
-          studentPhone: studentDoc.phone || null,
-          parentPhone: studentDoc.parentPhone || null,
+          id: String(student._id || payload.student_id),
+          name: student.name,
+          rollNumber: student.rollNo,
+          hostel: student.hostel,
+          studentPhone: student.phone || null,
+          parentPhone: student.parentPhone || null,
+          picture: effectiveStudentPhoto || null,
         },
         log: {
           status: 'IN',
@@ -470,57 +412,70 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
           reason: alreadyIn.reason || '',
         },
         scanDuration: Date.now() - scanStart,
-      },
-    };
+      };
+      if (payload.jti) await cacheScanIdempotentResult(payload.jti, alreadyInResponse);
+      return { status: 200, body: alreadyInResponse };
     }
 
-    return { status: 400, body: { success: false, message: 'No active OUT record found for this student' } };
+    return { status: 400, body: { success: false, code: 'INVALID', message: 'No active OUT record found for this student' } };
   }
 
-  await recordPassIn(token, req.user._id, guardName).catch(() => {});
-  await removePendingInOutRequest(payload.student_id);
+  await recordPassIn(payload.pass_id || payload.master_token || token, req.user._id, guardName).catch(() => {});
+  await removePendingInOutRequest(payload.student_id).catch(() => {});
 
-  return {
-    status: 200,
-    body: {
-      success: true,
-      message: 'Student marked as IN',
-      kind: 'inout_request',
-      guardInCharge: guardName,
-      scannedByName: guardName,
-      student: {
-        id: String(student._id || payload.student_id),
-        name: student.name,
-        rollNumber: student.rollNo,
-        hostel: student.hostel,
-        studentPhone: student.phone || null,
-        parentPhone: student.parentPhone || null,
-        picture: effectiveStudentPhoto || null,
-      },
-      log: {
-        status: 'IN',
-        timestamp: log.timestamp,
-        out_time: log.out_time,
-        in_time: log.in_time,
-        returned: log.returned,
-        place: log.place || '',
-        reason: log.reason || '',
-      },
-      scanDuration: Date.now() - scanStart,
+  const responseBody = {
+    success: true,
+    code: 'VALID',
+    message: 'Student marked as IN',
+    kind: 'inout_request',
+    guardInCharge: guardName,
+    scannedByName: guardName,
+    student: {
+      id: String(student._id || payload.student_id),
+      name: student.name,
+      rollNumber: student.rollNo,
+      hostel: student.hostel,
+      studentPhone: student.phone || null,
+      parentPhone: student.parentPhone || null,
+      picture: effectiveStudentPhoto || null,
     },
+    log: {
+      status: 'IN',
+      timestamp: log.timestamp,
+      out_time: log.out_time,
+      in_time: log.in_time,
+      returned: log.returned,
+      place: log.place || '',
+      reason: log.reason || '',
+    },
+    scanDuration: Date.now() - scanStart,
   };
+
+  if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
+  return { status: 200, body: responseBody };
 };
 
 const handleHomeVisitScan = async (token, payload, req, scanStart) => {
-  const visitId = payload.visit_id;
+  const visitId = payload.visit_id || payload.pass_id;
   const now = new Date();
 
-  const existing = await HomeVisitLog.findById(visitId).populate('student_id');
+  let existing = null;
+  if (visitId && mongoose.isValidObjectId(visitId)) {
+    existing = await HomeVisitLog.findById(visitId).populate('student_id');
+  }
+  if (!existing && payload.student_id) {
+    existing = await HomeVisitLog.findOne({
+      student_id: payload.student_id,
+      overall_status: 'approved',
+      qr_used_in: false,
+    }).populate('student_id');
+  }
+
   if (!existing || existing.overall_status !== 'approved') {
-    return { status: 400, body: { success: false, message: 'Visit not found or not approved' } };
+    return { status: 400, body: { success: false, code: 'INVALID', message: 'Visit not found or not approved' } };
   }
   if (existing.qr_used_in) {
-    return { status: 400, body: { success: false, message: 'QR code already fully used' } };
+    return { status: 400, body: { success: false, code: 'ALREADY_USED', message: 'QR code already fully used' } };
   }
 
   if (existing.qr_used_out && !existing.qr_used_in) {
@@ -530,6 +485,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
         status: 409,
         body: {
           success: false,
+          code: 'COOLDOWN',
           message: `HOME OUT was just recorded. 30s cooldown active — wait ${scanTooSoonIn}s before scanning HOME IN.`,
           cooldownSecondsLeft: scanTooSoonIn,
         },
@@ -542,7 +498,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
 
   let visit = await HomeVisitLog.findOneAndUpdate(
     {
-      _id: visitId,
+      _id: existing._id,
       overall_status: 'approved',
       qr_used_out: false,
     },
@@ -568,32 +524,33 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
       { $set: { status: 'OUTSIDE', out_time: now, scanned_by_out: req.user._id, scanned_by_name: guardName } }
     ).catch(() => {});
 
-    return {
-      status: 200,
-      body: {
-        success: true,
-        message: 'Marked as HOME OUT',
-        kind: 'home_visit',
-        guardInCharge: guardName,
-        scannedByName: guardName,
-        student: {
-          id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
-          name: student?.name || visit.name,
-          rollNumber: student?.rollNo || visit.rollNo,
-          hostel: student?.hostel || 'N/A',
-          studentPhone: student?.phone || null,
-          parentPhone: student?.parentPhone || null,
-          picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
-        },
-        log: { status: 'HOME OUT', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
-        scanDuration: Date.now() - scanStart,
+    const responseBody = {
+      success: true,
+      code: 'VALID',
+      message: 'Marked as HOME OUT',
+      kind: 'home_visit',
+      guardInCharge: guardName,
+      scannedByName: guardName,
+      student: {
+        id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
+        name: student?.name || visit.name,
+        rollNumber: student?.rollNo || visit.rollNo,
+        hostel: student?.hostel || 'N/A',
+        studentPhone: student?.phone || null,
+        parentPhone: student?.parentPhone || null,
+        picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
       },
+      log: { status: 'HOME OUT', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
+      scanDuration: Date.now() - scanStart,
     };
+
+    if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
+    return { status: 200, body: responseBody };
   }
 
   visit = await HomeVisitLog.findOneAndUpdate(
     {
-      _id: visitId,
+      _id: existing._id,
       overall_status: 'approved',
       qr_used_out: true,
       qr_used_in: false,
@@ -621,39 +578,40 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
       { $set: { status: 'COMPLETED', in_time: now, completed_at: now, scanned_by_in: req.user._id, scanned_by_name: guardName } }
     ).catch(() => {});
 
-    return {
-      status: 200,
-      body: {
-        success: true,
-        message: 'Marked as HOME IN',
-        kind: 'home_visit',
-        guardInCharge: guardName,
-        scannedByName: guardName,
-        student: {
-          id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
-          name: student?.name || visit.name,
-          rollNumber: student?.rollNo || visit.rollNo,
-          hostel: student?.hostel || 'N/A',
-          studentPhone: student?.phone || null,
-          parentPhone: student?.parentPhone || null,
-          picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
-        },
-        log: { status: 'HOME IN', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
-        scanDuration: Date.now() - scanStart,
+    const responseBody = {
+      success: true,
+      code: 'VALID',
+      message: 'Marked as HOME IN',
+      kind: 'home_visit',
+      guardInCharge: guardName,
+      scannedByName: guardName,
+      student: {
+        id: String(student?._id || existing.student_id?._id || existing.student_id || payload.student_id),
+        name: student?.name || visit.name,
+        rollNumber: student?.rollNo || visit.rollNo,
+        hostel: student?.hostel || 'N/A',
+        studentPhone: student?.phone || null,
+        parentPhone: student?.parentPhone || null,
+        picture: student?.studentPhoto || (student?.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || visit.student_photo || student?.picture || null,
       },
+      log: { status: 'HOME IN', timestamp: now, place: visit.place || '', reason: visit.reason || '' },
+      scanDuration: Date.now() - scanStart,
     };
+
+    if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
+    return { status: 200, body: responseBody };
   }
 
   if (existing.qr_used_out && !existing.qr_used_in) {
     return {
       status: 400,
-      body: { success: false, message: 'Could not record HOME IN — try again' },
+      body: { success: false, code: 'INVALID', message: 'Could not record HOME IN — try again' },
     };
   }
 
   return {
     status: 400,
-    body: { success: false, message: 'Scan HOME OUT first before HOME IN' },
+    body: { success: false, code: 'INVALID', message: 'Scan HOME OUT first before HOME IN' },
   };
 };
 
@@ -661,18 +619,53 @@ router.post('/scan', async (req, res) => {
   const scanStart = Date.now();
   try {
     const rawToken = req.body.token;
-    if (!rawToken) return res.status(400).json({ success: false, message: 'Token required' });
+    if (!rawToken) return res.status(400).json({ success: false, code: 'INVALID', message: 'Token required' });
 
     const token = normalizeScannedToken(rawToken);
-    if (!token) return res.status(400).json({ success: false, message: 'Token required' });
+    if (!token) return res.status(400).json({ success: false, code: 'INVALID', message: 'Token required' });
 
     const result = await withScanLock(token, async () => {
       const resolved = await resolveScanPayload(token);
       if (resolved.error) {
-        return { status: 400, body: { success: false, message: resolved.error } };
+        return {
+          status: 400,
+          body: {
+            success: false,
+            code: resolved.code || 'INVALID',
+            message: resolved.error,
+          },
+        };
       }
 
       const { payload } = resolved;
+
+      // Anti-replay check via atomic single-use nonce (jti)
+      if (payload.jti) {
+        const consumeCheck = await consumeDynamicTokenAtomic(payload.jti, payload);
+        if (consumeCheck.status === 'IDEMPOTENT_REPLAY') {
+          return { status: 200, body: consumeCheck.cachedResult };
+        }
+        if (consumeCheck.status === 'ALREADY_USED') {
+          return {
+            status: 409,
+            body: {
+              success: false,
+              code: 'ALREADY_USED',
+              message: consumeCheck.error || 'QR code already scanned. Replay rejected.',
+            },
+          };
+        }
+      }
+
+      // Verify student identity & account state
+      const studentId = payload.sub || payload.student_id;
+      const student = await User.findById(studentId).lean();
+      if (!student) {
+        return { status: 404, body: { success: false, code: 'INVALID', message: 'Student not found' } };
+      }
+      if (student.isActive === false) {
+        return { status: 403, body: { success: false, code: 'REVOKED', message: 'Student account has been deactivated / revoked' } };
+      }
 
       if (payload.type === 'inout_request' || payload.type === 'inout') {
         return handleInOutScan(token, payload, req, scanStart, resolved.pendingRequest);
@@ -682,13 +675,13 @@ router.post('/scan', async (req, res) => {
         return handleHomeVisitScan(token, payload, req, scanStart);
       }
 
-      return { status: 400, body: { success: false, message: 'Unsupported QR type' } };
+      return { status: 400, body: { success: false, code: 'INVALID', message: 'Unsupported QR type' } };
     });
 
     if (result.status === 200 || result.body?.success) {
       invalidateLogsCache().catch(() => {});
       try {
-        const studentId = result.body?.student?.id || payload?.student_id || result.body?.student?._id;
+        const studentId = result.body?.student?.id || result.body?.student?._id;
         const hostel = result.body?.student?.hostel || 'ALL';
         broadcastScanResult(result.body, studentId, hostel);
       } catch (err) {}
@@ -697,10 +690,13 @@ router.post('/scan', async (req, res) => {
     return res.status(result.status).json(result.body);
   } catch (error) {
     if (error.statusCode === 409) {
-      return res.status(409).json({ success: false, message: error.message });
+      return res.status(409).json({ success: false, code: 'ALREADY_USED', message: error.message });
+    }
+    if (error.statusCode === 503) {
+      return res.status(503).json({ success: false, code: 'SERVICE_UNAVAILABLE', message: error.message });
     }
     console.error('Unified scan error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, code: 'SERVER_ERROR', message: error.message });
   }
 });
 
