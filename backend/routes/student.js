@@ -320,7 +320,7 @@ router.get('/active-qr-pass', async (req, res) => {
     return res.json({
       success: true,
       hasActivePass: false,
-      message: 'No active gate pass found. Please generate a QR code to go out.',
+      message: 'No valid gate pass currently. Please generate a pass to go out.',
     });
   } catch (err) {
     console.error('active-qr-pass error:', err);
@@ -424,7 +424,7 @@ router.post('/get-or-create-pass', async (req, res) => {
     res.json({
       success: true,
       hasActivePass: false,
-      message: 'No active gate pass found. Please generate a QR code to go out.',
+      message: 'No valid gate pass currently. Please generate a pass to go out.',
     });
   } catch (err) {
     console.error('get-or-create-pass error:', err);

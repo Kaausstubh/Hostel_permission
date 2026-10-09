@@ -524,6 +524,7 @@ export default function StudentDashboard() {
   const [scanAlertModal, setScanAlertModal] = useState(null);
   const [showGenerateQrModal, setShowGenerateQrModal] = useState(false);
   const [customDestInput, setCustomDestInput] = useState('');
+  const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
   const [qrCountdown, setQrCountdown] = useState(15);
   const [isRotatingQr, setIsRotatingQr] = useState(false);
@@ -1990,7 +1991,11 @@ export default function StudentDashboard() {
       if (s?.pendingVisits?.length > 0) {
         toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
       } else {
-        toast('No active QR code. Please generate a QR code to go out.', { icon: 'ℹ️' });
+        toast('No valid pass currently. Please generate a pass.', {
+          icon: 'ℹ️',
+          duration: 4000,
+          id: 'no-valid-pass',
+        });
       }
 
       // No active pass found -> Pop up the "Generate New QR" modal
@@ -3679,6 +3684,40 @@ export default function StudentDashboard() {
               >
                 <MdClose size={20} />
               </button>
+            </div>
+
+            {/* Prominent No Valid Pass Alert Banner */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: theme === 'light' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.12)',
+                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)',
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1, marginTop: 1 }}>⚠️</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: theme === 'light' ? '#b91c1c' : '#fca5a5',
+                  letterSpacing: '0.01em',
+                }}>
+                  No valid pass currently
+                </span>
+                <span style={{
+                  fontSize: 12,
+                  color: theme === 'light' ? '#7f1d1d' : '#fecaca',
+                  lineHeight: 1.4,
+                  opacity: 0.95,
+                }}>
+                  Please select your destination below to generate a new gate pass. Daily passes are valid for 15 minutes.
+                </span>
+              </div>
             </div>
 
             <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
