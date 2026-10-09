@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema(
     // ── Role & Status ─────────────────────────────────────────────────────────
     role: {
       type: String,
-      enum: ['student', 'hostel_staff', 'security', 'admin'],
+      enum: ['student', 'warden', 'hostel_staff', 'security', 'admin'],
       default: 'student',
     },
     isActive: {
@@ -76,9 +76,9 @@ const userSchema = new mongoose.Schema(
       default: undefined,
     },
     hostel: {
-      // Applicable to students: BH1 | BH2 | GH
+      // Applicable to students: BH1 | BH2 | GH1 | GH2 (and legacy GH)
       type: String,
-      enum: ['BH1', 'BH2', 'GH', null],
+      enum: ['BH1', 'BH2', 'GH', 'GH1', 'GH2', null],
       default: null,
     },
     roomNo: {

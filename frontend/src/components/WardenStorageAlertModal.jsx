@@ -25,7 +25,7 @@ export default function WardenStorageAlertModal() {
   const [modalOpen, setModalOpen] = useState(false);
   const [forcePreview, setForcePreview] = useState(false);
 
-  const isWarden = ['warden', 'admin'].includes(user?.role);
+  const isWarden = ['warden', 'hostel_staff', 'admin'].includes(user?.role);
 
   const checkStorage = async (force = false) => {
     if (!isWarden) return;

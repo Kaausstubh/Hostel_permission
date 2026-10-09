@@ -526,6 +526,28 @@ export default function StudentDashboard() {
   const [customDestInput, setCustomDestInput] = useState('');
   const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
+  const [qrCountdown, setQrCountdown] = useState(15);
+  const [isRotatingQr, setIsRotatingQr] = useState(false);
+
+  // ── Pending Visitor Pass Approvals (Real-time Gate Visitor Popup) ──────────
+  const [pendingVisitorRequests, setPendingVisitorRequests] = useState([]);
+  const [activeVisitorModal, setActiveVisitorModal] = useState(null);
+  const [visitorActionLoading, setVisitorActionLoading] = useState(false);
+  const [visitorRemarks, setVisitorRemarks] = useState('');
+  const [visitorResponseResult, setVisitorResponseResult] = useState(null);
+
+  const fetchPendingVisitorRequests = useCallback(async () => {
+    try {
+      const res = await api.get('/visitors/my-pending');
+      if (res.data?.success && Array.isArray(res.data.pendingRequests)) {
+        setPendingVisitorRequests(res.data.pendingRequests);
+        if (res.data.pendingRequests.length > 0) {
+          setActiveVisitorModal((curr) => curr || res.data.pendingRequests[0]);
+        }
+      }
+    } catch (_) {}
+  }, []);
+
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
   const isPollingRef = useRef(false);
@@ -553,6 +575,82 @@ export default function StudentDashboard() {
       window.removeEventListener('heimdall-portal-backgrounded', handleHidePass);
     };
   }, []);
+
+  // ── Dynamic Anti-Replay QR Rotation Effect ────────────────────────────────
+  // Automatically rotates tokens every 15s with a fresh short-lived (20s) token
+  // while the QR Pass screen is open, preventing unauthorized screenshot sharing.
+  useEffect(() => {
+    if (!zoomedQR) return;
+
+    let countdown = 15;
+    setQrCountdown(15);
+
+    const refreshPass = async () => {
+      try {
+        setIsRotatingQr(true);
+        const res = await api.get('/student/active-qr-pass');
+        if (res.data?.success && res.data?.hasActivePass && res.data?.qrDataUrl) {
+          const freshDataUrl = res.data.qrDataUrl;
+          const freshToken = res.data.token;
+          setZoomedQR((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              dataUrl: freshDataUrl,
+              qrDataUrl: freshDataUrl,
+              qrToken: freshToken,
+              token: freshToken,
+            };
+          });
+          setActivePasses((prevList) =>
+            prevList.map((p) => {
+              if (
+                p.passKind === res.data.passKind ||
+                p.id === res.data.passKind ||
+                (res.data.passKind === 'inout' && (!p.passKind || p.passKind === 'inout'))
+              ) {
+                return {
+                  ...p,
+                  qrDataUrl: freshDataUrl,
+                  qrToken: freshToken,
+                  token: freshToken,
+                };
+              }
+              return p;
+            })
+          );
+        } else if (res.data?.success && !res.data?.hasActivePass) {
+          // Pass expired after 15 minutes!
+          setZoomedQR(null);
+          setActivePasses([]);
+          toast.error(res.data.message || 'Daily gate pass expired (valid for 15 minutes). Please generate a QR code to go out.', {
+            duration: 6000,
+            id: 'pass-expired-toast',
+          });
+          setShowGenerateQrModal(true);
+          checkActivePassSilently();
+        }
+      } catch (err) {
+        // Silent background refresh
+      } finally {
+        setIsRotatingQr(false);
+        countdown = 15;
+        setQrCountdown(15);
+      }
+    };
+
+    const interval = setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) {
+        countdown = 15;
+        refreshPass();
+      } else {
+        setQrCountdown(countdown);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [zoomedQR ? (zoomedQR.id || zoomedQR.passKind || 'active') : null]);
 
   // Complaint photo states
   const [complaintPhoto, setComplaintPhoto] = useState(null);
@@ -670,6 +768,51 @@ export default function StudentDashboard() {
     const id = ++msgIdRef.current;
     push(makeMsg(id, BOT, '', 'qr', meta));
   }, [push]);
+
+  const handleVisitorResponse = useCallback(async (action) => {
+    if (!activeVisitorModal || visitorActionLoading) return;
+    setVisitorActionLoading(true);
+    try {
+      const res = await api.post(`/visitors/${activeVisitorModal._id}/student-response`, {
+        action,
+        remarks: visitorRemarks,
+      });
+      if (res.data?.success) {
+        const vName = activeVisitorModal.name || 'Visitor';
+        const pNum = activeVisitorModal.passNumber || '';
+        playScanChime();
+
+        if (action === 'APPROVE') {
+          toast.success(`Entry approved for ${vName}! Gate security has been notified.`);
+          botSay(`✅ You *APPROVED* the visitor pass for *${vName}* ${pNum ? `(#${pNum})` : ''}. Gate security has been notified and entry is allowed.`);
+        } else {
+          toast.error(`Visitor request for ${vName} declined.`);
+          botSay(`🚫 You *DECLINED* the visitor pass for *${vName}*. Gate security has been notified.`);
+        }
+
+        setVisitorResponseResult({
+          action,
+          name: vName,
+          passNumber: pNum,
+        });
+
+        setTimeout(() => {
+          const resolvedId = activeVisitorModal._id;
+          setPendingVisitorRequests((prev) => {
+            const remaining = prev.filter((p) => p._id !== resolvedId);
+            setActiveVisitorModal(remaining.length > 0 ? remaining[0] : null);
+            return remaining;
+          });
+          setVisitorResponseResult(null);
+          setVisitorRemarks('');
+        }, 1800);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to submit response');
+    } finally {
+      setVisitorActionLoading(false);
+    }
+  }, [activeVisitorModal, visitorActionLoading, visitorRemarks, botSay]);
 
   const isMainMenuMessage = (m) =>
     m?.type === 'buttons' && m.content?.includes('What would you like to do today?');
@@ -1692,6 +1835,30 @@ export default function StudentDashboard() {
       socket.on('scan_verified', (data) => {
         handleInstantScanEvent(data);
       });
+
+      socket.on('visitor:request', (data) => {
+        const req = data?.visitor || data;
+        if (!req) return;
+        playScanChime();
+        setPendingVisitorRequests((prev) => {
+          if (prev.some((p) => p._id === req._id)) return prev;
+          return [req, ...prev];
+        });
+        setActiveVisitorModal(req);
+        toast('Visitor at gate waiting for your approval!', {
+          icon: '🔔',
+          id: `vis-req-${req._id}`,
+          duration: 7000,
+        });
+      });
+
+      socket.on('visitor:resolved', (data) => {
+        const resId = data?.visitor?._id || data?.visitorId;
+        if (resId) {
+          setPendingVisitorRequests((prev) => prev.filter((p) => p._id !== resId));
+          setActiveVisitorModal((curr) => (curr?._id === resId ? null : curr));
+        }
+      });
     } catch (err) {
       console.warn('[Socket] Connection failed:', err);
     }
@@ -1708,11 +1875,32 @@ export default function StudentDashboard() {
         } catch (_) {}
       });
 
+      eventSource.addEventListener('visitor_request', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const req = data?.visitor || data;
+          if (!req) return;
+          playScanChime();
+          setPendingVisitorRequests((prev) => {
+            if (prev.some((p) => p._id === req._id)) return prev;
+            return [req, ...prev];
+          });
+          setActiveVisitorModal(req);
+        } catch (_) {}
+      });
+
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
           if (data && (data.kind || data.log)) {
             handleInstantScanEvent(data);
+          } else if (data && data.visitor) {
+            playScanChime();
+            setPendingVisitorRequests((prev) => {
+              if (prev.some((p) => p._id === data.visitor._id)) return prev;
+              return [data.visitor, ...prev];
+            });
+            setActiveVisitorModal(data.visitor);
           }
         } catch (_) {}
       };
@@ -1723,6 +1911,8 @@ export default function StudentDashboard() {
     return () => {
       if (socket) {
         socket.off('scan_verified');
+        socket.off('visitor:request');
+        socket.off('visitor:resolved');
         socket.disconnect();
       }
       if (eventSource) {
@@ -1734,16 +1924,19 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!user) return;
     checkActivePassSilently();
+    fetchPendingVisitorRequests();
     // ⚡ Performance: Poll every 25s as silent fallback, pause when tab is hidden
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         checkActivePassSilently();
+        fetchPendingVisitorRequests();
       }
     }, 25000);
 
     const handleVisibilityChange = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
         checkActivePassSilently();
+        fetchPendingVisitorRequests();
       }
     };
     if (typeof document !== 'undefined') {
@@ -1756,7 +1949,7 @@ export default function StudentDashboard() {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [user, checkActivePassSilently]);
+  }, [user, checkActivePassSilently, fetchPendingVisitorRequests]);
 
   const handleQuickViewQR = async () => {
     setQrQuickLoading(true);
@@ -1797,6 +1990,12 @@ export default function StudentDashboard() {
 
       if (s?.pendingVisits?.length > 0) {
         toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
+      } else {
+        toast('No valid pass currently. Please generate a pass.', {
+          icon: 'ℹ️',
+          duration: 4000,
+          id: 'no-valid-pass',
+        });
       }
 
       // No active pass found -> Pop up the "Generate New QR" modal
@@ -1836,6 +2035,8 @@ export default function StudentDashboard() {
         } else {
           statusMsg += `\nStatus: QR active for return scan`;
         }
+      } else if (!s.approvedVisits || s.approvedVisits.length === 0) {
+        statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate QR Pass* below to create a 15-minute gate pass.`;
       }
 
       if (s.pendingVisits?.length > 0) {
@@ -2618,6 +2819,32 @@ export default function StudentDashboard() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {/* Pending Visitor Notification Button */}
+                {pendingVisitorRequests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+                    style={{
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      color: '#000',
+                      border: 'none',
+                      fontWeight: 800,
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      cursor: 'pointer',
+                      boxShadow: '0 0 12px rgba(245, 158, 11, 0.45)',
+                    }}
+                    title="Visitor waiting at gate for approval"
+                  >
+                    <span>🔔</span>
+                    <span>Visitor ({pendingVisitorRequests.length})</span>
+                  </button>
+                )}
+
                 {/* View Status / Active QR Pass Button */}
                 <button
                   onClick={handleQuickViewQR}
@@ -2770,6 +2997,32 @@ export default function StudentDashboard() {
               </div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+              {/* Pending Visitor Notification Button */}
+              {pendingVisitorRequests.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#000',
+                    border: 'none',
+                    fontWeight: 800,
+                    padding: '8px 14px',
+                    fontSize: 12.5,
+                    borderRadius: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                    boxShadow: '0 0 16px rgba(245, 158, 11, 0.45)',
+                  }}
+                  title="Visitor waiting at gate for approval"
+                >
+                  <span style={{ fontSize: 14 }}>🔔</span>
+                  <span>Visitor Waiting ({pendingVisitorRequests.length})</span>
+                </button>
+              )}
+
               {/* View Status / Active QR Pass Button */}
               <button
                 onClick={handleQuickViewQR}
@@ -2833,6 +3086,36 @@ export default function StudentDashboard() {
                 🎓 Student
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Pending Visitor Top Alert Strip */}
+        {pendingVisitorRequests.length > 0 && !activeVisitorModal && (
+          <div
+            onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+            style={{
+              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.16))',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.4)',
+              padding: '9px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              fontSize: 13,
+              color: '#fbbf24',
+              fontWeight: 600,
+              zIndex: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🔔</span>
+              <span>
+                Visitor <strong>{pendingVisitorRequests[0].name}</strong> is waiting at the gate to meet you.
+              </span>
+            </div>
+            <span style={{ textDecoration: 'underline', fontSize: 12, fontWeight: 700 }}>
+              Tap to Approve / Reject →
+            </span>
           </div>
         )}
 
@@ -3127,35 +3410,95 @@ export default function StudentDashboard() {
               <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
             </div>
 
-            {/* QR image */}
-            <div style={{
-              background: '#ffffff',
-              padding: 16,
-              borderRadius: 16,
-              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              userSelect: 'none',
-              WebkitTouchCallout: 'none',
-            }}>
-              <img
-                src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
-                alt="Gate Pass QR"
-                onContextMenu={(e) => e.preventDefault()}
-                style={{
-                  width: isMobile ? 220 : 280,
-                  height: isMobile ? 220 : 280,
-                  borderRadius: 0,
-                  display: 'block',
-                  imageRendering: 'pixelated',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                  WebkitUserDrag: 'none',
-                }}
-              />
-            </div>
+            {/* Dynamic Anti-Screenshot Rotating Badge & Pass Validity */}
+            {(() => {
+              const isHomeVisit = zoomedQR.passKind === 'home_visit' || String(zoomedQR.tabLabel || '').toLowerCase().includes('home');
+              return (
+                <>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 16px',
+                      borderRadius: 999,
+                      background: theme === 'light'
+                        ? (isHomeVisit ? '#eff6ff' : '#f0fdf4')
+                        : (isHomeVisit ? 'rgba(59, 130, 246, 0.16)' : 'rgba(99, 102, 241, 0.14)'),
+                      border: theme === 'light'
+                        ? (isHomeVisit ? '1px solid #bfdbfe' : '1px solid #bbf7d0')
+                        : (isHomeVisit ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(99, 102, 241, 0.35)'),
+                      color: theme === 'light'
+                        ? (isHomeVisit ? '#1d4ed8' : '#15803d')
+                        : (isHomeVisit ? '#93c5fd' : '#a5b4fc'),
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        animation: isRotatingQr ? 'spin 0.8s linear infinite' : 'none',
+                        fontSize: 14,
+                      }}
+                    >
+                      🔄
+                    </span>
+                    <span>
+                      {isRotatingQr
+                        ? 'Refreshing secure token…'
+                        : isHomeVisit
+                        ? `Approved Home Visit • Rotating in ${qrCountdown}s`
+                        : `Daily Pass (Valid 15 Mins) • Rotating in ${qrCountdown}s`}
+                    </span>
+                  </div>
+
+                  {/* QR image */}
+                  <div style={{
+                    background: '#ffffff',
+                    padding: 16,
+                    borderRadius: 16,
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    userSelect: 'none',
+                    WebkitTouchCallout: 'none',
+                  }}>
+                    <img
+                      src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
+                      alt="Gate Pass QR"
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{
+                        width: isMobile ? 220 : 280,
+                        height: isMobile ? 220 : 280,
+                        borderRadius: 0,
+                        display: 'block',
+                        imageRendering: 'pixelated',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                        WebkitUserDrag: 'none',
+                      }}
+                    />
+                  </div>
+
+                  {/* Security limitation notice */}
+                  <div style={{
+                    fontSize: 11,
+                    color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.55)',
+                    textAlign: 'center',
+                    maxWidth: 320,
+                    lineHeight: 1.35,
+                  }}>
+                    {isHomeVisit
+                      ? '🏡 One-time generated pass for approved home visit. Dynamic token refreshes every 20s. Screenshots are rejected.'
+                      : '🔒 Daily pass is valid for 15 minutes. Dynamic token refreshes every 20s. Present this live screen directly to the security guard.'}
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Directional instruction banner at downside */}
             <div
@@ -3341,6 +3684,40 @@ export default function StudentDashboard() {
               >
                 <MdClose size={20} />
               </button>
+            </div>
+
+            {/* Prominent No Valid Pass Alert Banner */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                padding: '12px 14px',
+                borderRadius: 14,
+                background: theme === 'light' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.12)',
+                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                boxShadow: '0 2px 8px rgba(239, 68, 68, 0.08)',
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1, marginTop: 1 }}>⚠️</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: theme === 'light' ? '#b91c1c' : '#fca5a5',
+                  letterSpacing: '0.01em',
+                }}>
+                  No valid pass currently
+                </span>
+                <span style={{
+                  fontSize: 12,
+                  color: theme === 'light' ? '#7f1d1d' : '#fecaca',
+                  lineHeight: 1.4,
+                  opacity: 0.95,
+                }}>
+                  Please select your destination below to generate a new gate pass. Daily passes are valid for 15 minutes.
+                </span>
+              </div>
             </div>
 
             <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
@@ -3850,6 +4227,405 @@ export default function StudentDashboard() {
             >
               Acknowledge & Continue
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Visitor Approval Modal */}
+      {activeVisitorModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10001,
+            backgroundColor: theme === 'light' ? 'rgba(15, 23, 42, 0.65)' : 'rgba(2, 6, 23, 0.85)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            animation: 'fadeInModal 0.22s ease-out',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !visitorActionLoading && !visitorResponseResult) {
+              setActiveVisitorModal(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 480,
+              backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
+              backgroundImage: theme === 'light'
+                ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+                : 'linear-gradient(160deg, #1e293b 0%, #0f172a 100%)',
+              border: theme === 'light'
+                ? '1.5px solid #cbd5e1'
+                : '1.5px solid rgba(245, 158, 11, 0.45)',
+              borderRadius: 24,
+              boxShadow: theme === 'light'
+                ? '0 25px 60px -12px rgba(15, 23, 42, 0.25), 0 0 25px rgba(245, 158, 11, 0.15)'
+                : '0 25px 60px -12px rgba(0, 0, 0, 0.75), 0 0 35px rgba(245, 158, 11, 0.22)',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '92vh',
+            }}
+          >
+            {/* Ambient accent header */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 4,
+                background: 'linear-gradient(90deg, #f59e0b, #ef4444, #10b981)',
+              }}
+            />
+
+            {/* In-Modal Confirmation State */}
+            {visitorResponseResult ? (
+              <div style={{ padding: '42px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 68,
+                    height: 68,
+                    borderRadius: '50%',
+                    background: visitorResponseResult.action === 'APPROVE'
+                      ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.2)')
+                      : (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.2)'),
+                    border: visitorResponseResult.action === 'APPROVE'
+                      ? '2.5px solid #10b981'
+                      : '2.5px solid #ef4444',
+                    color: visitorResponseResult.action === 'APPROVE' ? '#059669' : '#dc2626',
+                    fontSize: 34,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 900,
+                    boxShadow: visitorResponseResult.action === 'APPROVE'
+                      ? '0 0 25px rgba(16, 185, 129, 0.4)'
+                      : '0 0 25px rgba(239, 68, 68, 0.4)',
+                  }}
+                >
+                  {visitorResponseResult.action === 'APPROVE' ? '✓' : '✕'}
+                </div>
+                <h3 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff' }}>
+                  {visitorResponseResult.action === 'APPROVE' ? 'Entry Approved!' : 'Visitor Request Declined'}
+                </h3>
+                <p style={{ margin: 0, fontSize: 14, color: theme === 'light' ? '#475569' : '#cbd5e1', maxWidth: 360, lineHeight: 1.5 }}>
+                  {visitorResponseResult.action === 'APPROVE'
+                    ? `You allowed entry for ${visitorResponseResult.name}. Gate Security has been notified in real time.`
+                    : `You declined entry for ${visitorResponseResult.name}. Gate Security will not permit entry.`}
+                </p>
+                {visitorResponseResult.passNumber && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: theme === 'light' ? '#475569' : '#94a3b8',
+                      backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
+                      padding: '4px 10px',
+                      borderRadius: 8,
+                    }}
+                  >
+                    Pass #{visitorResponseResult.passNumber}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Header */}
+                <div style={{ padding: '20px 22px 14px', borderBottom: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          background: theme === 'light' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.2)',
+                          color: '#f59e0b',
+                          fontSize: 14,
+                        }}
+                      >
+                        ⚡
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          color: theme === 'light' ? '#b45309' : '#fbbf24',
+                        }}
+                      >
+                        Visitor Approval Request
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {activeVisitorModal.passNumber && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: theme === 'light' ? '#475569' : '#94a3b8',
+                            backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.06)',
+                            padding: '3px 8px',
+                            borderRadius: 8,
+                            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
+                          }}
+                        >
+                          Pass #{activeVisitorModal.passNumber}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setActiveVisitorModal(null)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: theme === 'light' ? '#64748b' : '#94a3b8',
+                          fontSize: 18,
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                          borderRadius: 6,
+                          lineHeight: 1,
+                        }}
+                        title="Close / Review Later"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <h3 style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff' }}>
+                    Someone is waiting at the gate for you
+                  </h3>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: theme === 'light' ? '#475569' : '#cbd5e1' }}>
+                    Main Gate Security has registered a visitor wishing to meet you. Please verify and take action:
+                  </p>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '16px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Visitor Highlight Card */}
+                  <div
+                    style={{
+                      background: theme === 'light' ? '#f8fafc' : 'rgba(30, 41, 59, 0.75)',
+                      border: theme === 'light' ? '1.5px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: 16,
+                      padding: 16,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Visitor Name
+                        </div>
+                        <div style={{ fontSize: 19, fontWeight: 900, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          👤 {activeVisitorModal.name}
+                        </div>
+                      </div>
+                      {activeVisitorModal.phone && (
+                        <a
+                          href={`tel:${activeVisitorModal.phone}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 12px',
+                            borderRadius: 10,
+                            backgroundColor: theme === 'light' ? '#eff6ff' : 'rgba(59, 130, 246, 0.15)',
+                            border: theme === 'light' ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.3)',
+                            color: theme === 'light' ? '#1d4ed8' : '#60a5fa',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          📞 Call {activeVisitorModal.phone}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Key metadata grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 10, borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.06)' }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Total Headcount
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          👥 {activeVisitorModal.visitorCount || activeVisitorModal.headcount || 1} Person(s)
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Vehicle Details
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          🚗 {activeVisitorModal.vehicleNumber || 'On Foot / None'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Hostel & Gate
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          🏢 {activeVisitorModal.studentHostel || activeVisitorModal.hostel || 'Hostel'} • {activeVisitorModal.entryGate || 'Main Gate'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: theme === 'light' ? '#475569' : '#94a3b8', textTransform: 'uppercase' }}>
+                          Arrival Time
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff', marginTop: 2 }}>
+                          ⏱️ {(() => {
+                            const t = activeVisitorModal.entryTime || activeVisitorModal.createdAt;
+                            if (!t) return 'Just now';
+                            try {
+                              const d = new Date(t);
+                              return isNaN(d.getTime()) ? String(t) : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                            } catch {
+                              return 'Just now';
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(activeVisitorModal.remarks || activeVisitorModal.purposeDetails) && (
+                      <div style={{ paddingTop: 8, borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.06)', fontSize: 12, color: theme === 'light' ? '#334155' : '#cbd5e1' }}>
+                        <strong style={{ color: theme === 'light' ? '#0f172a' : '#ffffff' }}>Note from Gate: </strong>
+                        {activeVisitorModal.remarks || activeVisitorModal.purposeDetails}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remarks/Response Note Input */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#f8fafc', marginBottom: 6 }}>
+                      Optional Note / Instructions for Security Guard
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Ask them to wait at the reception / Meeting in common room"
+                      value={visitorRemarks}
+                      onChange={(e) => setVisitorRemarks(e.target.value)}
+                      disabled={visitorActionLoading}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: 12,
+                        border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(255, 255, 255, 0.2)',
+                        backgroundColor: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.75)',
+                        color: theme === 'light' ? '#0f172a' : '#ffffff',
+                        fontSize: 13,
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Multiple requests indicator if any */}
+                  {pendingVisitorRequests.length > 1 && (
+                    <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, textAlign: 'center' }}>
+                      📌 You have {pendingVisitorRequests.length} pending visitor requests.
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Action Buttons */}
+                <div
+                  style={{
+                    padding: '14px 22px 20px',
+                    borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 12,
+                  }}
+                >
+                  <button
+                    type="button"
+                    disabled={visitorActionLoading}
+                    onClick={() => handleVisitorResponse('REJECT')}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: theme === 'light' ? '1.5px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)',
+                      background: theme === 'light' ? '#fef2f2' : 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.3) 100%)',
+                      color: theme === 'light' ? '#dc2626' : '#fca5a5',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(0.95)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1)';
+                      }
+                    }}
+                  >
+                    ✕ Decline Entry
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={visitorActionLoading}
+                    onClick={() => handleVisitorResponse('APPROVE')}
+                    style={{
+                      padding: '13px 16px',
+                      borderRadius: 14,
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#ffffff',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: visitorActionLoading ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 18px rgba(16, 185, 129, 0.45)',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1.1)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!visitorActionLoading) {
+                        e.currentTarget.style.filter = 'brightness(1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }
+                    }}
+                  >
+                    {visitorActionLoading ? 'Processing...' : '✓ Allow Entry'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

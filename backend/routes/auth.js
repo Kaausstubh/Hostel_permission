@@ -96,7 +96,7 @@ const buildErrorRedirect = (baseUrl, errorCode, message) => {
 // We store the portal in the session before redirecting to Google.
 router.get('/google', (req, res, next) => {
   const portal = req.query.portal;
-  const validPortals = ['student', 'warden', 'security'];
+  const validPortals = ['student', 'warden', 'hostel_staff', 'security'];
 
   if (!portal || !validPortals.includes(portal)) {
     return res.status(400).json({
@@ -179,10 +179,10 @@ router.get(
         // ── Ensure role is set correctly for the portal ─────────────────────
         const expectedRole = portalToRole(portal);
         if (user.role !== expectedRole) {
-          // For warden/security: auto-correct the role if their email passes
+          // For warden/hostel_staff/security: auto-correct the role if their email passes
           // portal access validation (e.g. user was accidentally created as
           // 'student' during testing but is a valid warden/security account).
-          if (portal === 'warden' || portal === 'security') {
+          if (portal === 'warden' || portal === 'hostel_staff' || portal === 'security') {
             logger.info('[Auth] Auto-correcting role to match portal', {
               email,
               oldRole: user.role,

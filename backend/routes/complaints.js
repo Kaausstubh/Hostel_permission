@@ -30,8 +30,8 @@ router.post('/file', protect, authorize('student'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Complaint description or photo is required' });
     }
 
-    if (!['BH1', 'BH2', 'GH'].includes(hostel)) {
-      return res.status(400).json({ success: false, message: 'Hostel must be BH1, BH2, or GH' });
+    if (!['BH1', 'BH2', 'GH', 'GH1', 'GH2'].includes(hostel)) {
+      return res.status(400).json({ success: false, message: 'Hostel must be BH1, BH2, GH1, or GH2' });
     }
 
     const allowedTypes = ['electricity', 'wifi', 'washing_machine', 'carpenter', 'plumber', 'others'];
@@ -133,7 +133,10 @@ router.get('/all', protect, authorize('warden'), async (req, res) => {
     const { hostel, status } = req.query;
     const { page, limit, skip } = getPagination(req.query, 25, 100);
     const filter = {};
-    if (hostel) filter.hostel = hostel;
+    if (hostel) {
+      const hUpper = hostel.toUpperCase();
+      filter.hostel = (hUpper === 'GH1' || hUpper === 'GH') ? { $in: ['GH1', 'GH'] } : hUpper;
+    }
     if (status) filter.status = status;
 
     const cacheKey = `complaints:all:${hostel || 'all'}:${status || 'all'}:${page}:${limit}`;

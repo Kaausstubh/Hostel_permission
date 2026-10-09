@@ -22,6 +22,8 @@ import {
 } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { getHostelLabel } from '../utils/hostel';
+import { resolveBackendOrigin } from '../services/backendUrl';
+import io from 'socket.io-client';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const READY_STATUS = 'Camera ready — hold QR in view';
@@ -169,6 +171,51 @@ export default function SecurityDashboard() {
       // Audio not supported — silent fallback
     }
   }, []);
+
+  // Real-time visitor pass alerts at security gate (audio chime + toast)
+  useEffect(() => {
+    let socket;
+    try {
+      const backendOrigin = resolveBackendOrigin();
+      socket = io(`${backendOrigin}/scanner`, {
+        transports: ['websocket', 'polling'],
+        auth: { token: localStorage.getItem('token') },
+      });
+
+      socket.on('visitor:new', (data) => {
+        if (data?.action === 'request') {
+          toast(`🔔 Visitor pass created for ${data?.visitor?.name || 'Visitor'} — awaiting student response`, {
+            id: 'sec-vis-req',
+            duration: 4500,
+          });
+        }
+      });
+
+      socket.on('visitor:student_response', (data) => {
+        const sName = data?.studentName || 'Student';
+        const vName = data?.visitor?.name || 'Visitor';
+        if (data?.action === 'APPROVE') {
+          playTone('success');
+          toast.success(`🟢 ${sName} APPROVED ${vName}'s visitor pass! Entry permitted.`, {
+            id: `sec-vis-${data?.visitor?._id}`,
+            duration: 6500,
+          });
+        } else {
+          playTone('error');
+          toast.error(`🔴 ${sName} REJECTED ${vName}'s visitor pass. Do NOT allow entry.`, {
+            id: `sec-vis-${data?.visitor?._id}`,
+            duration: 6500,
+          });
+        }
+      });
+    } catch (e) {
+      console.warn('[SecurityDashboard] Socket connection error:', e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [playTone]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -812,9 +859,10 @@ export default function SecurityDashboard() {
       const data = res.data;
       setResult({
         success: true,
+        code: data.code || 'VALID',
         student: data.student,
-        status: data.log.status,
-        timestamp: data.log.timestamp || new Date().toISOString(),
+        status: data.log?.status,
+        timestamp: data.log?.timestamp || new Date().toISOString(),
         message: data.message,
         scanDuration: data.scanDuration,
         scannedByName: data.scannedByName || data.guardInCharge,
@@ -826,23 +874,34 @@ export default function SecurityDashboard() {
       toast.success(data.message, { duration: 2500 });
       feedbackTone = 'success';
       setScanTone('success');
-      setScannerStatus('✓ Success — remove QR and show next pass');
+      setScannerStatus('✓ Pass verified — check student photo & allow passage');
       setManualToken('');
       setSelectedQR(null);
       fetchPendingQRs();
     } catch (err) {
-      const msg = err.response?.data?.message || 'Scan failed';
+      const errData = err.response?.data || {};
+      const msg = errData.message || 'Scan failed';
+      const code = errData.code || (err.response?.status === 409 ? 'ALREADY_USED' : 'INVALID');
       if (err.response?.status !== 409) {
         markRecentScan(normalized, false);
       }
       blockTokenUntilItLeavesFrame(normalized);
-      setResult({ success: false, message: msg });
+      setResult({
+        success: false,
+        code,
+        message: msg,
+        student: errData.student || null,
+      });
       playTone('error');
       try { navigator.vibrate?.([120, 60, 120]); } catch {}
       feedbackTone = 'error';
       setScanTone('error');
       setScannerStatus(msg);
-      if (err.response?.status === 409) {
+      if (code === 'EXPIRED') {
+        toast.error(`⚠️ EXPIRED PASS: Stored screenshot older than 20s rejected.`, { duration: 5000, id: 'scan-expired-alert' });
+      } else if (code === 'ALREADY_USED') {
+        toast.error(`🛑 REPLAY DETECTED: This QR token was already used.`, { duration: 5000, id: 'scan-replay-alert' });
+      } else if (err.response?.status === 409) {
         toast.error(`⏳ ${msg}`, { duration: 4500, id: 'scan-cooldown-alert' });
       } else {
         toast.error(msg, { duration: 3000 });
@@ -1265,333 +1324,443 @@ export default function SecurityDashboard() {
             )}
 
             {/* ── Scan Result ── */}
-            {result && !loading && (
-              <div
-                className="card"
-                style={{
-                  animation: 'resultSlideUp 0.35s cubic-bezier(0.22,1,0.36,1) both',
-                  border: result.success
-                    ? '1px solid rgba(16,185,129,0.35)'
-                    : '1px solid rgba(239,68,68,0.35)',
-                  background: result.success
-                    ? 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.03) 100%)'
-                    : 'linear-gradient(135deg, rgba(239,68,68,0.09) 0%, rgba(239,68,68,0.03) 100%)',
-                  boxShadow: result.success
-                    ? '0 0 32px rgba(16,185,129,0.12), 0 4px 24px rgba(0,0,0,0.3)'
-                    : '0 0 32px rgba(239,68,68,0.12), 0 4px 24px rgba(0,0,0,0.3)',
-                  padding: '28px 24px',
-                  overflow: 'hidden',
-                  position: 'relative',
-                }}
-              >
-                {/* Ambient glow orb */}
-                <div style={{
-                  position: 'absolute', top: -40, right: -40,
-                  width: 120, height: 120, borderRadius: '50%',
-                  background: result.success
-                    ? 'radial-gradient(circle, rgba(16,185,129,0.18), transparent 70%)'
-                    : 'radial-gradient(circle, rgba(239,68,68,0.18), transparent 70%)',
-                  pointerEvents: 'none',
-                }} />
+            {result && !loading && (() => {
+              const code = result.code || (result.success ? 'VALID' : 'INVALID');
+              const isSuccess = result.success;
+              const isExpired = code === 'EXPIRED' || (!isSuccess && result.message?.toLowerCase().includes('expired'));
+              const isAlreadyUsed = code === 'ALREADY_USED' || (!isSuccess && result.message?.toLowerCase().includes('already'));
+              const isRevoked = code === 'REVOKED' || (!isSuccess && result.message?.toLowerCase().includes('deactivated'));
 
-                {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, position: 'relative' }}>
-                  {/* Animated icon ring */}
-                  <div style={{
+              const themeColor = isSuccess
+                ? '#10b981'
+                : isExpired
+                ? '#f59e0b'
+                : isAlreadyUsed
+                ? '#f43f5e'
+                : '#ef4444';
+
+              const cardBorder = isSuccess
+                ? '1px solid rgba(16,185,129,0.4)'
+                : isExpired
+                ? '1px solid rgba(245,158,11,0.45)'
+                : isAlreadyUsed
+                ? '1px solid rgba(244,63,94,0.45)'
+                : '1px solid rgba(239,68,68,0.45)';
+
+              const cardBg = isSuccess
+                ? 'linear-gradient(135deg, rgba(16,185,129,0.09) 0%, rgba(16,185,129,0.03) 100%)'
+                : isExpired
+                ? 'linear-gradient(135deg, rgba(245,158,11,0.11) 0%, rgba(245,158,11,0.03) 100%)'
+                : isAlreadyUsed
+                ? 'linear-gradient(135deg, rgba(244,63,94,0.11) 0%, rgba(244,63,94,0.03) 100%)'
+                : 'linear-gradient(135deg, rgba(239,68,68,0.11) 0%, rgba(239,68,68,0.03) 100%)';
+
+              const statusBadgeText = isSuccess
+                ? 'VALID'
+                : isExpired
+                ? 'EXPIRED'
+                : isAlreadyUsed
+                ? 'ALREADY USED'
+                : isRevoked
+                ? 'REVOKED'
+                : 'INVALID';
+
+              const headerTitle = isSuccess
+                ? 'Gate Access Authorized'
+                : isExpired
+                ? 'Pass Expired (> 20s Lifetime)'
+                : isAlreadyUsed
+                ? 'Replay Detected — Token Already Used'
+                : isRevoked
+                ? 'Account Revoked / Deactivated'
+                : 'Access Denied — Invalid Token';
+
+              return (
+                <div
+                  className="card"
+                  style={{
+                    animation: 'resultSlideUp 0.35s cubic-bezier(0.22,1,0.36,1) both',
+                    border: cardBorder,
+                    background: cardBg,
+                    boxShadow: `0 0 32px ${themeColor}22, 0 4px 24px rgba(0,0,0,0.3)`,
+                    padding: '28px 24px',
+                    overflow: 'hidden',
                     position: 'relative',
-                    flexShrink: 0,
-                    width: 64, height: 64,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
+                  }}
+                >
+                  {/* Ambient glow orb */}
+                  <div style={{
+                    position: 'absolute', top: -40, right: -40,
+                    width: 130, height: 130, borderRadius: '50%',
+                    background: `radial-gradient(circle, ${themeColor}2a, transparent 70%)`,
+                    pointerEvents: 'none',
+                  }} />
+
+                  {/* Header row with Status Badge */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, position: 'relative' }}>
+                    {/* Animated icon ring */}
                     <div style={{
-                      position: 'absolute', inset: 0,
-                      borderRadius: '50%',
-                      background: result.success
-                        ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      animation: 'iconRingPulse 2s ease-in-out infinite',
-                    }} />
-                    <div style={{
-                      width: 54, height: 54,
-                      borderRadius: '50%',
-                      background: result.success
-                        ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)',
+                      position: 'relative',
+                      flexShrink: 0,
+                      width: 64, height: 64,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 28,
                     }}>
-                      {result.success ? '✓' : '✕'}
-                    </div>
-                  </div>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontWeight: 800,
-                      fontSize: 20,
-                      letterSpacing: '-0.3px',
-                      color: result.success ? '#10b981' : '#ef4444',
-                      lineHeight: 1.2,
-                    }}>
-                      {result.success ? 'Gate Access Granted' : 'Access Denied'}
-                    </div>
-                    <div style={{
-                      fontSize: 13,
-                      color: 'var(--text-muted)',
-                      marginTop: 4,
-                      lineHeight: 1.4,
-                    }}>
-                      {result.message}
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── SUCCESS ── */}
-                {result.success && result.student && (() => {
-                  const status = result.status || '';
-                  const isHome = status.startsWith('HOME');
-                  const isIN = status === 'IN' || status === 'HOME IN';
-                  const isHomeOut = status === 'HOME OUT';
-                  const bannerLabel = isHome
-                    ? (isHomeOut ? 'HOME VISIT — DEPARTURE' : 'HOME VISIT — RETURN')
-                    : (isIN ? 'ENTRY — CHECKED IN' : 'EXIT — CHECKED OUT');
-                  const bannerEmoji = isHome ? (isHomeOut ? '🏠' : '🏡') : (isIN ? '🚪' : '🔓');
-                  const initials = (result.student.name || '?')
-                    .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-                  return (
-                    <>
-                      {/* Status Banner */}
                       <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 12,
-                        padding: '14px 20px',
-                        borderRadius: 'var(--radius-lg)',
-                        marginBottom: 20,
-                        background: isIN
-                          ? 'linear-gradient(90deg, rgba(16,185,129,0.22), rgba(16,185,129,0.08))'
-                          : 'linear-gradient(90deg, rgba(99,102,241,0.22), rgba(99,102,241,0.08))',
-                        border: isIN
-                          ? '1px solid rgba(16,185,129,0.3)'
-                          : '1px solid rgba(99,102,241,0.3)',
-                        boxShadow: isIN
-                          ? '0 0 20px rgba(16,185,129,0.10)'
-                          : '0 0 20px rgba(99,102,241,0.10)',
+                        position: 'absolute', inset: 0,
+                        borderRadius: '50%',
+                        background: `${themeColor}26`,
+                        animation: 'iconRingPulse 2s ease-in-out infinite',
+                      }} />
+                      <div style={{
+                        width: 54, height: 54,
+                        borderRadius: '50%',
+                        background: `${themeColor}38`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 26,
+                        color: themeColor,
+                        fontWeight: 900,
                       }}>
-                        <span style={{ fontSize: 26 }}>{bannerEmoji}</span>
-                        <div>
-                          <div style={{
-                            fontWeight: 800, fontSize: 17,
-                            color: isIN ? '#10b981' : 'var(--primary-light)',
-                            letterSpacing: '-0.2px',
-                          }}>
-                            {bannerLabel}
-                          </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <MdAccessTime size={14} color="var(--primary-light)" />
-                            <span>
-                              Scanned at: <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                                {new Date(result.timestamp || Date.now()).toLocaleTimeString('en-IN', {
-                                  timeZone: 'Asia/Kolkata',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                  hour12: false,
-                                })} IST
-                              </strong> &nbsp;({new Date(result.timestamp || Date.now()).toLocaleDateString('en-IN', {
-                                timeZone: 'Asia/Kolkata',
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric',
-                              })})
-                            </span>
-                          </div>
-                        </div>
+                        {isSuccess ? '✓' : isExpired ? '⏳' : isAlreadyUsed ? '🛑' : '✕'}
                       </div>
+                    </div>
 
-                      {/* Student Card */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 14,
-                        padding: '16px',
-                        borderRadius: 'var(--radius-lg)',
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        marginBottom: 16,
-                      }}>
-                        {/* Avatar / Student Photo */}
-                        {result.student.picture ? (
-                          <img
-                            src={result.student.picture}
-                            alt={result.student.name}
-                            style={{
-                              width: 56,
-                              height: 56,
-                              borderRadius: '50%',
-                              objectFit: 'cover',
-                              flexShrink: 0,
-                              border: isIN ? '2.5px solid #10b981' : '2.5px solid #6366f1',
-                              boxShadow: isIN
-                                ? '0 0 16px rgba(16,185,129,0.35)'
-                                : '0 0 16px rgba(99,102,241,0.35)',
-                            }}
-                          />
-                        ) : (
-                          <div style={{
-                            width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-                            background: isIN
-                              ? 'linear-gradient(135deg, #10b981, #059669)'
-                              : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontWeight: 800, fontSize: 17, color: '#fff',
-                            boxShadow: isIN
-                              ? '0 4px 12px rgba(16,185,129,0.35)'
-                              : '0 4px 12px rgba(99,102,241,0.35)',
-                          }}>
-                            {initials}
-                          </div>
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-                            {result.student.name}
-                          </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {result.student.rollNumber || '—'} &nbsp;•&nbsp; {getHostelLabel(result.student.hostel)}
-                          </div>
-                          {/* Phone numbers — visible for quick gate verification */}
-                          {(result.student.studentPhone || result.student.parentPhone) && (
-                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {result.student.studentPhone && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  <span>📞</span>
-                                  <span style={{ fontWeight: 600 }}>{result.student.studentPhone}</span>
-                                  <span style={{ color: 'var(--text-muted)' }}>student</span>
-                                </div>
-                              )}
-                              {result.student.parentPhone && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  <span>👨‍👩‍👦</span>
-                                  <span style={{ fontWeight: 600 }}>{result.student.parentPhone}</span>
-                                  <span style={{ color: 'var(--text-muted)' }}>parent</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {result.log && (result.log.place || result.log.reason) && (
-                            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
-                              {result.log.place && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <span>📍</span> <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{result.log.place}</span>
-                                </div>
-                              )}
-                              {result.log.reason && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <span>📝</span> <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{result.log.reason}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{
-                          fontSize: 11, fontWeight: 700,
-                          padding: '3px 10px', borderRadius: 99,
-                          background: isIN ? 'rgba(16,185,129,0.18)' : 'rgba(99,102,241,0.18)',
-                          color: isIN ? '#10b981' : 'var(--primary-light)',
-                          border: isIN ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(99,102,241,0.35)',
-                          letterSpacing: '0.5px',
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          fontSize: 11,
+                          fontWeight: 900,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          padding: '3px 10px',
+                          borderRadius: 999,
+                          background: `${themeColor}22`,
+                          color: themeColor,
+                          border: `1px solid ${themeColor}55`,
                         }}>
-                          {isHome ? (isHomeOut ? 'HOME OUT' : 'HOME IN') : (isIN ? 'IN' : 'OUT')}
-                        </div>
-                      </div>
-
-                      {/* Guard in-charge signature / verification badge */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontSize: 12,
-                        padding: '8px 12px',
-                        background: 'rgba(255,255,255,0.04)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        marginTop: 10,
-                        marginBottom: 10,
-                      }}>
-                        <span style={{ color: 'var(--text-muted)' }}>Verified By (Guard In-Charge):</span>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {result.scannedByName || result.guardInCharge || user?.name || user?.rollNo || 'Security Guard'}
+                          ● {statusBadgeText}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          Anti-Replay Verification
                         </span>
                       </div>
+                      <div style={{
+                        fontWeight: 800,
+                        fontSize: 19,
+                        letterSpacing: '-0.3px',
+                        color: themeColor,
+                        lineHeight: 1.25,
+                      }}>
+                        {headerTitle}
+                      </div>
+                      <div style={{
+                        fontSize: 13,
+                        color: 'var(--text-muted)',
+                        marginTop: 4,
+                        lineHeight: 1.4,
+                      }}>
+                        {result.message}
+                      </div>
+                    </div>
+                  </div>
 
-                      {/* Scan Again + duration badge */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                        <button
-                          className="btn btn-ghost"
-                          onClick={dismissResult}
-                          style={{ flex: 1, justifyContent: 'center', fontSize: 13 }}
-                        >
-                          <MdQrCodeScanner size={15} /> Scan Next Student
-                        </button>
-                        {result.scanDuration != null && (
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 99,
-                            background: result.scanDuration < 300
-                              ? 'rgba(16,185,129,0.15)' : result.scanDuration < 600
-                              ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                            color: result.scanDuration < 300
-                              ? '#10b981' : result.scanDuration < 600
-                              ? '#f59e0b' : '#ef4444',
-                            border: result.scanDuration < 300
-                              ? '1px solid rgba(16,185,129,0.3)' : result.scanDuration < 600
-                              ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(239,68,68,0.3)',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
+                  {/* ── SUCCESS: IDENTITY VERIFICATION & STUDENT DETAILS ── */}
+                  {isSuccess && result.student && (() => {
+                    const status = result.status || '';
+                    const isHome = status.startsWith('HOME');
+                    const isIN = status === 'IN' || status === 'HOME IN';
+                    const isHomeOut = status === 'HOME OUT';
+                    const bannerLabel = isHome
+                      ? (isHomeOut ? 'HOME VISIT — DEPARTURE' : 'HOME VISIT — RETURN')
+                      : (isIN ? 'ENTRY — CHECKED IN' : 'EXIT — CHECKED OUT');
+                    const bannerEmoji = isHome ? (isHomeOut ? '🏠' : '🏡') : (isIN ? '🚪' : '🔓');
+                    const initials = (result.student.name || '?')
+                      .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+
+                    return (
+                      <>
+                        {/* ⚠️ HIGH-VISIBILITY MANDATORY PHOTO COMPARISON PROMPT */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 12,
+                          padding: '12px 16px',
+                          borderRadius: 'var(--radius-lg)',
+                          background: 'rgba(245, 158, 11, 0.12)',
+                          border: '1.5px solid rgba(245, 158, 11, 0.45)',
+                          marginBottom: 16,
+                          boxShadow: '0 4px 16px rgba(245, 158, 11, 0.1)',
+                        }}>
+                          <span style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>👤</span>
+                          <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#fef3c7' }}>
+                            <strong style={{ color: '#fbbf24', display: 'block', fontSize: 13, marginBottom: 2 }}>
+                              MANDATORY PHYSICAL IDENTITY VERIFICATION
+                            </strong>
+                            Guard must visually compare the person physically standing at the gate with the registered student photo and ID credentials below before granting passage.
+                          </div>
+                        </div>
+
+                        {/* Status Banner */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          padding: '12px 20px',
+                          borderRadius: 'var(--radius-lg)',
+                          marginBottom: 18,
+                          background: isIN
+                            ? 'linear-gradient(90deg, rgba(16,185,129,0.22), rgba(16,185,129,0.08))'
+                            : 'linear-gradient(90deg, rgba(99,102,241,0.22), rgba(99,102,241,0.08))',
+                          border: isIN
+                            ? '1px solid rgba(16,185,129,0.3)'
+                            : '1px solid rgba(99,102,241,0.3)',
+                          boxShadow: isIN
+                            ? '0 0 20px rgba(16,185,129,0.10)'
+                            : '0 0 20px rgba(99,102,241,0.10)',
+                        }}>
+                          <span style={{ fontSize: 24 }}>{bannerEmoji}</span>
+                          <div>
+                            <div style={{
+                              fontWeight: 800, fontSize: 16,
+                              color: isIN ? '#10b981' : 'var(--primary-light)',
+                              letterSpacing: '-0.2px',
+                            }}>
+                              {bannerLabel}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <MdAccessTime size={14} color="var(--primary-light)" />
+                              <span>
+                                Scanned at: <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                  {new Date(result.timestamp || Date.now()).toLocaleTimeString('en-IN', {
+                                    timeZone: 'Asia/Kolkata',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit',
+                                    hour12: false,
+                                  })} IST
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Prominent Registered Student Identity Card */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 16,
+                          padding: '18px',
+                          borderRadius: 'var(--radius-lg)',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          marginBottom: 16,
+                        }}>
+                          {/* Large Registered Student Photo */}
+                          {result.student.picture ? (
+                            <img
+                              src={result.student.picture}
+                              alt={result.student.name}
+                              style={{
+                                width: 76,
+                                height: 76,
+                                borderRadius: 14,
+                                objectFit: 'cover',
+                                flexShrink: 0,
+                                border: '3px solid #10b981',
+                                boxShadow: '0 0 20px rgba(16,185,129,0.4)',
+                              }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: 76, height: 76, borderRadius: 14, flexShrink: 0,
+                              background: 'linear-gradient(135deg, #10b981, #059669)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontWeight: 900, fontSize: 24, color: '#fff',
+                              boxShadow: '0 4px 16px rgba(16,185,129,0.35)',
+                              border: '3px solid rgba(255,255,255,0.2)',
+                            }}>
+                              {initials}
+                            </div>
+                          )}
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text-primary)', letterSpacing: '-0.2px' }}>
+                              {result.student.name}
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: 'var(--primary-light)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                ID: {result.student.rollNumber || 'N/A'}
+                              </span>
+                              <span>•</span>
+                              <span>{getHostelLabel(result.student.hostel)}</span>
+                            </div>
+
+                            {/* Contact Verification */}
+                            {(result.student.studentPhone || result.student.parentPhone) && (
+                              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {result.student.studentPhone && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    <span>📞</span>
+                                    <span style={{ fontWeight: 600 }}>{result.student.studentPhone}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>(student)</span>
+                                  </div>
+                                )}
+                                {result.student.parentPhone && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    <span>👨‍👩‍👦</span>
+                                    <span style={{ fontWeight: 600 }}>{result.student.parentPhone}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>(parent)</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {result.log && (result.log.place || result.log.reason) && (
+                              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+                                {result.log.place && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span>📍</span> <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{result.log.place}</span>
+                                  </div>
+                                )}
+                                {result.log.reason && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span>📝</span> <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{result.log.reason}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{
+                            fontSize: 11, fontWeight: 800,
+                            padding: '4px 12px', borderRadius: 99,
+                            background: isIN ? 'rgba(16,185,129,0.18)' : 'rgba(99,102,241,0.18)',
+                            color: isIN ? '#10b981' : 'var(--primary-light)',
+                            border: isIN ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(99,102,241,0.35)',
+                            letterSpacing: '0.5px',
+                            alignSelf: 'flex-start',
                           }}>
-                            {result.scanDuration}ms
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
+                            {isHome ? (isHomeOut ? 'HOME OUT' : 'HOME IN') : (isIN ? 'IN' : 'OUT')}
+                          </div>
+                        </div>
 
-                {/* ── FAILURE ── */}
-                {!result.success && (
-                  <>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      padding: '14px 16px',
-                      borderRadius: 'var(--radius-lg)',
-                      background: 'rgba(239,68,68,0.08)',
-                      border: '1px solid rgba(239,68,68,0.2)',
-                      marginBottom: 16,
-                    }}>
-                      <MdError size={20} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
-                      <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.5 }}>
-                        <strong style={{ color: '#ef4444' }}>Reason: </strong>
-                        {result.message || 'The QR code could not be validated. It may be expired, already used, or invalid.'}
+                        {/* Guard in-charge signature */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: 12,
+                          padding: '8px 12px',
+                          background: 'rgba(255,255,255,0.04)',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          marginBottom: 12,
+                        }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Verified By (Guard In-Charge):</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {result.scannedByName || result.guardInCharge || user?.name || user?.rollNo || 'Security Guard'}
+                          </span>
+                        </div>
+
+                        {/* Scan Next & Performance Duration */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                          <button
+                            className="btn btn-ghost"
+                            onClick={dismissResult}
+                            style={{ flex: 1, justifyContent: 'center', fontSize: 13 }}
+                          >
+                            <MdQrCodeScanner size={15} /> Scan Next Student
+                          </button>
+                          {result.scanDuration != null && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 99,
+                              background: result.scanDuration < 300
+                                ? 'rgba(16,185,129,0.15)' : result.scanDuration < 600
+                                ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: result.scanDuration < 300
+                                ? '#10b981' : result.scanDuration < 600
+                                ? '#f59e0b' : '#ef4444',
+                              border: result.scanDuration < 300
+                                ? '1px solid rgba(16,185,129,0.3)' : result.scanDuration < 600
+                                ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(239,68,68,0.3)',
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0,
+                            }}>
+                              {result.scanDuration}ms
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                  {/* ── FAILURE STATES (EXPIRED / ALREADY USED / INVALID) ── */}
+                  {!isSuccess && (
+                    <>
+                      {/* Detailed Reason Box */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 12,
+                        padding: '16px',
+                        borderRadius: 'var(--radius-lg)',
+                        background: `${themeColor}12`,
+                        border: `1px solid ${themeColor}35`,
+                        marginBottom: 16,
+                      }}>
+                        <span style={{ fontSize: 24, flexShrink: 0, marginTop: 1 }}>
+                          {isExpired ? '⏳' : isAlreadyUsed ? '🛑' : '⚠️'}
+                        </span>
+                        <div style={{ fontSize: 13, lineHeight: 1.5, color: '#f8fafc' }}>
+                          <strong style={{ color: themeColor, display: 'block', fontSize: 13.5, marginBottom: 4 }}>
+                            {isExpired
+                              ? 'Expired Token Rejection (> 20s Window)'
+                              : isAlreadyUsed
+                              ? 'Single-Use Token Already Consumed'
+                              : isRevoked
+                              ? 'Account Deactivated'
+                              : 'Security Verification Failed'}
+                          </strong>
+                          {result.message || 'QR code verification failed.'}
+                        </div>
                       </div>
-                    </div>
-                    <div style={{
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                      textAlign: 'center',
-                      padding: '4px 0 8px',
-                    }}>
-                      Ask the student to regenerate their QR from the student portal.
-                    </div>
-                    <button
-                      className="btn btn-ghost"
-                      onClick={dismissResult}
-                      style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}
-                    >
-                      <MdQrCodeScanner size={15} /> Try Again
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+
+                      {/* Explicit Guard Action Guidance */}
+                      <div style={{
+                        padding: '12px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        marginBottom: 16,
+                        fontSize: 12,
+                        color: 'var(--text-muted)',
+                        lineHeight: 1.45,
+                      }}>
+                        <strong style={{ color: 'var(--text-primary)' }}>Guard Instructions: </strong>
+                        {isExpired
+                          ? 'Instruct the student to unlock their personal phone, open their live Heimdall Student Dashboard, and present the live rotating pass directly. Stored screenshots older than 20 seconds are strictly rejected.'
+                          : isAlreadyUsed
+                          ? 'This QR pass has already been scanned at the gate. Check if someone previously scanned this pass or if an impersonation attempt is occurring.'
+                          : isRevoked
+                          ? 'Do not grant access. Direct the student to the hostel warden office to resolve account status.'
+                          : 'Instruct the student to generate a valid gate pass from their Heimdall dashboard.'}
+                      </div>
+
+                      <button
+                        className="btn btn-ghost"
+                        onClick={dismissResult}
+                        style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}
+                      >
+                        <MdQrCodeScanner size={15} /> Try Scanning Again
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── Idle / Ready ── */}
             {!result && !loading && (

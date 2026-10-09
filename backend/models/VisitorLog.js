@@ -92,7 +92,17 @@ const visitorLogSchema = new mongoose.Schema(
         message: 'Specific reason / details is required when purpose is "Other".',
       },
     },
+    student_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     studentName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    studentRollNo: {
       type: String,
       default: '',
       trim: true,
@@ -107,11 +117,25 @@ const visitorLogSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    studentApprovalStatus: {
+      type: String,
+      enum: ['NA', 'PENDING', 'APPROVED', 'REJECTED'],
+      default: 'NA',
+    },
+    studentApprovalTime: {
+      type: Date,
+      default: null,
+    },
+    studentApprovalRemarks: {
+      type: String,
+      default: '',
+      trim: true,
+    },
 
     // ── Gate Entry & Exit Status ──────────────────────────────────────────────
     status: {
       type: String,
-      enum: ['INSIDE', 'EXITED'],
+      enum: ['PENDING', 'INSIDE', 'EXITED', 'REJECTED'],
       default: 'INSIDE',
       required: true,
     },
@@ -168,6 +192,8 @@ visitorLogSchema.index({ date: -1, entryTime: -1 });
 visitorLogSchema.index({ phone: 1, entryTime: -1 });
 visitorLogSchema.index({ name: 1, entryTime: -1 });
 visitorLogSchema.index({ studentName: 1, entryTime: -1 });
+visitorLogSchema.index({ student_id: 1, studentApprovalStatus: 1 });
+visitorLogSchema.index({ studentApprovalStatus: 1, date: -1 });
 visitorLogSchema.index({ hasVehicle: 1, status: 1 });
 
 // ── Pre-save Hook ─────────────────────────────────────────────────────────────

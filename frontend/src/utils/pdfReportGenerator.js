@@ -142,7 +142,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'bold');
   doc.text('Hostel Scope / Filter:', 44, startY + 35);
   doc.setFont('helvetica', 'normal');
-  doc.text(String(metadata.hostelFilter || 'All Hostels (Brahmaputra BH1, Krishna BH2, Indrayani GH)'), 136, startY + 35);
+  doc.text(String(metadata.hostelFilter || 'All Hostels (Brahmaputra BH1, Krishna BH2, Indrayani GH1, Sindhu GH2)'), 136, startY + 35);
 
   // Center column (Issuing Authority)
   doc.setFont('helvetica', 'bold');
@@ -377,7 +377,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Hostel Staff Administration (Brahmaputra / Krishna / Indrayani), IIIT Pune', 310, lineY + 19);
+  doc.text('Hostel Staff Administration (Brahmaputra / Krishna / Indrayani / Sindhu), IIIT Pune', 310, lineY + 19);
 
   // Box 3: Hostel Administration
   doc.line(600, lineY, 780, lineY);
