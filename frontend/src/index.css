@@ -3149,27 +3149,6 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
    VISITOR ENTRY & EXIT ACCESS CONTROL STYLES
    ══════════════════════════════════════════════════════════════════════════════ */
 
-.live-clock-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-family: 'JetBrains Mono', monospace, sans-serif;
-  letter-spacing: -0.2px;
-}
-
-[data-theme='light'] .live-clock-badge {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-
 .visitor-profile {
   display: flex;
   align-items: center;
@@ -3460,38 +3439,6 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   display: block;
 }
 
-/* ── Custom Select Wrapper with explicit Dropdown Arrow ── */
-.select-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-
-.select-wrapper .form-select {
-  width: 100%;
-  padding-right: 36px;
-  cursor: pointer;
-}
-
-.select-arrow-icon {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-  color: var(--text-muted, #94a3b8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease, color 0.2s ease;
-}
-
-.select-wrapper:focus-within .select-arrow-icon {
-  color: var(--primary, #6366f1);
-  transform: translateY(-50%) rotate(180deg);
-}
-
 /* ── Visitor Controls and Filter Layout ── */
 .visitor-controls-header {
   display: flex;
@@ -3562,6 +3509,28 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   flex-wrap: wrap;
 }
 
+/* ── Table & Responsive Horizontal Scrolling ── */
+.table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 0 20px rgba(139,92,246,0.08);
+}
+
+.table-wrapper table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
 /* ── Mobile Responsiveness ── */
 @media (max-width: 768px) {
   .section-header {
@@ -3576,23 +3545,15 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
     width: 100%;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: stretch;
     gap: 8px;
-    flex-wrap: nowrap;
-  }
-
-  .live-clock-badge {
-    font-size: 12px;
-    padding: 7px 10px;
-    white-space: nowrap;
-    flex-shrink: 0;
   }
 
   #btn-add-visitor {
-    flex: 1;
+    width: 100%;
     justify-content: center;
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: 10px 14px;
+    font-size: 13.5px;
   }
 
   .visitor-controls-header {

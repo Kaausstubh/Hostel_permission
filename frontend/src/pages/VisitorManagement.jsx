@@ -20,7 +20,6 @@ import {
   MdClose,
   MdPhone,
   MdApartment,
-  MdKeyboardArrowDown,
 } from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
@@ -83,13 +82,6 @@ export default function VisitorManagement() {
   const [studentResults, setStudentResults] = useState([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-
-  // Live Clock (IST)
-  const [liveClock, setLiveClock] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setLiveClock(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Debounce search
   useEffect(() => {
@@ -400,10 +392,6 @@ export default function VisitorManagement() {
             </div>
           </div>
           <div className="section-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="live-clock-badge" title="Campus Gate Master Clock (Asia/Kolkata)">
-              <MdAccessTime size={16} />
-              <span>{liveClock.toLocaleTimeString('en-IN', { hour12: false })} IST</span>
-            </div>
             <button
               type="button"
               className="btn btn-primary"
@@ -589,8 +577,8 @@ export default function VisitorManagement() {
             </div>
 
             <div className="visitor-filter-secondary">
-              {/* Purpose Filter with Arrow Indicator */}
-              <div className="select-wrapper" style={{ flex: '1 1 170px', minWidth: 140 }}>
+              {/* Purpose Filter */}
+              <div style={{ flex: '1 1 170px', minWidth: 140 }}>
                 <select
                   className="form-select"
                   value={purposeFilter}
@@ -601,7 +589,6 @@ export default function VisitorManagement() {
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                <MdKeyboardArrowDown className="select-arrow-icon" size={18} />
               </div>
 
               {/* Vehicle Only Toggle */}
@@ -663,250 +650,225 @@ export default function VisitorManagement() {
             </div>
           ) : (
             <>
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: '40px' }}>#</th>
-                    <th>Visitor & Phone</th>
-                    <th style={{ textAlign: 'center' }}>Visitors</th>
-                    <th>Vehicle No</th>
-                    <th>Purpose & Host / Details</th>
-                    <th>Entry Time</th>
-                    <th>Exit / Status</th>
-                    <th style={{ textAlign: 'right' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visitors.map((log, idx) => {
-                    const isInside = log.status === 'INSIDE';
-                    return (
-                      <tr key={log._id || idx} style={{ background: isInside ? 'rgba(16, 185, 129, 0.03)' : undefined }}>
-                        <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                          {(page - 1) * 50 + idx + 1}
-                        </td>
+              {/* ── Horizontal Scrollable Table View ── */}
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                      <th>Visitor</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'center' }}>Count</th>
+                      <th>Vehicle</th>
+                      <th>Purpose</th>
+                      <th>Visiting / Details</th>
+                      <th>Date</th>
+                      <th>Entry Time</th>
+                      <th>Exit Time</th>
+                      <th style={{ textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visitors.map((log, idx) => {
+                      const isInside = log.status === 'INSIDE';
+                      return (
+                        <tr key={log._id || idx} style={{ background: isInside ? 'rgba(16, 185, 129, 0.03)' : undefined }}>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>
+                            {(page - 1) * 50 + idx + 1}
+                          </td>
 
-                        {/* Visitor Name & Phone */}
-                        <td>
-                          <div className="visitor-profile">
-                            <div className="user-avatar" style={{ width: 36, height: 36, fontSize: 14 }}>
-                              {log.name?.charAt(0).toUpperCase() || 'V'}
-                            </div>
-                            <div className="visitor-meta">
-                              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{log.name}</span>
-                              <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                                <MdPhone size={12} /> {log.phone}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Visitors Count Badge */}
-                        <td style={{ textAlign: 'center' }}>
-                          <span className={`badge ${log.visitorCount > 1 ? 'badge-progress' : 'badge-out'}`}>
-                            👥 {log.visitorCount || 1}
-                          </span>
-                        </td>
-
-                        {/* Vehicle Number Badge */}
-                        <td>
-                          {log.hasVehicle && log.vehicleNumber ? (
-                            <span className="vehicle-badge">
-                              <MdDirectionsCar size={13} />
-                              <span>{log.vehicleNumber}</span>
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>—</span>
-                          )}
-                        </td>
-
-                        {/* Purpose & Host Info */}
-                        <td>
-                          <div className="purpose-info" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{log.purpose}</span>
-                            {log.purpose === PURPOSE_STUDENT_REQUIRED && (
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <MdApartment size={13} color="#6366f1" />
-                                  <span>
-                                    <strong>{log.studentName}</strong>
-                                    {log.studentRollNo ? ` (${log.studentRollNo})` : ''} · {getHostelLabel(log.studentHostel)}, Rm {log.studentRoomNo || '—'}
-                                  </span>
+                          {/* Visitor Name & Phone */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: '50%',
+                                background: 'var(--primary)',
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                flexShrink: 0,
+                              }}>
+                                {log.name?.charAt(0).toUpperCase() || 'V'}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{log.name || 'Unknown'}</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <MdPhone size={12} /> {log.phone || '—'}
                                 </div>
-                                {/* Approval Badge */}
-                                {log.studentApprovalStatus === 'PENDING' && (
-                                  <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: '#f59e0b',
-                                    background: 'rgba(245, 158, 11, 0.1)',
-                                    padding: '2px 8px',
-                                    borderRadius: 6,
-                                    width: 'fit-content',
-                                  }}>
-                                    🟡 Awaiting Student Approval
-                                  </span>
-                                )}
-                                {log.studentApprovalStatus === 'APPROVED' && (
-                                  <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: '#10b981',
-                                    background: 'rgba(16, 185, 129, 0.1)',
-                                    padding: '2px 8px',
-                                    borderRadius: 6,
-                                    width: 'fit-content',
-                                  }}>
-                                    🟢 Approved by Student
-                                    {log.studentApprovalTime && ` (${new Date(log.studentApprovalTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})`}
-                                  </span>
-                                )}
-                                {log.studentApprovalStatus === 'REJECTED' && (
-                                  <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: '#ef4444',
-                                    background: 'rgba(239, 68, 68, 0.1)',
-                                    padding: '2px 8px',
-                                    borderRadius: 6,
-                                    width: 'fit-content',
-                                  }}>
-                                    🔴 Rejected by Student
-                                    {log.studentApprovalRemarks && ` (${log.studentApprovalRemarks})`}
-                                  </span>
-                                )}
                               </div>
-                            )}
-                            {log.purposeDetails && (
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                📝 {log.purposeDetails}
-                              </div>
-                            )}
-                          </div>
-                        </td>
+                            </div>
+                          </td>
 
-                        {/* Entry Time */}
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {log.entryTime
-                                ? new Date(log.entryTime).toLocaleTimeString('en-IN', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    hour12: false,
-                                  })
-                                : (log.status === 'PENDING' ? 'Awaiting…' : '—')}
+                          {/* Status */}
+                          <td>
+                            <span className={`badge ${
+                              log.status === 'INSIDE'
+                                ? 'badge-in'
+                                : log.status === 'PENDING'
+                                  ? 'badge-pending'
+                                  : log.status === 'REJECTED'
+                                    ? 'badge-rejected'
+                                    : 'badge-out'
+                            }`}>
+                              {log.status === 'INSIDE'
+                                ? '● INSIDE'
+                                : log.status === 'PENDING'
+                                  ? '⏳ PENDING'
+                                  : log.status === 'REJECTED'
+                                    ? '✕ REJECTED'
+                                    : '🚶 EXITED'}
                             </span>
-                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{log.date || '—'}</span>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Exit Time / Status */}
-                        <td>
-                          {log.status === 'PENDING' ? (
-                            <span className="badge badge-pending" style={{
-                              background: 'rgba(245, 158, 11, 0.15)',
-                              color: '#f59e0b',
-                              border: '1px solid rgba(245, 158, 11, 0.35)',
-                              fontWeight: 700,
-                            }}>
-                              ⏳ PENDING APPROVAL
+                          {/* Visitors Count Badge */}
+                          <td style={{ textAlign: 'center' }}>
+                            <span className={`badge ${log.visitorCount > 1 ? 'badge-progress' : 'badge-out'}`}>
+                              👥 {log.visitorCount || 1}
                             </span>
-                          ) : log.status === 'REJECTED' ? (
-                            <span className="badge badge-out" style={{
-                              background: 'rgba(239, 68, 68, 0.15)',
-                              color: '#ef4444',
-                              border: '1px solid rgba(239, 68, 68, 0.35)',
-                              fontWeight: 700,
-                            }}>
-                              ✕ REJECTED
-                            </span>
-                          ) : isInside ? (
-                            <span className="badge badge-in">
-                              ● INSIDE
-                            </span>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span className="badge badge-pending">EXITED</span>
-                              <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                                {log.exitTime
-                                  ? new Date(log.exitTime).toLocaleTimeString('en-IN', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      hour12: false,
-                                    })
-                                  : '—'}
+                          </td>
+
+                          {/* Vehicle Number Badge */}
+                          <td>
+                            {log.hasVehicle && log.vehicleNumber ? (
+                              <span className="vehicle-badge">
+                                <MdDirectionsCar size={13} />
+                                <span>{log.vehicleNumber}</span>
                               </span>
-                            </div>
-                          )}
-                        </td>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>—</span>
+                            )}
+                          </td>
 
-                        {/* Actions */}
-                        <td style={{ textAlign: 'right' }}>
-                          {log.status === 'PENDING' ? (
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          {/* Purpose */}
+                          <td>
+                            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+                              {log.purpose || '—'}
+                            </span>
+                          </td>
+
+                          {/* Visiting / Details */}
+                          <td>
+                            {log.purpose === PURPOSE_STUDENT_REQUIRED ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+                                  <strong>{log.studentName}</strong>
+                                  {log.studentRollNo && <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>({log.studentRollNo})</span>}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                  <span className="badge badge-out" style={{ fontSize: 10.5, padding: '2px 6px' }}>{getHostelLabel(log.studentHostel)}</span>
+                                  {log.studentRoomNo && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>Rm {log.studentRoomNo}</span>}
+                                  {log.studentApprovalStatus === 'PENDING' && (
+                                    <span style={{ fontSize: 10.5, color: '#f59e0b', fontWeight: 600 }}>· ⏳ Pending</span>
+                                  )}
+                                  {log.studentApprovalStatus === 'APPROVED' && (
+                                    <span style={{ fontSize: 10.5, color: '#10b981', fontWeight: 600 }}>· 🟢 Approved</span>
+                                  )}
+                                  {log.studentApprovalStatus === 'REJECTED' && (
+                                    <span style={{ fontSize: 10.5, color: '#ef4444', fontWeight: 600 }}>· 🔴 Rejected</span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }} title={log.purposeDetails}>
+                                {log.purposeDetails || '—'}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Date */}
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                            {log.date || (log.entryTime ? new Date(log.entryTime).toLocaleDateString('en-IN') : '—')}
+                          </td>
+
+                          {/* Entry Time */}
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                            {log.entryTime
+                              ? new Date(log.entryTime).toLocaleTimeString('en-IN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                  hour12: false,
+                                })
+                              : (log.status === 'PENDING' ? 'Awaiting…' : '—')}
+                          </td>
+
+                          {/* Exit Time */}
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                            {log.exitTime
+                              ? new Date(log.exitTime).toLocaleTimeString('en-IN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                  hour12: false,
+                                })
+                              : '—'}
+                          </td>
+
+                          {/* Actions */}
+                          <td style={{ textAlign: 'right' }}>
+                            {log.status === 'PENDING' ? (
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  style={{
+                                    background: '#10b981',
+                                    color: '#fff',
+                                    border: 'none',
+                                    padding: '4px 8px',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    borderRadius: 6,
+                                  }}
+                                  onClick={() => handleStaffAction(log._id, 'APPROVE', log.name)}
+                                  title="Staff Override: Admit Visitor"
+                                >
+                                  Admit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-ghost"
+                                  style={{
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                    padding: '4px 8px',
+                                    fontSize: 12,
+                                    borderRadius: 6,
+                                  }}
+                                  onClick={() => handleStaffAction(log._id, 'REJECT', log.name)}
+                                  title="Staff Override: Reject Visitor"
+                                >
+                                  Deny
+                                </button>
+                              </div>
+                            ) : isInside ? (
                               <button
                                 type="button"
-                                className="btn btn-sm"
-                                style={{
-                                  background: '#10b981',
-                                  color: '#fff',
-                                  border: 'none',
-                                  padding: '5px 10px',
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  borderRadius: 8,
-                                }}
-                                onClick={() => handleStaffAction(log._id, 'APPROVE', log.name)}
-                                title="Staff Override: Admit Visitor"
+                                className="btn btn-outline btn-sm btn-mark-exit"
+                                onClick={() => handleMarkExit(log._id, log.name)}
+                                title="Mark visitor as EXITED"
+                                style={{ padding: '4px 8px', fontSize: 12 }}
                               >
-                                Admit
+                                <MdExitToApp size={14} />
+                                <span>Mark Exit</span>
                               </button>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-ghost"
-                                style={{
-                                  color: '#ef4444',
-                                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                                  padding: '5px 10px',
-                                  fontSize: 12,
-                                  borderRadius: 8,
-                                }}
-                                onClick={() => handleStaffAction(log._id, 'REJECT', log.name)}
-                                title="Staff Override: Reject Visitor"
-                              >
-                                Deny
-                              </button>
-                            </div>
-                          ) : isInside ? (
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm btn-mark-exit"
-                              onClick={() => handleMarkExit(log._id, log.name)}
-                              title="Mark visitor as EXITED"
-                            >
-                              <MdExitToApp size={15} />
-                              <span>Mark Exit</span>
-                            </button>
-                          ) : log.status === 'REJECTED' ? (
-                            <span style={{ color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Declined</span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>Completed</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            ) : log.status === 'REJECTED' ? (
+                              <span style={{ color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Declined</span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>Completed</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
               {/* Pagination / Total count footer bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderTop: '1px solid var(--border)' }}>
@@ -958,26 +920,20 @@ export default function VisitorManagement() {
               <form onSubmit={handleSubmit}>
                 {/* Purpose Selector */}
                 <div className="form-group">
-                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Purpose of Visit *</span>
-                    <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                      Select dropdown <MdKeyboardArrowDown size={15} />
-                    </span>
+                  <label className="form-label" htmlFor="visitor-purpose-select">
+                    Purpose of Visit *
                   </label>
-                  <div className="select-wrapper">
-                    <select
-                      className="form-select"
-                      value={formData.purpose}
-                      onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
-                      required
-                      id="visitor-purpose-select"
-                    >
-                      {VISITOR_PURPOSES.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                    <MdKeyboardArrowDown className="select-arrow-icon" size={20} />
-                  </div>
+                  <select
+                    className="form-select"
+                    value={formData.purpose}
+                    onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+                    required
+                    id="visitor-purpose-select"
+                  >
+                    {VISITOR_PURPOSES.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Student Details (if purpose is 'Meeting a student') */}
@@ -999,16 +955,20 @@ export default function VisitorManagement() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: 12,
                         padding: '10px 14px',
-                        borderRadius: 10,
+                        borderRadius: 12,
                         background: 'rgba(16, 185, 129, 0.12)',
                         border: '1px solid rgba(16, 185, 129, 0.35)',
                         marginBottom: 12,
+                        width: '100%',
+                        boxSizing: 'border-box',
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                           <div style={{
-                            width: 32,
-                            height: 32,
+                            width: 36,
+                            height: 36,
+                            minWidth: 36,
                             borderRadius: '50%',
                             background: '#10b981',
                             color: '#fff',
@@ -1016,15 +976,16 @@ export default function VisitorManagement() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             fontWeight: 700,
-                            fontSize: 13,
+                            fontSize: 14,
+                            flexShrink: 0,
                           }}>
                             {selectedStudent.name?.charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)' }}>
+                          <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {selectedStudent.name} {selectedStudent.rollNo ? `(${selectedStudent.rollNo})` : ''}
                             </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
                               {getHostelLabel(selectedStudent.hostel)}, Room {selectedStudent.roomNo || 'N/A'} • {selectedStudent.email}
                             </div>
                           </div>
@@ -1033,7 +994,7 @@ export default function VisitorManagement() {
                           type="button"
                           className="btn btn-ghost btn-sm"
                           onClick={handleClearSelectedStudent}
-                          style={{ fontSize: 12, color: 'var(--text-muted)' }}
+                          style={{ fontSize: 12, color: 'var(--text-primary)', flexShrink: 0, padding: '5px 12px', whiteSpace: 'nowrap', border: '1px solid rgba(255,255,255,0.1)' }}
                         >
                           Change
                         </button>
@@ -1124,19 +1085,16 @@ export default function VisitorManagement() {
                       </div>
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Hostel *</label>
-                        <div className="select-wrapper">
-                          <select
-                            className="form-select"
-                            value={formData.studentHostel}
-                            onChange={(e) => setFormData({ ...formData, studentHostel: e.target.value })}
-                            required
-                          >
-                            {HOSTELS.map((h) => (
-                              <option key={h.value} value={h.value}>{h.label}</option>
-                            ))}
-                          </select>
-                          <MdKeyboardArrowDown className="select-arrow-icon" size={18} />
-                        </div>
+                        <select
+                          className="form-select"
+                          value={formData.studentHostel}
+                          onChange={(e) => setFormData({ ...formData, studentHostel: e.target.value })}
+                          required
+                        >
+                          {HOSTELS.map((h) => (
+                            <option key={h.value} value={h.value}>{h.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Room No *</label>

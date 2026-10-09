@@ -334,142 +334,142 @@ export default function WardenStudents() {
             </div>
           ) : (
             <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student Name</th>
-                    <th>Roll Number</th>
-                    <th>Hostel</th>
-                    <th>Room</th>
-                    <th>Contact Info</th>
-                    <th>Joined</th>
-                    {['warden', 'hostel_staff', 'admin'].includes(user?.role) && <th>Action</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStudents.length > 0 ? (
-                    filteredStudents.map((student) => (
-                      <tr key={student._id}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <StudentAvatar student={student} name={student.name} size={36} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{student.name}</div>
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{student.email || student.rollNo || '—'}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ color: 'var(--text-accent)', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                          {student.rollNo || 'N/A'}
-                        </td>
-                        <td>
-                          {student.hostel ? (
-                            <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>
-                          )}
-                        </td>
-                        <td>
-                          {student.roomNo ? (
-                            <span
-                              style={{
-                                fontFamily: 'JetBrains Mono, monospace',
-                                fontWeight: 700,
-                                fontSize: 12.5,
-                                color: 'var(--text-primary)',
-                                background: 'rgba(99, 102, 241, 0.12)',
-                                border: '1px solid rgba(99, 102, 241, 0.28)',
-                                padding: '3px 8px',
-                                borderRadius: '6px',
-                                display: 'inline-block',
-                              }}
-                            >
-                              Room {student.roomNo}
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-                          )}
-                        </td>
-                        <td>
-                          {user?.role === 'security' ? (
-                            <div style={{ color: 'var(--text-muted)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <MdLock size={14} />
-                              Hidden for security
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              {student.email && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                                  <MdEmail size={14} color="var(--text-muted)" />
-                                  {student.email}
-                                </div>
-                              )}
-                              {student.phone && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                                  <MdPhone size={14} color="var(--text-muted)" />
-                                  Student: {student.phone}
-                                </div>
-                              )}
-                              {student.parentPhone && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                                  <MdPhone size={14} color="var(--text-muted)" />
-                                  Parent 1: {student.parentPhone}
-                                </div>
-                              )}
-                              {student.parentPhone2 && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                                  <MdPhone size={14} color="var(--text-muted)" />
-                                  Parent 2: {student.parentPhone2}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-                          {student.createdAt
-                            ? new Date(student.createdAt).toLocaleDateString('en-IN', {
-                                timeZone: 'Asia/Kolkata',
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                              })
-                            : '—'}
-                        </td>
-                        {['warden', 'hostel_staff', 'admin'].includes(user?.role) && (
-                          <td>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteStudent(student._id, student.name)}
-                              title={`Delete ${student.name}`}
-                              style={{
-                                background: 'rgba(239, 68, 68, 0.08)',
-                                color: '#ef4444',
-                                border: '1px solid rgba(239, 68, 68, 0.28)',
-                                padding: '6px 10px',
-                                borderRadius: 8,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                fontSize: 12,
-                                fontWeight: 600,
-                              }}
-                            >
-                              <MdDeleteOutline size={15} /> Delete
-                            </button>
-                          </td>
-                        )}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Student Name</th>
+                        <th>Roll Number</th>
+                        <th>Hostel</th>
+                        <th>Room</th>
+                        <th>Contact Info</th>
+                        <th>Joined</th>
+                        {['warden', 'hostel_staff', 'admin'].includes(user?.role) && <th>Action</th>}
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={['warden', 'hostel_staff', 'admin'].includes(user?.role) ? '6' : '5'} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
-                        No students found matching your criteria.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {filteredStudents.length > 0 ? (
+                        filteredStudents.map((student) => (
+                          <tr key={student._id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <StudentAvatar student={student} name={student.name} size={36} />
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{student.name}</div>
+                                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{student.email || student.rollNo || '—'}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ color: 'var(--text-accent)', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                              {student.rollNo || 'N/A'}
+                            </td>
+                            <td>
+                              {student.hostel ? (
+                                <span className="badge badge-primary">{getHostelLabel(student.hostel)}</span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>
+                              )}
+                            </td>
+                            <td>
+                              {student.roomNo ? (
+                                <span
+                                  style={{
+                                    fontFamily: 'JetBrains Mono, monospace',
+                                    fontWeight: 700,
+                                    fontSize: 12.5,
+                                    color: 'var(--text-primary)',
+                                    background: 'rgba(99, 102, 241, 0.12)',
+                                    border: '1px solid rgba(99, 102, 241, 0.28)',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    display: 'inline-block',
+                                  }}
+                                >
+                                  Room {student.roomNo}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
+                              )}
+                            </td>
+                            <td>
+                              {user?.role === 'security' ? (
+                                <div style={{ color: 'var(--text-muted)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <MdLock size={14} />
+                                  Hidden for security
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {student.email && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                      <MdEmail size={14} color="var(--text-muted)" />
+                                      {student.email}
+                                    </div>
+                                  )}
+                                  {student.phone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                      <MdPhone size={14} color="var(--text-muted)" />
+                                      Student: {student.phone}
+                                    </div>
+                                  )}
+                                  {student.parentPhone && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                      <MdPhone size={14} color="var(--text-muted)" />
+                                      Parent 1: {student.parentPhone}
+                                    </div>
+                                  )}
+                                  {student.parentPhone2 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                      <MdPhone size={14} color="var(--text-muted)" />
+                                      Parent 2: {student.parentPhone2}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+                              {student.createdAt
+                                ? new Date(student.createdAt).toLocaleDateString('en-IN', {
+                                    timeZone: 'Asia/Kolkata',
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                  })
+                                : '—'}
+                            </td>
+                            {['warden', 'hostel_staff', 'admin'].includes(user?.role) && (
+                              <td>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteStudent(student._id, student.name)}
+                                  title={`Delete ${student.name}`}
+                                  style={{
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.28)',
+                                    padding: '6px 10px',
+                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  <MdDeleteOutline size={15} /> Delete
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={['warden', 'hostel_staff', 'admin'].includes(user?.role) ? '6' : '5'} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                            No students found matching your criteria.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
             </div>
           )}
         </div>

@@ -81,65 +81,65 @@ export default function StudentsOut() {
           </div>
         ) : (
           <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Hostel</th>
-                  <th>Exit Time</th>
-                  <th>Duration Outside</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.map((log) => {
-                  const exitTime = new Date(log.timestamp);
-                  const now = new Date();
-                  const diffMin = Math.floor((now - exitTime) / 60000);
-                  const hours = Math.floor(diffMin / 60);
-                  const mins = diffMin % 60;
-                  return (
-                    <tr key={log._id}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <StudentAvatar
-                            student={log.student_id}
-                            recordPhoto={log.student_photo}
-                            name={log.student_id?.name || log.name}
-                          />
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{log.student_id?.name || log.name || 'Unknown'}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo || log.rollNo || '—'}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
-                          {(log.student_id?.roomNo || log.roomNo) && (
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                              Room {log.student_id?.roomNo || log.roomNo}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>
-                        {exitTime.toLocaleTimeString('en-IN')}
-                      </td>
-                      <td>
-                        <span style={{
-                          color: diffMin > 480 ? '#ef4444' : diffMin > 240 ? '#f59e0b' : '#10b981',
-                          fontWeight: 600,
-                          fontFamily: 'JetBrains Mono, monospace',
-                          fontSize: 13,
-                        }}>
-                          {hours > 0 ? `${hours}h ` : ''}{mins}m
-                        </span>
-                      </td>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Hostel</th>
+                      <th>Exit Time</th>
+                      <th>Duration Outside</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {students.map((log) => {
+                      const exitTime = new Date(log.timestamp);
+                      const now = new Date();
+                      const diffMin = Math.floor((now - exitTime) / 60000);
+                      const hours = Math.floor(diffMin / 60);
+                      const mins = diffMin % 60;
+                      return (
+                        <tr key={log._id}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <StudentAvatar
+                                student={log.student_id}
+                                recordPhoto={log.student_photo}
+                                name={log.student_id?.name || log.name}
+                              />
+                              <div>
+                                <div style={{ fontWeight: 600 }}>{log.student_id?.name || log.name || 'Unknown'}</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo || log.rollNo || '—'}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
+                              {(log.student_id?.roomNo || log.roomNo) && (
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                  Room {log.student_id?.roomNo || log.roomNo}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-secondary)' }}>
+                            {exitTime.toLocaleTimeString('en-IN')}
+                          </td>
+                          <td>
+                            <span style={{
+                              color: diffMin > 480 ? '#ef4444' : diffMin > 240 ? '#f59e0b' : '#10b981',
+                              fontWeight: 600,
+                              fontFamily: 'JetBrains Mono, monospace',
+                              fontSize: 13,
+                            }}>
+                              {hours > 0 ? `${hours}h ` : ''}{mins}m
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
           </div>
         )}
       </div>
