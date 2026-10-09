@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 import {
   MdFileDownload,
   MdFilterList,
@@ -16,10 +17,14 @@ import {
   MdHome,
   MdSearch,
   MdAssessment,
+  MdPictureAsPdf,
 } from 'react-icons/md';
 import Navbar from '../components/Navbar';
+import { downloadAttendanceReportPDF } from '../utils/pdfReportGenerator';
+import { exportAttendanceToExcel } from '../utils/excelReportGenerator';
 
 export default function AttendanceReports() {
+  const { user } = useAuth();
   const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState(todayStr);
@@ -27,7 +32,8 @@ export default function AttendanceReports() {
   const [floor, setFloor] = useState('ALL');
   const [status, setStatus] = useState('all');
   const [loading, setLoading] = useState(false);
-  const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [records, setRecords] = useState([]);
 
   const fetchReports = async () => {
@@ -55,36 +61,48 @@ export default function AttendanceReports() {
     fetchReports();
   }, []);
 
-  const handleDownloadCsv = async () => {
+  const handleExportPdf = async () => {
+    if (records.length === 0) {
+      toast.error('No attendance records to export');
+      return;
+    }
     try {
-      setDownloadingCsv(true);
-      const params = {
+      setExportingPdf(true);
+      await downloadAttendanceReportPDF({
+        records,
         startDate,
         endDate,
-        hostel: hostel !== 'ALL' ? hostel : undefined,
-        floor: floor !== 'ALL' ? floor : undefined,
-        status: status !== 'all' ? status : undefined,
-        format: 'csv',
-      };
-      const res = await api.get('/attendance/reports', {
-        params,
-        responseType: 'blob',
+        hostel,
+        floor,
+        user,
       });
-
-      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `attendance_report_${startDate}_to_${endDate}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      toast.success('CSV Report exported successfully');
+      toast.success('Attendance PDF report downloaded successfully');
     } catch (err) {
-      toast.error('Failed to export CSV report');
+      toast.error('Failed to export PDF: ' + err.message);
     } finally {
-      setDownloadingCsv(false);
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (records.length === 0) {
+      toast.error('No attendance records to export');
+      return;
+    }
+    try {
+      setExportingExcel(true);
+      await exportAttendanceToExcel({
+        records,
+        startDate,
+        endDate,
+        hostel,
+        floor,
+      });
+      toast.success('Attendance Excel report downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export Excel: ' + err.message);
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -104,7 +122,7 @@ export default function AttendanceReports() {
             <MdAssessment size={26} color="var(--primary)" /> Attendance Reports & Exports
           </h1>
           <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 13.5 }}>
-            Historical audit logs, custom date ranges, and official CSV exports
+            Historical audit logs, custom date ranges, and official PDF &amp; Excel exports
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -117,12 +135,20 @@ export default function AttendanceReports() {
             <MdRefresh size={18} className={loading ? 'spin' : ''} /> Refresh
           </button>
           <button
-            onClick={handleDownloadCsv}
-            disabled={downloadingCsv || records.length === 0}
+            onClick={handleExportPdf}
+            disabled={exportingPdf || records.length === 0}
+            className="secondary-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, fontSize: 13 }}
+          >
+            <MdPictureAsPdf size={18} style={{ color: '#ef4444' }} /> {exportingPdf ? 'Exporting PDF...' : 'Export PDF'}
+          </button>
+          <button
+            onClick={handleExportExcel}
+            disabled={exportingExcel || records.length === 0}
             className="primary-btn"
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 8, fontSize: 13 }}
           >
-            <MdFileDownload size={18} /> {downloadingCsv ? 'Exporting...' : 'Export CSV'}
+            <MdFileDownload size={18} /> {exportingExcel ? 'Exporting Excel...' : 'Export Excel'}
           </button>
         </div>
       </div>
@@ -200,11 +226,11 @@ export default function AttendanceReports() {
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           >
             <option value="ALL">All Floors</option>
-            <option value="Ground">Ground Floor</option>
-            <option value="1">1st Floor</option>
-            <option value="2">2nd Floor</option>
-            <option value="3">3rd Floor</option>
-            <option value="4">4th Floor</option>
+            <option value="Basement / Wing B">Basement / Wing B</option>
+            <option value="Ground Floor">Ground Floor</option>
+            <option value="1st Floor">1st Floor</option>
+            <option value="2nd Floor">2nd Floor</option>
+            <option value="3rd Floor">3rd Floor</option>
           </select>
         </div>
         <div>

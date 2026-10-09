@@ -5,10 +5,16 @@
 
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 const { protect, authorize } = require('../middleware/auth');
 const allocationService = require('../services/allocationService');
 const pdfImportService = require('../services/pdfImportService');
+const Hostel = require('../models/Hostel');
+const HostelFloor = require('../models/HostelFloor');
+const HostelRoom = require('../models/HostelRoom');
+const RoomAllocation = require('../models/RoomAllocation');
+const User = require('../models/User');
 const logger = require('../utils/logger');
 
 // ── Module Guard Middleware ──────────────────────────────────────────────────
@@ -50,6 +56,20 @@ router.get('/hostels/:id/floors', protect, async (req, res) => {
     res.json({ success: true, data: floors });
   } catch (err) {
     logger.error('[Allocation] Failed to fetch floors', { error: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * GET /api/allocations/hostels/:id/rooms
+ * Fetch all rooms for a hostel at once
+ */
+router.get('/hostels/:id/rooms', protect, async (req, res) => {
+  try {
+    const rooms = await allocationService.getRoomsByHostel(req.params.id, req.query.status);
+    res.json({ success: true, data: rooms });
+  } catch (err) {
+    logger.error('[Allocation] Failed to fetch hostel rooms', { error: err.message });
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -133,22 +153,111 @@ router.patch('/rooms/:id', protect, authorize('admin', 'warden'), async (req, re
  */
 router.post('/allocate', protect, authorize('admin', 'warden'), async (req, res) => {
   try {
-    const { student_id, room_id, bed_number, remarks } = req.body;
-    if (!student_id || !room_id) {
+    let {
+      student_id,
+      student_roll_no,
+      rollNo,
+      student_name,
+      name,
+      student_email,
+      email,
+      room_id,
+      room_number,
+      hostel_id,
+      bed_number,
+      remarks,
+      reallocate,
+    } = req.body;
+
+    const targetRoll = student_roll_no || rollNo;
+    const targetName = student_name || name;
+    const targetEmail = student_email || email;
+
+    // 1. Resolve Student User
+    let student = null;
+    if (student_id) {
+      student = await User.findById(student_id);
+    }
+    if (!student && targetRoll) {
+      const cleanRoll = String(targetRoll).trim();
+      student = await User.findOne({ rollNo: cleanRoll });
+      if (!student) {
+        // Auto-create student record so unseeded students can be allocated immediately
+        const userEmail = (targetEmail || `${cleanRoll}@iiitp.ac.in`).toLowerCase().trim();
+        const userName = (targetName || `Student ${cleanRoll}`).trim();
+        student = await User.create({
+          name: userName,
+          email: userEmail,
+          rollNo: cleanRoll,
+          role: 'student',
+          oauthProvider: 'google',
+          oauthId: `manual_${cleanRoll}`,
+          isActive: true,
+        });
+      }
+    }
+
+    if (!student) {
       return res.status(400).json({
         success: false,
-        message: 'student_id and room_id are required',
+        message: 'A valid student selection or student roll number is required',
+        code: 'MISSING_STUDENT',
+      });
+    }
+
+    student_id = student._id;
+
+    // 2. Resolve room_id from room_number if room_id not provided
+    if (!room_id && room_number) {
+      const cleanNo = String(room_number).trim().toUpperCase();
+      const roomFilter = {
+        room_number: { $regex: new RegExp(`^${cleanNo}$`, 'i') },
+      };
+
+      if (hostel_id) {
+        if (mongoose.Types.ObjectId.isValid(hostel_id)) {
+          roomFilter.hostel_id = hostel_id;
+        } else {
+          const hDoc = await Hostel.findOne({ code: String(hostel_id).toUpperCase() });
+          if (hDoc) roomFilter.hostel_id = hDoc._id;
+        }
+      }
+
+      let foundRoom = await HostelRoom.findOne(roomFilter);
+      // Fallback: If not found in specific hostel, search across all active hostels
+      if (!foundRoom && hostel_id) {
+        foundRoom = await HostelRoom.findOne({
+          room_number: { $regex: new RegExp(`^${cleanNo}$`, 'i') },
+        });
+      }
+
+      if (!foundRoom) {
+        return res.status(404).json({
+          success: false,
+          message: `Room "${cleanNo}" was not found. Please verify the room number.`,
+          code: 'ROOM_NOT_FOUND',
+        });
+      }
+      room_id = foundRoom._id;
+    }
+
+    if (!room_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room number or room selection is required',
+        code: 'MISSING_ROOM',
       });
     }
 
     const allocation = await allocationService.allocateStudent({
       student_id,
       room_id,
-      bed_number,
-      remarks,
+      bed_number: bed_number ? String(bed_number).trim() : null,
+      remarks: remarks ? String(remarks).trim() : 'Manual allocation',
       actor_id: req.user._id,
       actor_role: req.user.role,
       source: 'manual',
+      reallocate: Boolean(reallocate),
     });
 
     res.status(201).json({ success: true, data: allocation });
@@ -159,6 +268,8 @@ router.post('/allocate', protect, authorize('admin', 'warden'), async (req, res)
       success: false,
       message: err.message,
       code: err.code || 'ALLOCATION_ERROR',
+      existingRoom: err.existingRoom,
+      existingHostel: err.existingHostel,
     });
   }
 });
@@ -268,6 +379,75 @@ router.post('/import/confirm', protect, authorize('admin', 'warden'), async (req
 });
 
 // ── Search & Views ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/allocations/students/search
+ * Search students from directory with live allocation status
+ */
+router.get('/students/search', protect, authorize('admin', 'warden', 'security'), async (req, res) => {
+  try {
+    const q = (req.query.q || req.query.search || '').trim();
+    const filter = { role: 'student' };
+    if (q) {
+      const cleanQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(cleanQ, 'i');
+      filter.$or = [
+        { name: regex },
+        { rollNo: regex },
+        { email: regex },
+        { roomNo: regex },
+      ];
+    }
+
+    const students = await User.find(filter)
+      .select('name rollNo email hostel roomNo isActive')
+      .sort({ name: 1 })
+      .limit(40)
+      .lean();
+
+    const studentIds = students.map((s) => s._id);
+    const activeAllocs = await RoomAllocation.find({
+      student_id: { $in: studentIds },
+      status: 'active',
+    })
+      .populate({
+        path: 'room_id',
+        select: 'room_number hostel_id floor_id',
+        populate: [
+          { path: 'hostel_id', select: 'code name' },
+          { path: 'floor_id', select: 'floor_number label' },
+        ],
+      })
+      .lean();
+
+    const allocMap = {};
+    for (const a of activeAllocs) {
+      allocMap[a.student_id.toString()] = a;
+    }
+
+    const formatted = students.map((s) => {
+      const alloc = allocMap[s._id.toString()];
+      return {
+        ...s,
+        currentAllocation: alloc
+          ? {
+              allocation_id: alloc._id,
+              room_number: alloc.room_id?.room_number || s.roomNo,
+              hostel_code: alloc.room_id?.hostel_id?.code || s.hostel,
+              hostel_name: alloc.room_id?.hostel_id?.name || '',
+              floor_label: alloc.room_id?.floor_id?.label || '',
+              bed_number: alloc.bed_number,
+            }
+          : (s.roomNo ? { room_number: s.roomNo, hostel_code: s.hostel } : null),
+      };
+    });
+
+    res.json({ success: true, students: formatted, data: formatted });
+  } catch (err) {
+    logger.error('[Allocation] Student search failed', { error: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 /**
  * GET /api/allocations/search

@@ -230,3 +230,212 @@ export const downloadGateRecordsExcel = async ({
   // Trigger browser file download
   XLSX.writeFile(wb, fileName);
 };
+
+/**
+ * Export Attendance Records to Excel (.xlsx)
+ */
+export const exportAttendanceToExcel = async ({
+  records = [],
+  startDate = '',
+  endDate = '',
+  hostel = 'ALL',
+  floor = 'ALL',
+  customFileName,
+}) => {
+  if (!records || records.length === 0) {
+    throw new Error('No attendance records available to export.');
+  }
+
+  const XLSX = await getXLSX();
+  const wb = XLSX.utils.book_new();
+
+  const formattedRows = records.map((r, index) => {
+    const student = r.student || {};
+    const statusLabel =
+      r.status === 'present'
+        ? 'PRESENT'
+        : r.status === 'on_leave'
+        ? 'ON LEAVE'
+        : 'ABSENT';
+    const methodLabel =
+      r.method === 'qr_geofence'
+        ? 'Biometric / QR Geofence'
+        : 'Manual Staff Check';
+
+    return {
+      'S.No': index + 1,
+      'Date': r.date || '—',
+      'Session': r.session || 'Night Attendance',
+      'Hostel': getHostelLabel(r.hostel),
+      'Floor': r.floor || '—',
+      'Room Number': r.roomNo || '—',
+      'Student Name': student.name || 'Unknown',
+      'Roll / MIS Number': student.rollNo || '—',
+      'Attendance Status': statusLabel,
+      'Verification Method': methodLabel,
+      'Verified By': r.verifiedBy || 'Self-Approved',
+      'Remarks / Reason': r.remark || '—',
+      'Recorded Timestamp': r.createdAt
+        ? new Date(r.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : '—',
+    };
+  });
+
+  const wsRecords = XLSX.utils.json_to_sheet(formattedRows);
+  wsRecords['!cols'] = autoFitColumns(formattedRows, 14);
+  XLSX.utils.book_append_sheet(wb, wsRecords, 'Attendance Records');
+
+  // Summary Sheet
+  const presentCount = records.filter((r) => r.status === 'present').length;
+  const absentCount = records.filter((r) => r.status === 'absent').length;
+  const leaveCount = records.filter((r) => r.status === 'on_leave').length;
+  const pct = records.length > 0 ? `${Math.round((presentCount / records.length) * 100)}%` : '0%';
+
+  const summaryRows = [
+    { 'Audit Property': 'INSTITUTION', 'Value': 'INDIAN INSTITUTE OF INFORMATION TECHNOLOGY, PUNE (IIITP)' },
+    { 'Audit Property': 'SYSTEM', 'Value': 'HEIMDALL — Room Attendance Verification Module' },
+    { 'Audit Property': 'REPORT TYPE', 'Value': 'Hostel Attendance Audit Roster' },
+    { 'Audit Property': 'DATE RANGE', 'Value': `${startDate || 'Start'} to ${endDate || 'End'}` },
+    { 'Audit Property': 'HOSTEL SCOPE', 'Value': hostel === 'ALL' ? 'All Hostels' : getHostelLabel(hostel) },
+    { 'Audit Property': 'FLOOR SCOPE', 'Value': floor === 'ALL' ? 'All Floors' : floor },
+    { 'Audit Property': 'GENERATED AT', 'Value': new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) },
+    { 'Audit Property': 'TOTAL RECORDS', 'Value': records.length },
+    { 'Audit Property': 'STUDENTS PRESENT', 'Value': presentCount },
+    { 'Audit Property': 'STUDENTS ABSENT', 'Value': absentCount },
+    { 'Audit Property': 'STUDENTS ON APPROVED LEAVE', 'Value': leaveCount },
+    { 'Audit Property': 'ATTENDANCE PERCENTAGE', 'Value': pct },
+  ];
+
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  wsSummary['!cols'] = [{ wch: 30 }, { wch: 55 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Attendance Summary');
+
+  const fileName =
+    customFileName ||
+    `IIITP_Attendance_Report_${startDate || 'all'}_to_${endDate || 'all'}.xlsx`;
+
+  XLSX.writeFile(wb, fileName);
+};
+
+/**
+ * Export Room Allocations to Excel (.xlsx)
+ */
+export const exportAllocationsToExcel = async ({
+  hostel,
+  rooms = [],
+  customFileName,
+}) => {
+  if (!rooms || rooms.length === 0) {
+    throw new Error('No rooms or allocations available to export.');
+  }
+
+  const XLSX = await getXLSX();
+  const wb = XLSX.utils.book_new();
+
+  // 1. Student Allocations Sheet
+  const allocationRows = [];
+  let sNo = 1;
+
+  for (const r of rooms) {
+    const floorLabel = r.floor_id?.label || (r.floor !== undefined ? `Floor ${r.floor}` : '—');
+    const occupants = r.occupants || [];
+
+    if (occupants.length === 0) {
+      allocationRows.push({
+        'S.No': sNo++,
+        'Hostel': hostel?.name || hostel?.code || '—',
+        'Floor': floorLabel,
+        'Room Number': r.room_number,
+        'Bed Number': '—',
+        'Student Name': '— (VACANT)',
+        'Roll / MIS Number': '—',
+        'Contact Phone': '—',
+        'Room Capacity': r.capacity || 4,
+        'Room Status': (r.status || 'vacant').toUpperCase(),
+        'Allocated On': '—',
+        'Allocation Source': '—',
+      });
+    } else {
+      for (const occ of occupants) {
+        const student = occ.student || {};
+        allocationRows.push({
+          'S.No': sNo++,
+          'Hostel': hostel?.name || hostel?.code || '—',
+          'Floor': floorLabel,
+          'Room Number': r.room_number,
+          'Bed Number': occ.bed_number || 'Bed 1',
+          'Student Name': student.name || 'Unknown',
+          'Roll / MIS Number': student.rollNo || '—',
+          'Contact Phone': student.phone || '—',
+          'Room Capacity': r.capacity || 4,
+          'Room Status': (r.status || 'occupied').toUpperCase(),
+          'Allocated On': occ.allocated_on
+            ? new Date(occ.allocated_on).toISOString().split('T')[0]
+            : '—',
+          'Allocation Source': occ.source || 'system',
+        });
+      }
+    }
+  }
+
+  const wsAlloc = XLSX.utils.json_to_sheet(allocationRows);
+  wsAlloc['!cols'] = autoFitColumns(allocationRows, 14);
+  XLSX.utils.book_append_sheet(wb, wsAlloc, 'Student Allocations');
+
+  // 2. Room Inventory Summary Sheet
+  const inventoryRows = rooms.map((r, index) => {
+    const floorLabel = r.floor_id?.label || (r.floor !== undefined ? `Floor ${r.floor}` : '—');
+    const occupantsCount = r.occupantsCount !== undefined ? r.occupantsCount : (r.occupants?.length || 0);
+    const capacity = r.capacity || 4;
+    const vacantBeds = Math.max(0, capacity - occupantsCount);
+    const status = r.status || (occupantsCount >= capacity ? 'full' : (occupantsCount > 0 ? 'occupied' : 'vacant'));
+
+    return {
+      'S.No': index + 1,
+      'Floor': floorLabel,
+      'Room Number': r.room_number,
+      'Capacity': capacity,
+      'Occupants Count': occupantsCount,
+      'Vacant Beds': vacantBeds,
+      'Room Status': status.toUpperCase(),
+      'Remarks': r.remarks || '—',
+    };
+  });
+
+  const wsInventory = XLSX.utils.json_to_sheet(inventoryRows);
+  wsInventory['!cols'] = autoFitColumns(inventoryRows, 14);
+  XLSX.utils.book_append_sheet(wb, wsInventory, 'Room Inventory Summary');
+
+  // 3. Metrics Sheet
+  let totalCapacity = 0;
+  let totalOccupants = 0;
+  rooms.forEach((r) => {
+    totalCapacity += r.capacity || 4;
+    totalOccupants += r.occupantsCount !== undefined ? r.occupantsCount : (r.occupants?.length || 0);
+  });
+  const vacantBeds = Math.max(0, totalCapacity - totalOccupants);
+  const occupancyRate = totalCapacity > 0 ? `${Math.round((totalOccupants / totalCapacity) * 100)}%` : '0%';
+
+  const metricsRows = [
+    { 'Property': 'INSTITUTION', 'Value': 'INDIAN INSTITUTE OF INFORMATION TECHNOLOGY, PUNE (IIITP)' },
+    { 'Property': 'MODULE', 'Value': 'HEIMDALL — Room Allocation & Occupancy Management' },
+    { 'Property': 'TARGET HOSTEL', 'Value': hostel?.name ? `${hostel.name} (${hostel.code})` : (hostel?.code || 'Hostel') },
+    { 'Property': 'REPORT DATE', 'Value': new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) },
+    { 'Property': 'TOTAL ROOMS', 'Value': rooms.length },
+    { 'Property': 'TOTAL BED CAPACITY', 'Value': totalCapacity },
+    { 'Property': 'OCCUPIED BEDS', 'Value': totalOccupants },
+    { 'Property': 'VACANT BEDS', 'Value': vacantBeds },
+    { 'Property': 'OVERALL OCCUPANCY RATE', 'Value': occupancyRate },
+  ];
+
+  const wsMetrics = XLSX.utils.json_to_sheet(metricsRows);
+  wsMetrics['!cols'] = [{ wch: 28 }, { wch: 55 }];
+  XLSX.utils.book_append_sheet(wb, wsMetrics, 'Hostel Metrics');
+
+  const fileName =
+    customFileName ||
+    `IIITP_Room_Allocations_${hostel?.code || 'Hostel'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  XLSX.writeFile(wb, fileName);
+};
+

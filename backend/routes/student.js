@@ -78,6 +78,32 @@ const getPagination = (query, defaultLimit = 20, maxLimit = 100) => {
   return { page, limit, skip };
 };
 
+// ── GET /search - Search students directory (warden, admin, security, student) ──
+router.get('/search', protect, authorize('admin', 'warden', 'security', 'student'), async (req, res) => {
+  try {
+    const q = (req.query.q || req.query.search || '').trim();
+    const filter = { role: 'student' };
+    if (q) {
+      const cleanQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(cleanQ, 'i');
+      filter.$or = [
+        { name: regex },
+        { rollNo: regex },
+        { email: regex },
+        { roomNo: regex },
+      ];
+    }
+    const students = await User.find(filter)
+      .select('name rollNo email hostel roomNo isActive')
+      .sort({ name: 1 })
+      .limit(40)
+      .lean();
+    res.json({ success: true, students, data: students });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── All student routes require login + student role ───────────────────────────
 router.use(protect, authorize('student'));
 

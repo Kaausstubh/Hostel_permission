@@ -34,22 +34,10 @@ async function runMigration() {
   await RoomAllocationAudit.syncIndexes();
   console.log('✔ RoomAllocationAudit indexes synced.');
 
-  // Check BH2 existence or initialize placeholder
-  let bh2 = await Hostel.findOne({ code: 'BH2' });
-  if (!bh2) {
-    bh2 = await Hostel.create({
-      code: 'BH2',
-      name: 'Boys Hostel 2',
-      type: 'boys',
-      active: true,
-      description: 'Hostel BH2 structure for students',
-    });
-    console.log('✔ Initialized BH2 Hostel entry.');
-  } else {
-    console.log('ℹ BH2 Hostel entry already exists.');
-  }
+  // Purge any test hostels
+  await Hostel.deleteMany({ code: /^test/i });
 
-  // Floors for BH2:
+  // Floors for BH1 and BH2:
   // -1: Basement / Wing B
   //  0: Ground Floor
   //  1: 1st Floor
@@ -63,14 +51,35 @@ async function runMigration() {
     { floor_number: 3, label: '3rd Floor' },
   ];
 
-  for (const f of floorsData) {
-    await HostelFloor.findOneAndUpdate(
-      { hostel_id: bh2._id, floor_number: f.floor_number },
-      { $setOnInsert: { label: f.label, active: true } },
-      { upsert: true, new: true }
-    );
+  const hostelConfigs = [
+    { code: 'BH1', name: "Boys' Hostel 1", type: 'boys', description: 'Hostel BH1 structure for students' },
+    { code: 'BH2', name: 'Boys Hostel 2', type: 'boys', description: 'Hostel BH2 structure for students' },
+  ];
+
+  for (const hc of hostelConfigs) {
+    let hostel = await Hostel.findOne({ code: hc.code });
+    if (!hostel) {
+      hostel = await Hostel.create({
+        code: hc.code,
+        name: hc.name,
+        type: hc.type,
+        active: true,
+        description: hc.description,
+      });
+      console.log(`✔ Initialized ${hc.code} Hostel entry.`);
+    } else {
+      console.log(`ℹ ${hc.code} Hostel entry already exists.`);
+    }
+
+    for (const f of floorsData) {
+      await HostelFloor.findOneAndUpdate(
+        { hostel_id: hostel._id, floor_number: f.floor_number },
+        { $setOnInsert: { label: f.label, active: true } },
+        { upsert: true, new: true }
+      );
+    }
+    console.log(`✔ ${hc.code} Floor structure initialized (-1: Basement, 0: Ground, 1: 1st, 2: 2nd, 3: 3rd).`);
   }
-  console.log('✔ BH2 Floor structure initialized (-1: Basement, 0: Ground, 1: 1st, 2: 2nd, 3: 3rd).');
 
   console.log('\nMigration 001 completed successfully!');
   await mongoose.disconnect();

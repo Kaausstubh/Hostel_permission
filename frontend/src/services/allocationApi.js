@@ -23,6 +23,12 @@ export const allocationApi = {
     return res.data?.data || [];
   },
 
+  getHostelRooms: async (hostelId, status = '') => {
+    const params = status ? { status } : {};
+    const res = await api.get(`/allocations/hostels/${hostelId}/rooms`, { params });
+    return res.data?.data || [];
+  },
+
   getRoomDetails: async (roomId) => {
     const res = await api.get(`/allocations/rooms/${roomId}`);
     return res.data?.data;
@@ -39,14 +45,14 @@ export const allocationApi = {
   },
 
   // Allocations
-  allocateStudent: async ({ student_id, room_id, bed_number, remarks }) => {
-    const res = await api.post('/allocations/allocate', {
-      student_id,
-      room_id,
-      bed_number,
-      remarks,
-    });
+  allocateStudent: async (payload) => {
+    const res = await api.post('/allocations/allocate', payload);
     return res.data?.data;
+  },
+
+  searchStudents: async (query = '') => {
+    const res = await api.get('/allocations/students/search', { params: { q: query } });
+    return res.data?.students || res.data?.data || [];
   },
 
   transferStudent: async (allocationId, { new_room_id, bed_number, reason }) => {

@@ -646,6 +646,7 @@ export default function RoomDetailModal({
           onClose={() => setShowAllocateModal(false)}
           initialRoom={room}
           floors={floors}
+          hostel={room?.hostel_id}
           onAllocated={() => {
             loadDetails();
             onRoomUpdated();

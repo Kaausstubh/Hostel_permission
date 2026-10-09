@@ -1018,7 +1018,9 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
     }
 
     if (floor && floor.toUpperCase() !== 'ALL') {
-      query.floor = String(floor);
+      const cleanFloor = String(floor).trim();
+      const escaped = cleanFloor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.floor = { $regex: escaped, $options: 'i' };
     }
 
     if (status && status.toLowerCase() !== 'all') {

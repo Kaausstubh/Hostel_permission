@@ -17,7 +17,7 @@ const logger = require('../utils/logger');
  * List all active hostels
  */
 async function getHostels() {
-  return Hostel.find({ active: true }).sort({ code: 1 }).lean();
+  return Hostel.find({ active: true, code: { $not: /^test/i } }).sort({ code: 1 }).lean();
 }
 
 /**
@@ -39,6 +39,73 @@ async function getRoomsByFloor(floorId, filterStatus = null) {
   }
 
   const rooms = await HostelRoom.find(query)
+    .sort({ room_number: 1 })
+    .lean();
+
+  if (!rooms.length) return [];
+
+  const roomIds = rooms.map((r) => r._id);
+
+  // Fetch all active allocations for these rooms in a single query
+  const activeAllocations = await RoomAllocation.find({
+    room_id: { $in: roomIds },
+    status: 'active',
+  })
+    .populate('student_id', 'name rollNo phone email')
+    .lean();
+
+  // Group allocations by room_id
+  const allocationsByRoom = {};
+  for (const alloc of activeAllocations) {
+    const rid = alloc.room_id.toString();
+    if (!allocationsByRoom[rid]) allocationsByRoom[rid] = [];
+    allocationsByRoom[rid].push(alloc);
+  }
+
+  // Augment rooms with live counts
+  return rooms.map((room) => {
+    const occupants = allocationsByRoom[room._id.toString()] || [];
+    const activeCount = occupants.length;
+    const capacity = room.capacity || 4;
+    const vacantBeds = Math.max(0, capacity - activeCount);
+
+    let calculatedStatus = room.status;
+    if (room.status !== 'maintenance' && room.status !== 'blocked') {
+      if (activeCount === 0) {
+        calculatedStatus = 'available';
+      } else if (activeCount >= capacity) {
+        calculatedStatus = 'full';
+      } else {
+        calculatedStatus = 'occupied';
+      }
+    }
+
+    return {
+      ...room,
+      occupantsCount: activeCount,
+      vacantBeds,
+      calculatedStatus,
+      occupants: occupants.map((o) => ({
+        allocation_id: o._id,
+        bed_number: o.bed_number,
+        allocated_on: o.allocated_on,
+        student: o.student_id,
+      })),
+    };
+  });
+}
+
+/**
+ * List all rooms for a hostel with live occupant counts and vacancy status
+ */
+async function getRoomsByHostel(hostelId, filterStatus = null) {
+  const query = { hostel_id: hostelId };
+  if (filterStatus) {
+    query.status = filterStatus;
+  }
+
+  const rooms = await HostelRoom.find(query)
+    .populate('floor_id', 'floor_number label')
     .sort({ room_number: 1 })
     .lean();
 
@@ -275,6 +342,7 @@ async function allocateStudent({
   actor_id = null,
   actor_role = 'warden',
   source = 'manual',
+  reallocate = false,
 }) {
   return executeWithOptionalTransaction(async (session) => {
     const opts = session ? { session } : {};
@@ -309,15 +377,40 @@ async function allocateStudent({
     const activeQuery = RoomAllocation.findOne({
       student_id,
       status: 'active',
+    }).populate({
+      path: 'room_id',
+      populate: { path: 'hostel_id', select: 'code' },
     });
     if (session) activeQuery.session(session);
     const existingActive = await activeQuery;
 
     if (existingActive) {
-      const error = new Error(`Student ${student.name} (${student.rollNo}) already has an active room allocation`);
-      error.code = 'STUDENT_ALREADY_ALLOCATED';
-      error.status = 400;
-      throw error;
+      if (reallocate) {
+        // Automatically vacate / transfer prior allocation
+        existingActive.status = 'transferred';
+        existingActive.vacated_on = new Date();
+        await existingActive.save(opts);
+
+        // Update previous room occupancy status
+        const prevRoomId = existingActive.room_id?._id || existingActive.room_id;
+        const prevCount = await RoomAllocation.countDocuments({
+          room_id: prevRoomId,
+          status: 'active',
+        });
+        const prevRoom = await HostelRoom.findById(prevRoomId, null, opts);
+        if (prevRoom && prevRoom.status !== 'maintenance' && prevRoom.status !== 'blocked') {
+          prevRoom.status = prevCount === 0 ? 'available' : (prevCount >= prevRoom.capacity ? 'full' : 'occupied');
+          await prevRoom.save(opts);
+        }
+      } else {
+        const prevRoomNum = existingActive.room_id?.room_number || 'another room';
+        const error = new Error(`Student ${student.name} (${student.rollNo || ''}) is already allocated to Room ${prevRoomNum}`);
+        error.code = 'STUDENT_ALREADY_ALLOCATED';
+        error.status = 400;
+        error.existingRoom = prevRoomNum;
+        error.existingHostel = existingActive.room_id?.hostel_id?.code || '';
+        throw error;
+      }
     }
 
     // Check room capacity
@@ -745,6 +838,7 @@ module.exports = {
   getHostels,
   getFloorsByHostel,
   getRoomsByFloor,
+  getRoomsByHostel,
   getRoomDetails,
   createRoom,
   updateRoom,

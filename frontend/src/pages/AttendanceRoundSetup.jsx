@@ -42,11 +42,14 @@ export default function AttendanceRoundSetup() {
       setLoading(true);
       const res = await api.get('/attendance/hostels');
       if (res.data?.success && res.data.hostels?.length > 0) {
-        setHostels(res.data.hostels);
-        // Default to user's assigned hostel if available
-        const defaultH = res.data.hostels.find(
-          (h) => h.hostel === user?.hostel || h.hostel === 'BH1'
+        const validHostels = res.data.hostels.filter(
+          (h) => !h.hostel.toLowerCase().startsWith('test')
         );
+        setHostels(validHostels);
+        // Default to user's assigned hostel if available
+        const defaultH = validHostels.find(
+          (h) => h.hostel === user?.hostel || h.hostel === 'BH1'
+        ) || validHostels[0];
         if (defaultH) {
           setSelectedHostel(defaultH.hostel);
           if (defaultH.floors?.length > 0) setSelectedFloor(defaultH.floors[0]);
@@ -201,7 +204,7 @@ export default function AttendanceRoundSetup() {
                     minWidth: 80,
                   }}
                 >
-                  Floor {fl}
+                  {fl.toLowerCase().includes('floor') || fl.toLowerCase().includes('base') ? fl : `Floor ${fl}`}
                 </button>
               );
             })}
@@ -281,7 +284,7 @@ export default function AttendanceRoundSetup() {
             'Initializing Round…'
           ) : (
             <>
-              <MdPlayArrow size={22} /> Start Round (Floor {selectedFloor})
+              <MdPlayArrow size={22} /> Start Round ({selectedFloor.toLowerCase().includes('floor') || selectedFloor.toLowerCase().includes('base') ? selectedFloor : `Floor ${selectedFloor}`})
             </>
           )}
         </button>

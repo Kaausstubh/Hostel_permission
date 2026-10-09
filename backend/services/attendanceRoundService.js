@@ -119,8 +119,8 @@ const resolveFloorRooms = async (hostelCode, floorStr) => {
  * Get distinct hostels and their floors using Room Allocation as the single source of truth.
  */
 const getHostelsAndFloors = async (staffUser = null) => {
-  // Check defined hostels
-  const definedHostels = await Hostel.find({ active: true }).sort({ code: 1 }).lean();
+  // Check defined hostels (excluding any test hostels)
+  const definedHostels = await Hostel.find({ active: true, code: { $not: /^test/i } }).sort({ code: 1 }).lean();
 
   if (definedHostels.length > 0) {
     const result = [];
@@ -154,7 +154,9 @@ const getHostelsAndFloors = async (staffUser = null) => {
           hostel: fallbackCode,
           name: fallbackCode === 'BH1' ? "Boys' Hostel 1 (BH1)" : "Girls' Hostel (GH)",
           studentCount: legacyStudents,
-          floors: ['1st Floor', '2nd Floor', '3rd Floor'],
+          floors: fallbackCode === 'BH1'
+            ? ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor']
+            : ['1st Floor', '2nd Floor', '3rd Floor'],
         });
       }
     }

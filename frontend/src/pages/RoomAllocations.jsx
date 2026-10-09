@@ -5,18 +5,23 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   MdMeetingRoom, MdSearch, MdFileDownload, MdPersonAdd,
   MdFilterList, MdCheckCircle, MdWarning, MdBuild,
-  MdRefresh, MdPerson, MdPictureAsPdf,
+  MdRefresh, MdPerson, MdPictureAsPdf, MdApartment,
 } from 'react-icons/md';
 import toast from 'react-hot-toast';
 import allocationApi from '../services/allocationApi';
 import Navbar from '../components/Navbar';
 import RoomDetailModal from '../components/RoomDetailModal';
 import AllocateStudentModal from '../components/AllocateStudentModal';
+import { downloadAllocationReportPDF } from '../utils/pdfReportGenerator';
+import { exportAllocationsToExcel } from '../utils/excelReportGenerator';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function RoomAllocations() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [hostels, setHostels] = useState([]);
   const [selectedHostel, setSelectedHostel] = useState(null);
@@ -24,6 +29,8 @@ export default function RoomAllocations() {
   const [selectedFloorId, setSelectedFloorId] = useState('ALL');
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   // Filters & Search
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'vacant' | 'occupied' | 'full' | 'maintenance'
@@ -38,8 +45,8 @@ export default function RoomAllocations() {
     allocationApi.getHostels()
       .then((data) => {
         setHostels(data);
-        const bh2 = data.find((h) => h.code === 'BH2') || data[0];
-        setSelectedHostel(bh2 || null);
+        const defaultH = data.find((h) => h.code === 'BH1') || data.find((h) => h.code === 'BH2') || data[0];
+        setSelectedHostel(defaultH || null);
       })
       .catch((err) => toast.error('Failed to load hostels: ' + err.message));
   }, []);
@@ -50,10 +57,7 @@ export default function RoomAllocations() {
     allocationApi.getFloors(selectedHostel._id)
       .then((data) => {
         setFloors(data);
-        if (data.length > 0) {
-          // Default to first floor or ALL
-          setSelectedFloorId(data[0]._id);
-        }
+        setSelectedFloorId('ALL');
       })
       .catch((err) => toast.error('Failed to load floors: ' + err.message));
   }, [selectedHostel]);
@@ -64,12 +68,7 @@ export default function RoomAllocations() {
     setLoading(true);
     try {
       if (selectedFloorId === 'ALL') {
-        // Fetch all rooms across all floors
-        const allRooms = [];
-        for (const fl of floors) {
-          const flRooms = await allocationApi.getRooms(fl._id);
-          allRooms.push(...flRooms);
-        }
+        const allRooms = await allocationApi.getHostelRooms(selectedHostel._id);
         setRooms(allRooms);
       } else {
         const flRooms = await allocationApi.getRooms(selectedFloorId);
@@ -83,10 +82,10 @@ export default function RoomAllocations() {
   };
 
   useEffect(() => {
-    if (floors.length > 0 && selectedFloorId) {
+    if (selectedHostel && selectedFloorId) {
       loadRooms();
     }
-  }, [selectedFloorId, floors]);
+  }, [selectedFloorId, selectedHostel]);
 
   // Summary Metrics
   const metrics = useMemo(() => {
@@ -144,11 +143,66 @@ export default function RoomAllocations() {
     });
   }, [rooms, statusFilter, searchQuery]);
 
-  const handleExportCsv = () => {
-    if (!selectedHostel) return;
-    const url = allocationApi.exportAllocationsUrl(selectedHostel._id);
-    window.open(url, '_blank');
-    toast.success('Downloading allocation CSV report...');
+  const getRoomsForExport = async () => {
+    if (!selectedHostel) return [];
+    if (selectedFloorId === 'ALL' && rooms.length > 0) {
+      return rooms;
+    }
+    try {
+      return await allocationApi.getHostelRooms(selectedHostel._id);
+    } catch {
+      return rooms;
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!selectedHostel) {
+      toast.error('Please select a hostel first');
+      return;
+    }
+    try {
+      setExportingPdf(true);
+      const exportRooms = await getRoomsForExport();
+      if (exportRooms.length === 0) {
+        toast.error('No rooms available to export');
+        return;
+      }
+      await downloadAllocationReportPDF({
+        hostel: selectedHostel,
+        rooms: exportRooms,
+        metrics,
+        user,
+      });
+      toast.success('Allocation PDF report downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export PDF: ' + err.message);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!selectedHostel) {
+      toast.error('Please select a hostel first');
+      return;
+    }
+    try {
+      setExportingExcel(true);
+      const exportRooms = await getRoomsForExport();
+      if (exportRooms.length === 0) {
+        toast.error('No rooms available to export');
+        return;
+      }
+      await exportAllocationsToExcel({
+        hostel: selectedHostel,
+        rooms: exportRooms,
+      });
+      toast.success('Allocation Excel spreadsheet downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export Excel: ' + err.message);
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   return (
@@ -181,11 +235,22 @@ export default function RoomAllocations() {
           <button
             type="button"
             className="btn btn-outline"
-            onClick={handleExportCsv}
+            onClick={handleExportPdf}
+            disabled={exportingPdf || rooms.length === 0}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <MdFileDownload size={18} />
-            Export CSV
+            <MdPictureAsPdf size={18} style={{ color: '#ef4444' }} />
+            {exportingPdf ? 'Exporting PDF...' : 'Export PDF'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={handleExportExcel}
+            disabled={exportingExcel || rooms.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <MdFileDownload size={18} style={{ color: '#10b981' }} />
+            {exportingExcel ? 'Exporting Excel...' : 'Export Excel'}
           </button>
           <button
             type="button"
@@ -196,6 +261,89 @@ export default function RoomAllocations() {
             <MdPersonAdd size={18} />
             Allocate Student
           </button>
+        </div>
+      </div>
+
+      {/* Select Hostel Section */}
+      <div
+        className="card"
+        style={{
+          padding: '16px 20px',
+          borderRadius: 14,
+          marginBottom: 20,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MdApartment style={{ color: 'var(--primary-light)', fontSize: 22 }} />
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>
+                Select Hostel
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 8 }}>
+                Choose hostel to view and manage its floor allocations
+              </span>
+            </div>
+          </div>
+          {selectedHostel && (
+            <span
+              style={{
+                fontSize: 12,
+                padding: '4px 12px',
+                borderRadius: 20,
+                background: 'rgba(139,92,246,0.15)',
+                color: 'var(--primary-light)',
+                fontWeight: 600,
+                border: '1px solid rgba(139,92,246,0.3)',
+              }}
+            >
+              Active: {getHostelLabel(selectedHostel.code)}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {hostels.map((h) => {
+            const isSelected = selectedHostel?._id === h._id || selectedHostel?.code === h.code;
+            return (
+              <div
+                key={h._id || h.code}
+                onClick={() => {
+                  if (selectedHostel?._id !== h._id && selectedHostel?.code !== h.code) {
+                    setSelectedHostel(h);
+                    setSelectedFloorId('ALL');
+                  }
+                }}
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: 10,
+                  border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  background: isSelected ? 'rgba(139,92,246,0.12)' : 'var(--bg-input)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: isSelected ? 'var(--primary-light)' : 'var(--text-primary)' }}>
+                    {getHostelLabel(h.code)}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {h.name || `Hostel ${h.code}`}
+                  </div>
+                </div>
+                {isSelected ? (
+                  <MdCheckCircle style={{ color: 'var(--primary)', fontSize: 20 }} />
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Select</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -458,6 +606,7 @@ export default function RoomAllocations() {
           isOpen={showAllocateModal}
           onClose={() => setShowAllocateModal(false)}
           floors={floors}
+          hostel={selectedHostel}
           onAllocated={loadRooms}
         />
       )}
