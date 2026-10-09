@@ -493,7 +493,7 @@ router.post('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security
       studentRoomNo: resolvedStudentRoom,
       studentApprovalStatus,
       status,
-      entryTime: now,
+      entryTime: isStudentVisit ? null : now,
       exitTime: null,
       date,
       entryGate: entryGate ? String(entryGate).trim() : 'Main Gate',

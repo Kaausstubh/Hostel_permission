@@ -3,7 +3,6 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdWarning, MdRefresh, MdPhone, MdAccessTime, MdInfoOutline } from 'react-icons/md';
-import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
 
 export default function NotReturned() {

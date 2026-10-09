@@ -919,6 +919,11 @@ body {
   letter-spacing: -0.3px;
 }
 .navbar-actions { display: flex; align-items: center; gap: 12px; }
+.navbar-time {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
 
 .mobile-nav-toggle {
   display: none;
@@ -2907,10 +2912,6 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
     margin-bottom: 6px;
   }
 
-  .stats-grid .stat-card {
-    width: 100%;
-    min-width: 0;
-  }
 
   .stats-grid-scroll-hint {
     display: none;

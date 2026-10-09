@@ -629,7 +629,7 @@ export default function VisitorManagement() {
         </div>
 
         {/* ── Table & List Area ── */}
-        <div className="table-wrapper">
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {loading ? (
             <div className="loading-page" style={{ padding: '60px 0' }}>
               <div className="loading-spinner" style={{ width: 40, height: 40 }} />
@@ -787,14 +787,18 @@ export default function VisitorManagement() {
 
                           {/* Entry Time */}
                           <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                            {log.entryTime
-                              ? new Date(log.entryTime).toLocaleTimeString('en-IN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                  hour12: false,
-                                })
-                              : (log.status === 'PENDING' ? 'Awaiting…' : '—')}
+                            {log.status === 'PENDING' ? (
+                              <span style={{ color: '#f59e0b', fontStyle: 'italic' }}>Awaiting…</span>
+                            ) : log.entryTime ? (
+                              new Date(log.entryTime).toLocaleTimeString('en-IN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: false,
+                              })
+                            ) : (
+                              '—'
+                            )}
                           </td>
 
                           {/* Exit Time */}
