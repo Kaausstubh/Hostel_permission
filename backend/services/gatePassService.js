@@ -13,6 +13,8 @@ const User = require('../models/User');
 const { renderQRValue } = require('./qrService');
 const { getRedis } = require('./redisClient');
 
+const DAILY_PASS_VALIDITY_MS = 15 * 60 * 1000; // Daily in/out pass valid for 15 minutes
+
 const createCompactToken = () => `IO-${crypto.randomBytes(8).toString('base64url')}`;
 
 /**
@@ -54,12 +56,13 @@ const syncPassToCache = async (pass, userDoc = null) => {
       reason: pass.reason || '',
       scanType,
       createdAt: pass.createdAt ? pass.createdAt.toISOString() : new Date().toISOString(),
-      expiresAt: null, // Persistent! No short expiry
+      validUntil: pass.valid_until ? pass.valid_until.toISOString() : null,
+      expiresAt: pass.valid_until ? pass.valid_until.toISOString() : null,
       token,
       passId: pass._id.toString(),
     };
 
-    // Store under pending_inout_request keys without short TTL
+    // Store under pending_inout_request keys
     await redis.set(`pending_inout_request:${studentId}`, JSON.stringify(cachePayload));
     await redis.set(`pending_inout_request_token:${token}`, studentId);
     await redis.sAdd('pending_inout_request_students', studentId);
@@ -159,8 +162,24 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
   }).sort({ createdAt: -1 });
 
   if (pendingPass) {
+    const now = Date.now();
+    const createdAtTime = new Date(pendingPass.createdAt || now).getTime();
+    const validUntilTime = pendingPass.valid_until
+      ? new Date(pendingPass.valid_until).getTime()
+      : createdAtTime + DAILY_PASS_VALIDITY_MS;
+
+    if (now > validUntilTime) {
+      // 15 minutes expired! Mark as EXPIRED and clear cache
+      pendingPass.status = 'EXPIRED';
+      await pendingPass.save().catch(() => {});
+      await removePassFromCache(pendingPass).catch(() => {});
+      return null;
+    }
+
     const { qrDataUrl, qrPublicUrl } = await renderPassQR(pendingPass.qr_token, sId);
     await syncPassToCache(pendingPass, userDoc);
+
+    const secondsLeft = Math.max(0, Math.round((validUntilTime - now) / 1000));
 
     return {
       pass: pendingPass,
@@ -169,6 +188,8 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
       token: pendingPass.qr_token,
       scanType: 'OUT',
       status: 'PENDING',
+      validUntil: new Date(validUntilTime).toISOString(),
+      expiresInSeconds: secondsLeft,
     };
   }
 
@@ -177,6 +198,7 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
 
 /**
  * Create a BRAND NEW gate pass for a student (direction OUT).
+ * Valid for strictly 15 minutes.
  * Always generates a fresh unique token, cancels any previous PENDING pass,
  * and renders a completely distinct QR code.
  */
@@ -194,8 +216,9 @@ const createNewPass = async (studentId, { place = '', reason = '' } = {}, userDo
     await removePassFromCache(p).catch(() => {});
   }
 
-  // Create brand new pass with high-entropy fresh token
+  // Create brand new pass with high-entropy fresh token (valid for 15 minutes)
   const token = createCompactToken();
+  const validUntil = new Date(Date.now() + DAILY_PASS_VALIDITY_MS);
   const pass = await GatePass.create({
     student_id: sId,
     pass_type: 'IN_OUT',
@@ -203,6 +226,7 @@ const createNewPass = async (studentId, { place = '', reason = '' } = {}, userDo
     status: 'PENDING',
     place: place || '',
     reason: reason || '',
+    valid_until: validUntil,
   });
 
   const { qrDataUrl, qrPublicUrl } = await renderPassQR(pass.qr_token, sId);
@@ -215,6 +239,8 @@ const createNewPass = async (studentId, { place = '', reason = '' } = {}, userDo
     token: pass.qr_token,
     scanType: 'OUT',
     status: 'PENDING',
+    validUntil: validUntil.toISOString(),
+    expiresInSeconds: 15 * 60,
   };
 };
 
@@ -321,6 +347,7 @@ const recordPassIn = async (tokenOrId, guardId, guardName) => {
 };
 
 module.exports = {
+  DAILY_PASS_VALIDITY_MS,
   createCompactToken,
   createNewPass,
   getActivePassForStudent,

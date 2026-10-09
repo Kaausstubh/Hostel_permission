@@ -297,6 +297,8 @@ router.get('/active-qr-pass', async (req, res) => {
         passKind: 'inout',
         scanType: activeInOut.scanType,
         status: activeInOut.status,
+        validUntil: activeInOut.validUntil || activeInOut.pass.valid_until,
+        passExpiresInSeconds: activeInOut.expiresInSeconds,
         token: dynPass.token,
         qrToken: dynPass.token,
         qrDataUrl: dynPass.qrDataUrl,
@@ -318,7 +320,7 @@ router.get('/active-qr-pass', async (req, res) => {
     return res.json({
       success: true,
       hasActivePass: false,
-      message: 'No active gate pass found. Please generate a new QR pass.',
+      message: 'No active gate pass found. Please generate a QR code to go out.',
     });
   } catch (err) {
     console.error('active-qr-pass error:', err);
@@ -398,6 +400,8 @@ router.post('/get-or-create-pass', async (req, res) => {
         passKind: 'inout',
         scanType: activeInOut.scanType,
         status: activeInOut.status,
+        validUntil: activeInOut.validUntil || activeInOut.pass.valid_until,
+        passExpiresInSeconds: activeInOut.expiresInSeconds,
         token: dynPass.token,
         qrToken: dynPass.token,
         qrDataUrl: dynPass.qrDataUrl,
@@ -420,7 +424,7 @@ router.post('/get-or-create-pass', async (req, res) => {
     res.json({
       success: true,
       hasActivePass: false,
-      message: 'No active gate pass found. Please generate a new QR pass.',
+      message: 'No active gate pass found. Please generate a QR code to go out.',
     });
   } catch (err) {
     console.error('get-or-create-pass error:', err);
@@ -494,7 +498,9 @@ router.post('/request-inout', async (req, res) => {
       expiresAt: dynPass.expiresAt,
       expiresInSeconds: dynPass.expiresInSeconds,
       refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
-      expiresIn: `${dynPass.expiresInSeconds}s (auto-rotating anti-screenshot pass)`,
+      passValidityMinutes: 15,
+      validUntil: activePass.validUntil || activePass.pass.valid_until,
+      expiresIn: '15 minutes (with 20s anti-screenshot dynamic rotation)',
       student: {
         name: user.name,
         rollNo: user.rollNo,

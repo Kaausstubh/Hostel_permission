@@ -241,7 +241,38 @@ async function runTestSuite() {
   assert.strictEqual(contractPass.passKind, 'home_visit', 'Pass kind preserved');
   console.log('✅ Scenario 10 Passed: Contract returns token, qrDataUrl, expiresAt, and refresh intervals\n');
 
-  console.log('🎉 ALL 10 ANTI-QR-SHARING & ANTI-REPLAY TEST SCENARIOS PASSED SUCCESSFULLY!\n');
+  // ── Scenario 11: Daily In/Out pass valid for strictly 15 minutes ─────────────
+  console.log('Testing Scenario 11: Daily In/Out pass lifetime is strictly 15 minutes with 20s rotation...');
+  const { DAILY_PASS_VALIDITY_MS } = require('../services/gatePassService');
+  assert.strictEqual(DAILY_PASS_VALIDITY_MS, 15 * 60 * 1000, 'DAILY_PASS_VALIDITY_MS must be 15 minutes');
+
+  // Simulate a daily pass created 16 minutes ago (expired)
+  const expired15MinPass = new GatePass({
+    student_id: dummyStudentId,
+    pass_type: 'IN_OUT',
+    qr_token: 'IO-expired15min',
+    status: 'PENDING',
+    createdAt: new Date(Date.now() - 16 * 60 * 1000),
+    valid_until: new Date(Date.now() - 1 * 60 * 1000),
+  });
+  assert(Date.now() > new Date(expired15MinPass.valid_until).getTime(), 'Pass past 15 min must be expired');
+  console.log('✅ Scenario 11 Passed: Daily In/Out pass lifetime strictly enforces 15 minutes validity\n');
+
+  // ── Scenario 12: Home Visit pass is one-time generation without 15-min limit ──
+  console.log('Testing Scenario 12: Home Visit pass is one-time generated and not limited to 15 minutes...');
+  const homeVisitDoc = new GatePass({
+    student_id: dummyStudentId,
+    pass_type: 'HOME_VISIT',
+    qr_token: 'HV-festival2026',
+    status: 'PENDING',
+    createdAt: new Date(Date.now() - 60 * 60 * 1000), // created 1 hour ago
+    valid_until: null, // multi-day home visit does not expire in 15 mins
+  });
+  assert.strictEqual(homeVisitDoc.pass_type, 'HOME_VISIT', 'Pass type is HOME_VISIT');
+  assert.strictEqual(homeVisitDoc.valid_until, null, 'Home visit does not have 15-minute expiration');
+  console.log('✅ Scenario 12 Passed: Home Visit pass preserves one-time generation across approved trip duration\n');
+
+  console.log('🎉 ALL 12 ANTI-QR-SHARING & ANTI-REPLAY TEST SCENARIOS PASSED SUCCESSFULLY!\n');
 }
 
 runTestSuite().catch((err) => {

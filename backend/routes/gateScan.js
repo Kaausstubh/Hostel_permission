@@ -159,6 +159,8 @@ const resolveScanPayload = async (token) => {
 const tokensMatch = (a, b) => String(a || '').trim() === String(b || '').trim();
 
 const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingRequest = null) => {
+  const DAILY_PASS_VALIDITY_MS = 15 * 60 * 1000;
+
   let pendingRequest = preloadedPendingRequest;
   if (!pendingRequest) {
     pendingRequest = await getPendingInOutRequest(payload.student_id);
@@ -169,6 +171,25 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       }).sort({ createdAt: -1 }).lean();
 
       if (gatePass) {
+        // Enforce 15-minute expiration window for daily OUT gate passes
+        if (gatePass.status === 'PENDING') {
+          const createdAtTime = new Date(gatePass.createdAt || Date.now()).getTime();
+          const validUntilTime = gatePass.valid_until
+            ? new Date(gatePass.valid_until).getTime()
+            : createdAtTime + DAILY_PASS_VALIDITY_MS;
+          if (Date.now() > validUntilTime) {
+            await GatePass.updateOne({ _id: gatePass._id }, { status: 'EXPIRED' }).catch(() => {});
+            return {
+              status: 400,
+              body: {
+                success: false,
+                code: 'EXPIRED',
+                message: 'Daily gate pass expired (valid for 15 minutes). Student must generate a new QR code to go out.',
+              },
+            };
+          }
+        }
+
         pendingRequest = {
           requestId: payload.student_id,
           requestType: 'inout_request',
@@ -178,6 +199,8 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
           reason: gatePass.reason || '',
           token: gatePass.qr_token,
           passId: gatePass._id.toString(),
+          validUntil: gatePass.valid_until,
+          createdAt: gatePass.createdAt,
         };
       }
     }
@@ -213,6 +236,28 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
         message: 'No active gate pass found for this student. Student must generate a pass from dashboard.',
       },
     };
+  }
+
+  // Enforce 15-minute expiration if pending request was loaded from Redis
+  if (pendingRequest.scanType === 'OUT') {
+    const createdAtTime = new Date(pendingRequest.createdAt || Date.now()).getTime();
+    const validUntilTime = pendingRequest.validUntil || pendingRequest.expiresAt
+      ? new Date(pendingRequest.validUntil || pendingRequest.expiresAt).getTime()
+      : createdAtTime + DAILY_PASS_VALIDITY_MS;
+
+    if (Date.now() > validUntilTime) {
+      if (pendingRequest.passId) {
+        await GatePass.updateOne({ _id: pendingRequest.passId }, { status: 'EXPIRED' }).catch(() => {});
+      }
+      return {
+        status: 400,
+        body: {
+          success: false,
+          code: 'EXPIRED',
+          message: 'Daily gate pass expired (valid for 15 minutes). Student must generate a new QR code to go out.',
+        },
+      };
+    }
   }
 
   // Fetch student and active log concurrently (survives midnight & multi-day absence)

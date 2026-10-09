@@ -618,6 +618,16 @@ export default function StudentDashboard() {
               return p;
             })
           );
+        } else if (res.data?.success && !res.data?.hasActivePass) {
+          // Pass expired after 15 minutes!
+          setZoomedQR(null);
+          setActivePasses([]);
+          toast.error(res.data.message || 'Daily gate pass expired (valid for 15 minutes). Please generate a QR code to go out.', {
+            duration: 6000,
+            id: 'pass-expired-toast',
+          });
+          setShowGenerateQrModal(true);
+          checkActivePassSilently();
         }
       } catch (err) {
         // Silent background refresh
@@ -1979,6 +1989,8 @@ export default function StudentDashboard() {
 
       if (s?.pendingVisits?.length > 0) {
         toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
+      } else {
+        toast('No active QR code. Please generate a QR code to go out.', { icon: 'ℹ️' });
       }
 
       // No active pass found -> Pop up the "Generate New QR" modal
@@ -2018,6 +2030,8 @@ export default function StudentDashboard() {
         } else {
           statusMsg += `\nStatus: QR active for return scan`;
         }
+      } else if (!s.approvedVisits || s.approvedVisits.length === 0) {
+        statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate QR Pass* below to create a 15-minute gate pass.`;
       }
 
       if (s.pendingVisits?.length > 0) {
@@ -3391,78 +3405,95 @@ export default function StudentDashboard() {
               <span>LIVE ACTIVE PASS • <LiveGatePassClock /></span>
             </div>
 
-            {/* Dynamic Anti-Screenshot Rotating Badge */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '6px 16px',
-                borderRadius: 999,
-                background: theme === 'light' ? '#f0fdf4' : 'rgba(99, 102, 241, 0.14)',
-                border: theme === 'light' ? '1px solid #bbf7d0' : '1px solid rgba(99, 102, 241, 0.35)',
-                color: theme === 'light' ? '#15803d' : '#a5b4fc',
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: '0.02em',
-              }}
-            >
-              <span
-                style={{
-                  display: 'inline-block',
-                  animation: isRotatingQr ? 'spin 0.8s linear infinite' : 'none',
-                  fontSize: 14,
-                }}
-              >
-                🔄
-              </span>
-              <span>
-                {isRotatingQr
-                  ? 'Refreshing secure token…'
-                  : `Dynamic Anti-Replay Pass • Rotating in ${qrCountdown}s`}
-              </span>
-            </div>
+            {/* Dynamic Anti-Screenshot Rotating Badge & Pass Validity */}
+            {(() => {
+              const isHomeVisit = zoomedQR.passKind === 'home_visit' || String(zoomedQR.tabLabel || '').toLowerCase().includes('home');
+              return (
+                <>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 16px',
+                      borderRadius: 999,
+                      background: theme === 'light'
+                        ? (isHomeVisit ? '#eff6ff' : '#f0fdf4')
+                        : (isHomeVisit ? 'rgba(59, 130, 246, 0.16)' : 'rgba(99, 102, 241, 0.14)'),
+                      border: theme === 'light'
+                        ? (isHomeVisit ? '1px solid #bfdbfe' : '1px solid #bbf7d0')
+                        : (isHomeVisit ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(99, 102, 241, 0.35)'),
+                      color: theme === 'light'
+                        ? (isHomeVisit ? '#1d4ed8' : '#15803d')
+                        : (isHomeVisit ? '#93c5fd' : '#a5b4fc'),
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        animation: isRotatingQr ? 'spin 0.8s linear infinite' : 'none',
+                        fontSize: 14,
+                      }}
+                    >
+                      🔄
+                    </span>
+                    <span>
+                      {isRotatingQr
+                        ? 'Refreshing secure token…'
+                        : isHomeVisit
+                        ? `Approved Home Visit • Rotating in ${qrCountdown}s`
+                        : `Daily Pass (Valid 15 Mins) • Rotating in ${qrCountdown}s`}
+                    </span>
+                  </div>
 
-            {/* QR image */}
-            <div style={{
-              background: '#ffffff',
-              padding: 16,
-              borderRadius: 16,
-              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              userSelect: 'none',
-              WebkitTouchCallout: 'none',
-            }}>
-              <img
-                src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
-                alt="Gate Pass QR"
-                onContextMenu={(e) => e.preventDefault()}
-                style={{
-                  width: isMobile ? 220 : 280,
-                  height: isMobile ? 220 : 280,
-                  borderRadius: 0,
-                  display: 'block',
-                  imageRendering: 'pixelated',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                  WebkitUserDrag: 'none',
-                }}
-              />
-            </div>
+                  {/* QR image */}
+                  <div style={{
+                    background: '#ffffff',
+                    padding: 16,
+                    borderRadius: 16,
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    userSelect: 'none',
+                    WebkitTouchCallout: 'none',
+                  }}>
+                    <img
+                      src={zoomedQR.dataUrl || zoomedQR.qrDataUrl}
+                      alt="Gate Pass QR"
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{
+                        width: isMobile ? 220 : 280,
+                        height: isMobile ? 220 : 280,
+                        borderRadius: 0,
+                        display: 'block',
+                        imageRendering: 'pixelated',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                        WebkitUserDrag: 'none',
+                      }}
+                    />
+                  </div>
 
-            {/* Security limitation notice */}
-            <div style={{
-              fontSize: 11,
-              color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.55)',
-              textAlign: 'center',
-              maxWidth: 320,
-              lineHeight: 1.35,
-            }}>
-              🔒 Screenshots expire in 20s. Present this live screen directly to the security guard at the gate for photo verification.
-            </div>
+                  {/* Security limitation notice */}
+                  <div style={{
+                    fontSize: 11,
+                    color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.55)',
+                    textAlign: 'center',
+                    maxWidth: 320,
+                    lineHeight: 1.35,
+                  }}>
+                    {isHomeVisit
+                      ? '🏡 One-time generated pass for approved home visit. Dynamic token refreshes every 20s. Screenshots are rejected.'
+                      : '🔒 Daily pass is valid for 15 minutes. Dynamic token refreshes every 20s. Present this live screen directly to the security guard.'}
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Directional instruction banner at downside */}
             <div

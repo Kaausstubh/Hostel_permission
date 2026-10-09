@@ -113,6 +113,29 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 
       if (!existing) {
         status = 'OUT';
+        const gatePass = await GatePass.findOne({
+          student_id: studentId,
+          status: 'PENDING',
+        }).sort({ createdAt: -1 });
+
+        if (gatePass) {
+          const createdAtTime = new Date(gatePass.createdAt || Date.now()).getTime();
+          const validUntilTime = gatePass.valid_until
+            ? new Date(gatePass.valid_until).getTime()
+            : createdAtTime + (15 * 60 * 1000);
+          if (Date.now() > validUntilTime) {
+            await GatePass.updateOne({ _id: gatePass._id }, { status: 'EXPIRED' }).catch(() => {});
+            return {
+              status: 400,
+              body: {
+                success: false,
+                code: 'EXPIRED',
+                message: 'Daily gate pass expired (valid for 15 minutes). Student must generate a new QR code to go out.',
+              },
+            };
+          }
+        }
+
         const guardName = req.user.name || req.user.rollNo || req.user.email || 'Security Guard';
         try {
           const photo = student.studentPhoto || (student.picture && !student.picture.includes('googleusercontent.com') ? student.picture : null) || student.picture || '';
