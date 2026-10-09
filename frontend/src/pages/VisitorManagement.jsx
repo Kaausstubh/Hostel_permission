@@ -20,6 +20,7 @@ import {
   MdClose,
   MdPhone,
   MdApartment,
+  MdKeyboardArrowDown,
 } from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
@@ -469,59 +470,58 @@ export default function VisitorManagement() {
         </div>
 
         {/* ── Controls Bar: Tabs, Search, Filters & Export ── */}
-        <div className="card" style={{ marginBottom: 20, padding: '16px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="visitor-controls-header">
             {/* Tab Filter */}
-            <div className="tabs" style={{ margin: 0, padding: 3, flex: 'none' }}>
-              <button
-                type="button"
-                className={`tab ${activeTab === 'all' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('all'); setPage(1); }}
-                style={{ minWidth: 90, padding: '7px 14px' }}
-              >
-                All Logs ({summary.totalToday})
-              </button>
-              <button
-                type="button"
-                className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('pending'); setPage(1); }}
-                style={{ minWidth: 100, padding: '7px 14px', position: 'relative' }}
-              >
-                Pending Approval
-                {summary.totalPending > 0 && (
-                  <span style={{
-                    marginLeft: 6,
-                    background: '#f59e0b',
-                    color: '#000',
-                    borderRadius: '10px',
-                    padding: '1px 6px',
-                    fontSize: 11,
-                    fontWeight: 800,
-                  }}>
-                    {summary.totalPending}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                className={`tab ${activeTab === 'inside' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('inside'); setPage(1); }}
-                style={{ minWidth: 90, padding: '7px 14px' }}
-              >
-                Inside ({summary.totalInsideHeadcount} People)
-              </button>
-              <button
-                type="button"
-                className={`tab ${activeTab === 'exited' ? 'active' : ''}`}
-                onClick={() => { setActiveTab('exited'); setPage(1); }}
-                style={{ minWidth: 80, padding: '7px 14px' }}
-              >
-                Exited
-              </button>
+            <div className="visitor-tabs-wrap">
+              <div className="tabs">
+                <button
+                  type="button"
+                  className={`tab ${activeTab === 'all' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('all'); setPage(1); }}
+                >
+                  All Logs ({summary.totalToday})
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('pending'); setPage(1); }}
+                  style={{ position: 'relative' }}
+                >
+                  Pending Approval
+                  {summary.totalPending > 0 && (
+                    <span style={{
+                      marginLeft: 6,
+                      background: '#f59e0b',
+                      color: '#000',
+                      borderRadius: '10px',
+                      padding: '1px 6px',
+                      fontSize: 11,
+                      fontWeight: 800,
+                    }}>
+                      {summary.totalPending}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${activeTab === 'inside' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('inside'); setPage(1); }}
+                >
+                  Inside ({summary.totalInsideHeadcount} People)
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${activeTab === 'exited' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('exited'); setPage(1); }}
+                >
+                  Exited
+                </button>
+              </div>
             </div>
 
             {/* Export Actions */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="visitor-export-actions">
               <button
                 type="button"
                 className="btn-pill-light"
@@ -553,9 +553,9 @@ export default function VisitorManagement() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="visitor-filters-row">
             {/* Search bar */}
-            <div className="search-box-wrapper" style={{ flex: 1, minWidth: 260, position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <div className="visitor-search-box">
               <MdSearch size={20} className="search-icon" style={{ position: 'absolute', left: 14, color: 'var(--text-muted)', pointerEvents: 'none' }} />
               <input
                 type="text"
@@ -588,48 +588,56 @@ export default function VisitorManagement() {
               )}
             </div>
 
-            {/* Purpose Filter */}
-            <select
-              className="form-select"
-              value={purposeFilter}
-              onChange={(e) => { setPurposeFilter(e.target.value); setPage(1); }}
-              style={{ maxWidth: 200 }}
-            >
-              <option value="all">All Purposes</option>
-              {VISITOR_PURPOSES.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            <div className="visitor-filter-secondary">
+              {/* Purpose Filter with Arrow Indicator */}
+              <div className="select-wrapper" style={{ flex: '1 1 170px', minWidth: 140 }}>
+                <select
+                  className="form-select"
+                  value={purposeFilter}
+                  onChange={(e) => { setPurposeFilter(e.target.value); setPage(1); }}
+                >
+                  <option value="all">All Purposes</option>
+                  {VISITOR_PURPOSES.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <MdKeyboardArrowDown className="select-arrow-icon" size={18} />
+              </div>
 
-            {/* Vehicle Only Toggle */}
-            <button
-              type="button"
-              className={`btn btn-sm ${vehicleOnlyFilter ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => { setVehicleOnlyFilter(!vehicleOnlyFilter); setPage(1); }}
-              title="Filter visitors bringing vehicles"
-            >
-              <MdDirectionsCar size={16} />
-              <span>Vehicles Only</span>
-            </button>
-
-            {/* Date Filter */}
-            <input
-              type="date"
-              className="form-input"
-              value={dateFilter}
-              onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-              style={{ maxWidth: 160 }}
-            />
-            {dateFilter && (
+              {/* Vehicle Only Toggle */}
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => { setDateFilter(''); setPage(1); }}
-                title="Clear date filter"
+                className={`btn btn-sm ${vehicleOnlyFilter ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { setVehicleOnlyFilter(!vehicleOnlyFilter); setPage(1); }}
+                title="Filter visitors bringing vehicles"
+                style={{ height: '42px', flex: '1 1 auto', justifyContent: 'center' }}
               >
-                Clear Date
+                <MdDirectionsCar size={16} />
+                <span>Vehicles Only</span>
               </button>
-            )}
+            </div>
+
+            {/* Date Filter */}
+            <div className="visitor-date-group">
+              <input
+                type="date"
+                className="form-input"
+                value={dateFilter}
+                onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+                style={{ flex: 1, minWidth: 130 }}
+              />
+              {dateFilter && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => { setDateFilter(''); setPage(1); }}
+                  title="Clear date filter"
+                  style={{ flexShrink: 0 }}
+                >
+                  Clear Date
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -950,19 +958,26 @@ export default function VisitorManagement() {
               <form onSubmit={handleSubmit}>
                 {/* Purpose Selector */}
                 <div className="form-group">
-                  <label className="form-label">
-                    Purpose of Visit *
+                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Purpose of Visit *</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      Select dropdown <MdKeyboardArrowDown size={15} />
+                    </span>
                   </label>
-                  <select
-                    className="form-select"
-                    value={formData.purpose}
-                    onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
-                    required
-                  >
-                    {VISITOR_PURPOSES.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
+                  <div className="select-wrapper">
+                    <select
+                      className="form-select"
+                      value={formData.purpose}
+                      onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+                      required
+                      id="visitor-purpose-select"
+                    >
+                      {VISITOR_PURPOSES.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    <MdKeyboardArrowDown className="select-arrow-icon" size={20} />
+                  </div>
                 </div>
 
                 {/* Student Details (if purpose is 'Meeting a student') */}
@@ -1109,16 +1124,19 @@ export default function VisitorManagement() {
                       </div>
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Hostel *</label>
-                        <select
-                          className="form-select"
-                          value={formData.studentHostel}
-                          onChange={(e) => setFormData({ ...formData, studentHostel: e.target.value })}
-                          required
-                        >
-                          {HOSTELS.map((h) => (
-                            <option key={h.value} value={h.value}>{h.label}</option>
-                          ))}
-                        </select>
+                        <div className="select-wrapper">
+                          <select
+                            className="form-select"
+                            value={formData.studentHostel}
+                            onChange={(e) => setFormData({ ...formData, studentHostel: e.target.value })}
+                            required
+                          >
+                            {HOSTELS.map((h) => (
+                              <option key={h.value} value={h.value}>{h.label}</option>
+                            ))}
+                          </select>
+                          <MdKeyboardArrowDown className="select-arrow-icon" size={18} />
+                        </div>
                       </div>
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Room No *</label>
