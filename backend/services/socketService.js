@@ -121,7 +121,7 @@ const initSocketIO = (httpServer) => {
     });
 
     socket.on('subscribe_hostel', (hostel) => {
-      if (typeof hostel === 'string' && ['BH1', 'BH2', 'GH', 'ALL'].includes(hostel.toUpperCase())) {
+      if (typeof hostel === 'string' && ['BH1', 'BH2', 'GH', 'GH1', 'GH2', 'ALL'].includes(hostel.toUpperCase())) {
         socket.join(`hostel:${hostel.toUpperCase()}`);
         logger.debug('[Socket] Client subscribed to hostel room', { hostel, socketId: socket.id });
       }

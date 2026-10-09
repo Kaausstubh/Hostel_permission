@@ -532,10 +532,10 @@ router.post('/complaint', async (req, res) => {
     }
 
     const complaintHostel = (hostel || user.hostel || 'BH1').toUpperCase();
-    if (!['BH1', 'BH2', 'GH'].includes(complaintHostel)) {
+    if (!['BH1', 'BH2', 'GH', 'GH1', 'GH2'].includes(complaintHostel)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid hostel is required (BH1, BH2, or GH)',
+        message: 'Valid hostel is required (BH1, BH2, GH1, or GH2)',
       });
     }
 
@@ -775,12 +775,12 @@ router.put('/onboard', async (req, res) => {
     const normalizedParentPhone2 = parent2Check.e164;
 
     // Validate hostel selection
-    const allowedHostels = ['BH1', 'BH2', 'GH'];
+    const allowedHostels = ['BH1', 'BH2', 'GH', 'GH1', 'GH2'];
     const normalizedHostel = String(hostel).trim().toUpperCase();
     if (!allowedHostels.includes(normalizedHostel)) {
       return res.status(400).json({
         success: false,
-        message: 'Hostel must be BH1, BH2, or GH.',
+        message: 'Hostel must be BH1, BH2, GH1, or GH2.',
       });
     }
 

@@ -204,7 +204,8 @@ export default function Register() {
               <option value="">Select hostel...</option>
               <option value="BH1">Brahmaputra (BH1)</option>
               <option value="BH2">Krishna (BH2)</option>
-              <option value="GH">Indrayani (GH)</option>
+              <option value="GH1">Indrayani (GH1)</option>
+              <option value="GH2">Sindhu (GH2)</option>
             </select>
           </div>
 

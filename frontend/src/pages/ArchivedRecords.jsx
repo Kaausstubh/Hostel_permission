@@ -122,8 +122,9 @@ export default function ArchivedRecords() {
       }
 
       if (hostelFilter && hostelFilter !== 'all') {
-        rawGate = rawGate.filter(l => (l.hostel || l.student_id?.hostel) === hostelFilter);
-        rawHome = rawHome.filter(h => (h.hostel || h.student_id?.hostel) === hostelFilter);
+        const matchesH = (hVal) => hostelFilter === 'GH1' ? (hVal === 'GH1' || hVal === 'GH') : hVal === hostelFilter;
+        rawGate = rawGate.filter(l => matchesH(l.hostel || l.student_id?.hostel));
+        rawHome = rawHome.filter(h => matchesH(h.hostel || h.student_id?.hostel));
       }
 
       if (rawGate.length === 0 && rawHome.length === 0) {
@@ -136,7 +137,7 @@ export default function ArchivedRecords() {
         homeLogs: exportType === 'gate' ? [] : rawHome,
         user,
         period: selectedMonth || (startDate && endDate ? `${startDate} to ${endDate}` : 'All Records'),
-        hostelFilter: hostelFilter === 'all' ? 'All Hostels (Brahmaputra, Krishna, Indrayani)' : (HOSTEL_NAME_MAP[hostelFilter] || hostelFilter),
+        hostelFilter: hostelFilter === 'all' ? 'All Hostels (Brahmaputra, Krishna, Indrayani, Sindhu)' : (HOSTEL_NAME_MAP[hostelFilter] || hostelFilter),
       });
 
       toast.success('PDF report generated and downloaded successfully!', { id: toastId });
@@ -465,10 +466,11 @@ export default function ArchivedRecords() {
                 value={hostelFilter}
                 onChange={(e) => setHostelFilter(e.target.value)}
               >
-                <option value="all">All Hostels (Brahmaputra, Krishna, Indrayani)</option>
+                <option value="all">All Hostels (Brahmaputra, Krishna, Indrayani, Sindhu)</option>
                 <option value="BH1">Brahmaputra (BH1)</option>
                 <option value="BH2">Krishna (BH2)</option>
-                <option value="GH">Indrayani (GH)</option>
+                <option value="GH1">Indrayani (GH1)</option>
+                <option value="GH2">Sindhu (GH2)</option>
               </select>
             </div>
           </div>

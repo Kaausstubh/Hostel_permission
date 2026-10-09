@@ -114,7 +114,11 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
 
     // Optional filters
     const filter = { role: 'student' };
-    if (hostel) filter.hostel = hostel;
+    if (hostel === 'GH1' || hostel === 'GH') {
+      filter.hostel = { $in: ['GH1', 'GH'] };
+    } else if (hostel) {
+      filter.hostel = hostel;
+    }
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },

@@ -89,15 +89,16 @@ export default function WardenStudents() {
 
   const totalRegistered = totalCount || students.length;
 
-  const { countBH1, countBH2, countGH, countUnassigned } = useMemo(() => {
-    let bh1 = 0, bh2 = 0, gh = 0, unassigned = 0;
+  const { countBH1, countBH2, countGH1, countGH2, countUnassigned } = useMemo(() => {
+    let bh1 = 0, bh2 = 0, gh1 = 0, gh2 = 0, unassigned = 0;
     for (const s of students) {
       if (s.hostel === 'BH1') bh1++;
       else if (s.hostel === 'BH2') bh2++;
-      else if (s.hostel === 'GH') gh++;
+      else if (s.hostel === 'GH1' || s.hostel === 'GH') gh1++;
+      else if (s.hostel === 'GH2') gh2++;
       else unassigned++;
     }
-    return { countBH1: bh1, countBH2: bh2, countGH: gh, countUnassigned: unassigned };
+    return { countBH1: bh1, countBH2: bh2, countGH1: gh1, countGH2: gh2, countUnassigned: unassigned };
   }, [students]);
 
   const filteredStudents = useMemo(() => {
@@ -110,7 +111,9 @@ export default function WardenStudents() {
           ? true
           : selectedHostel === 'UNASSIGNED'
             ? !student.hostel
-            : student.hostel === selectedHostel;
+            : selectedHostel === 'GH1'
+              ? (student.hostel === 'GH1' || student.hostel === 'GH')
+              : student.hostel === selectedHostel;
       if (!matchesHostel) return false;
       if (!q) return true;
 
@@ -230,15 +233,31 @@ export default function WardenStudents() {
             style={{
               padding: '14px 18px',
               cursor: 'pointer',
-              border: selectedHostel === 'GH' ? '2px solid var(--primary)' : 'var(--border)',
+              border: selectedHostel === 'GH1' ? '2px solid var(--primary)' : 'var(--border)',
             }}
-            onClick={() => setSelectedHostel('GH')}
+            onClick={() => setSelectedHostel('GH1')}
           >
-            <div className="stat-label">Indrayani (GH)</div>
+            <div className="stat-label">Indrayani (GH1)</div>
             <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#ec4899' }}>
-              {loading ? '—' : countGH}
+              {loading ? '—' : countGH1}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Indrayani (GH)</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Indrayani (GH1)</div>
+          </div>
+
+          <div
+            className="stat-card fade-in"
+            style={{
+              padding: '14px 18px',
+              cursor: 'pointer',
+              border: selectedHostel === 'GH2' ? '2px solid var(--primary)' : 'var(--border)',
+            }}
+            onClick={() => setSelectedHostel('GH2')}
+          >
+            <div className="stat-label">Sindhu (GH2)</div>
+            <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#06b6d4' }}>
+              {loading ? '—' : countGH2}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Sindhu (GH2)</div>
           </div>
 
           {countUnassigned > 0 && (

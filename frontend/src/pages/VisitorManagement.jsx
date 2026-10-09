@@ -24,17 +24,13 @@ import {
 import { RiFilePdf2Line, RiFileExcel2Line } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
 import { VISITOR_PURPOSES, PURPOSE_STUDENT_REQUIRED, PURPOSE_OTHER } from '../constants/visitorPurposes';
-import { getHostelLabel } from '../utils/hostel';
+import { getHostelLabel, HOSTEL_OPTIONS } from '../utils/hostel';
 import { downloadVisitorRecordsExcel } from '../utils/excelReportGenerator';
 import { downloadVisitorRecordsPDF } from '../utils/pdfReportGenerator';
 import { resolveBackendOrigin } from '../services/backendUrl';
 import io from 'socket.io-client';
 
-const HOSTELS = [
-  { value: 'BH1', label: 'Brahmaputra (BH1)' },
-  { value: 'BH2', label: 'Krishna (BH2)' },
-  { value: 'GH', label: 'Indrayani (GH)' },
-];
+const HOSTELS = HOSTEL_OPTIONS;
 
 export default function VisitorManagement() {
   const { user } = useAuth();
