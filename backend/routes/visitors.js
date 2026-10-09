@@ -4,10 +4,14 @@
  * GET  /api/visitors          - List visitor records with search (name, phone, student, vehicleNumber),
  *                               hasVehicle filter, status, purpose, date, and headcount statistics.
  * GET  /api/visitors/inside   - Quick list of all visitors currently inside campus with headcount sum.
+ * GET  /api/visitors/students-search - Autocomplete search for student hosts.
+ * GET  /api/visitors/my-pending - Get pending visitor approval requests for student.
+ * POST /api/visitors/:id/student-response - Student approves/rejects visitor pass.
+ * POST /api/visitors/:id/staff-action - Staff override / approval at gate.
  * POST /api/visitors          - Manual visitor entry (Duty Guard / Warden).
  * POST /api/visitors/:id/exit - Mark visitor as exited.
  * POST /api/visitors/webhook  - Webhook for Google Form submissions (via Apps Script).
- * GET  /api/visitors/export   - Export visitor data with aggregated headcount for PDF/Excel.
+ * GET  /api/visitors/export-data - Export visitor data with aggregated headcount for PDF/Excel.
  * DELETE /api/visitors/:id    - Delete visitor log (Warden / Admin only).
  */
 
@@ -638,7 +642,7 @@ router.post('/webhook', async (req, res) => {
 
     // Validate Phone
     if (!phone || !String(phone).trim()) {
-      return res.status(400).json({ success: false, message: 'Visitor phone is required.' });
+      return res.status(400).json({ success: false, message: 'Visitor phone number is required.' });
     }
     const phoneValidation = validateIndianPhone(phone, 'Visitor phone');
     const normalizedPhone = phoneValidation.valid ? phoneValidation.e164 : String(phone).trim();

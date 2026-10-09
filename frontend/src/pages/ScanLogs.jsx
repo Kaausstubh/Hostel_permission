@@ -55,6 +55,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
   const [homeTotalCount, setHomeTotalCount] = useState(0);
   const [homeHasMore, setHomeHasMore] = useState(false);
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const [showStorageCard, setShowStorageCard] = useState(false);
   const { user } = useAuth();
   const isWarden = ['warden', 'hostel_staff', 'admin'].includes(user?.role);
 
@@ -570,6 +571,78 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               )}
             </div>
 
+            {/* 80%+ Storage Trigger Alert Button in Toolbar (Pops up when memory >= 80% / 400 MB) */}
+            {Boolean(
+              storageStats?.total?.isOver80Percent ||
+              (storageStats?.total?.percentUsed && storageStats.total.percentUsed >= 80) ||
+              (storageStats?.total?.sizeBytes && storageStats.total.sizeBytes >= 400 * 1024 * 1024) ||
+              storageStats?.total?.alertLevel === 'CRITICAL' ||
+              storageStats?.total?.alertLevel === 'WARNING'
+            ) && (
+              <button
+                type="button"
+                className="btn-pill-light btn-pill-danger fade-in"
+                onClick={() => {
+                  setShowStorageCard(true);
+                  window.dispatchEvent(new CustomEvent('open-storage-limit-modal'));
+                }}
+                style={{
+                  animation: 'pulse-red 1.8s infinite',
+                  border: '1.5px solid #ef4444',
+                  background: 'rgba(239, 68, 68, 0.14)',
+                  color: '#ef4444',
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  borderRadius: 99,
+                }}
+                title="⚠️ Storage limit reached 80% (400 MB)! Click to open Storage Alert Modal & Purge Options"
+              >
+                <MdWarning size={16} color="#ef4444" />
+                <span>⚠️ Storage Alert ({storageStats?.total?.percentUsed || 80}%)</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className={`btn-pill-light ${showStorageCard ? 'btn-pill-primary' : ''}`}
+              onClick={() => {
+                const next = !showStorageCard;
+                setShowStorageCard(next);
+                if (next && !storageStats) {
+                  fetchStorageStats();
+                }
+              }}
+              title={showStorageCard ? "Hide storage & system memory stats" : "Show storage & system memory stats"}
+              style={{ position: 'relative' }}
+            >
+              <MdStorage size={17} color={showStorageCard ? 'var(--primary)' : 'var(--text-secondary)'} />
+              <span>{showStorageCard ? 'Hide Storage' : 'Storage Info'}</span>
+              {Boolean(
+                storageStats?.total?.isOver80Percent ||
+                (storageStats?.total?.percentUsed && storageStats.total.percentUsed >= 80) ||
+                (storageStats?.total?.sizeBytes && storageStats.total.sizeBytes >= 400 * 1024 * 1024) ||
+                storageStats?.total?.alertLevel === 'CRITICAL' ||
+                storageStats?.total?.alertLevel === 'WARNING'
+              ) && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 3,
+                    right: 3,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: '#ef4444',
+                    boxShadow: '0 0 6px #ef4444',
+                  }}
+                />
+              )}
+            </button>
+
             <button
               type="button"
               className="btn-pill-dark"
@@ -583,48 +656,62 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
           </div>
         </div>
 
-        {/* ── Storage Capacity & Memory Alert Card for Hostel Staff ── */}
+        {/* ── Storage Capacity & Memory Alert Card for Hostel Staff (Revealed on Click) ── */}
+        {showStorageCard && (
         <div
           className="card fade-in"
           style={{
             marginBottom: 16,
-            padding: '16px 20px',
+            padding: '16px 18px',
             background: 'var(--bg-card)',
+            borderRadius: 'var(--radius-lg, 12px)',
             border: storageStats?.total?.alertLevel === 'CRITICAL'
               ? '1.5px solid #ef4444'
-              : storageStats?.total?.alertLevel === 'WARNING'
+              : storageStats?.total?.alertLevel === 'WARNING' || (storageStats?.total?.percentUsed >= 80)
                 ? '1.5px solid #f59e0b'
                 : '1px solid var(--border)',
             boxShadow: storageStats?.total?.alertLevel === 'CRITICAL'
               ? '0 0 20px rgba(239, 68, 68, 0.15)'
-              : 'none',
+              : 'var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.05))',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Header Row: Title & Badges on Left, Actions & Hide on Right */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 12,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 auto' }}>
               <div style={{
                 width: 38,
                 height: 38,
+                minWidth: 38,
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 background: storageStats?.total?.alertLevel === 'CRITICAL'
                   ? 'rgba(239, 68, 68, 0.15)'
-                  : storageStats?.total?.alertLevel === 'WARNING'
+                  : (storageStats?.total?.alertLevel === 'WARNING' || (storageStats?.total?.percentUsed >= 80))
                     ? 'rgba(245, 158, 11, 0.15)'
-                    : 'rgba(99, 102, 241, 0.15)',
+                    : 'rgba(99, 102, 241, 0.12)',
                 color: storageStats?.total?.alertLevel === 'CRITICAL'
                   ? '#ef4444'
-                  : storageStats?.total?.alertLevel === 'WARNING'
+                  : (storageStats?.total?.alertLevel === 'WARNING' || (storageStats?.total?.percentUsed >= 80))
                     ? '#f59e0b'
                     : 'var(--primary)',
+                flexShrink: 0,
               }}>
                 <MdStorage size={20} />
               </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>Log Storage & System Memory</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+                    Log Storage & System Memory
+                  </span>
                   <span
                     style={{
                       fontSize: 11,
@@ -632,57 +719,59 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                       padding: '2px 8px',
                       borderRadius: 99,
                       background: storageStats?.total?.alertLevel === 'CRITICAL'
-                        ? 'rgba(239, 68, 68, 0.2)'
-                        : storageStats?.total?.alertLevel === 'WARNING'
-                          ? 'rgba(245, 158, 11, 0.2)'
-                          : 'rgba(16, 185, 129, 0.2)',
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
+                          ? 'rgba(245, 158, 11, 0.15)'
+                          : 'rgba(16, 185, 129, 0.15)',
                       color: storageStats?.total?.alertLevel === 'CRITICAL'
                         ? '#ef4444'
-                        : storageStats?.total?.alertLevel === 'WARNING'
+                        : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
                           ? '#f59e0b'
                           : '#10b981',
                       border: storageStats?.total?.alertLevel === 'CRITICAL'
-                        ? '1px solid rgba(239, 68, 68, 0.4)'
-                        : storageStats?.total?.alertLevel === 'WARNING'
-                          ? '1px solid rgba(245, 158, 11, 0.4)'
-                          : '1px solid rgba(16, 185, 129, 0.4)',
+                        ? '1px solid rgba(239, 68, 68, 0.3)'
+                        : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
+                          ? '1px solid rgba(245, 158, 11, 0.3)'
+                          : '1px solid rgba(16, 185, 129, 0.3)',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     {storageStats?.total?.alertLevel === 'CRITICAL'
-                      ? '🚨 CRITICAL ALERT (90%+ Used)'
+                      ? '🚨 CRITICAL ALERT (90%+)'
                       : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
                         ? '⚠️ STORAGE LIMIT ALERT (≥80% / 400 MB)'
                         : '✅ Memory Healthy'}
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.35 }}>
                   Active institutional logs memory consumption (500 MB capacity quota, 400 MB warning limit)
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Quick Action Pills and Hide Button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
               {isWarden && (
                 <>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => window.dispatchEvent(new CustomEvent('open-storage-limit-modal'))}
-                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: '#f87171' }}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: '#ef4444', background: 'rgba(239, 68, 68, 0.08)', borderRadius: 8, padding: '5px 10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}
                     title="View 80% (400 MB) Storage Limit Pop-Up Alert"
                   >
-                    <MdWarning size={16} color="#ef4444" />
-                    <span>80% Alert Pop-up</span>
+                    <MdWarning size={14} color="#ef4444" />
+                    <span>80% Pop-up</span>
                   </button>
 
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => setPurgeModalOpen(true)}
-                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8, padding: '5px 10px', border: '1px solid var(--border)' }}
                     title="Purge logs older than a specific date to free memory"
                   >
-                    <MdDeleteSweep size={16} color="#f59e0b" />
+                    <MdDeleteSweep size={14} color="#f59e0b" />
                     <span>Purge by Date</span>
                   </button>
 
@@ -690,31 +779,34 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => setAuditModalOpen(true)}
-                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8, padding: '5px 10px', border: '1px solid var(--border)' }}
                     title="View audit trail of which hostel staff member deleted logs"
                   >
-                    <MdSecurity size={16} color="var(--primary-light)" />
-                    <span>Deletion Audit Trail ({storageStats?.recentAudits?.length || 0})</span>
+                    <MdSecurity size={14} color="var(--primary)" />
+                    <span>Audit Trail ({storageStats?.recentAudits?.length || 0})</span>
                   </button>
                 </>
               )}
+
             </div>
           </div>
 
           {/* Memory Bar */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
-              <span style={{ color: 'var(--text-secondary)' }}>
-                Total Memory Stored: <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginBottom: 6 }}>
+              <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                <span>Total Memory Stored:</span>
+                <strong style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5 }}>
                   {storageStats?.total?.sizeFormatted || '—'}
-                </strong> of {storageStats?.total?.quotaFormatted || '50 MB'}
+                </strong>
+                <span>of {storageStats?.total?.quotaFormatted || '500 MB'}</span>
               </span>
               <span style={{
                 fontWeight: 700,
                 fontFamily: 'JetBrains Mono, monospace',
                 color: storageStats?.total?.alertLevel === 'CRITICAL'
                   ? '#ef4444'
-                  : storageStats?.total?.alertLevel === 'WARNING'
+                  : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
                     ? '#f59e0b'
                     : '#10b981',
               }}>
@@ -726,17 +818,18 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
               width: '100%',
               height: 8,
               borderRadius: 99,
-              background: 'rgba(255, 255, 255, 0.08)',
+              background: 'var(--border, rgba(128, 128, 128, 0.2))',
               overflow: 'hidden',
             }}>
               <div
                 style={{
                   height: '100%',
-                  width: `${Math.min(100, Math.max(1, storageStats?.total?.percentUsed || 0))}%`,
+                  width: `${Math.min(100, storageStats?.total?.percentUsed || 0)}%`,
+                  minWidth: (storageStats?.total?.percentUsed > 0) ? '6px' : '0px',
                   borderRadius: 99,
                   background: storageStats?.total?.alertLevel === 'CRITICAL'
                     ? 'linear-gradient(90deg, #ef4444, #dc2626)'
-                    : storageStats?.total?.alertLevel === 'WARNING'
+                    : (storageStats?.total?.isOver80Percent || storageStats?.total?.percentUsed >= 80)
                       ? 'linear-gradient(90deg, #f59e0b, #d97706)'
                       : 'linear-gradient(90deg, #10b981, #059669)',
                   transition: 'width 0.4s ease',
@@ -753,44 +846,62 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
             fontSize: 12,
           }}>
             <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              padding: '8px 12px',
+              background: 'var(--bg-hover, rgba(128, 128, 128, 0.05))',
+              padding: '10px 12px',
               borderRadius: 8,
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
             }}>
-              <div style={{ color: 'var(--text-muted)' }}>Gate In/Out Logs:</div>
-              <div style={{ fontWeight: 700, marginTop: 2 }}>
-                <span style={{ color: '#3b82f6', fontFamily: 'JetBrains Mono, monospace' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} />
+                <span>Gate In/Out Logs:</span>
+              </div>
+              <div style={{ fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ color: '#3b82f6', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                   {storageStats?.inOut?.count ?? logs.length} records
                 </span>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> • {storageStats?.inOut?.sizeFormatted || '—'}</span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 11.5 }}>• {storageStats?.inOut?.sizeFormatted || '—'}</span>
               </div>
             </div>
 
             <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              padding: '8px 12px',
+              background: 'var(--bg-hover, rgba(128, 128, 128, 0.05))',
+              padding: '10px 12px',
               borderRadius: 8,
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
             }}>
-              <div style={{ color: 'var(--text-muted)' }}>Home Visit Records:</div>
-              <div style={{ fontWeight: 700, marginTop: 2 }}>
-                <span style={{ color: '#10b981', fontFamily: 'JetBrains Mono, monospace' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                <span>Home Visit Records:</span>
+              </div>
+              <div style={{ fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ color: '#10b981', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                   {storageStats?.homeVisit?.count ?? homeLogs.length} records
                 </span>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> • {storageStats?.homeVisit?.sizeFormatted || '—'}</span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 11.5 }}>• {storageStats?.homeVisit?.sizeFormatted || '—'}</span>
               </div>
             </div>
 
             <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              padding: '8px 12px',
+              background: 'var(--bg-hover, rgba(128, 128, 128, 0.05))',
+              padding: '10px 12px',
               borderRadius: 8,
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
             }}>
-              <div style={{ color: 'var(--text-muted)' }}>Alert Threshold & Quota:</div>
-              <div style={{ fontWeight: 700, marginTop: 2 }}>
-                <span>Alert at 75% • Critical at 90%</span>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                <span>Alert Threshold & Quota:</span>
+              </div>
+              <div style={{ fontWeight: 600, marginTop: 4, color: 'var(--text-primary)', fontSize: 11.5 }}>
+                <span>Alert at 80% (400 MB) • Critical at 90% (450 MB)</span>
               </div>
             </div>
           </div>
@@ -855,6 +966,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
             </div>
           )}
         </div>
+        )}
 
         <div className="tabs" style={{ marginBottom: 16 }}>
           <button
@@ -921,208 +1033,208 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
         ) : activeTab === 'gate' ? (
           <div className="table-wrapper">
             <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Hostel</th>
-                  <th>Status</th>
-                  <th>Place</th>
-                  <th>Date</th>
-                  <th>Out Time</th>
-                  <th>In Time</th>
-                  <th>Returned</th>
-                  <th>Scanned By</th>
-                  {isWarden && <th>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log._id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <StudentAvatar
-                          student={log.student_id}
-                          recordPhoto={log.student_photo}
-                          name={log.student_id?.name || log.name}
-                        />
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{log.student_id?.name || log.name || 'Unknown'}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo || log.rollNo || '—'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
-                        {(log.student_id?.roomNo || log.roomNo) && (
-                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                            Room {log.student_id?.roomNo || log.roomNo}
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Hostel</th>
+                      <th>Status</th>
+                      <th>Place</th>
+                      <th>Date</th>
+                      <th>Out Time</th>
+                      <th>In Time</th>
+                      <th>Returned</th>
+                      <th>Scanned By</th>
+                      {isWarden && <th>Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map((log) => (
+                      <tr key={log._id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <StudentAvatar
+                              student={log.student_id}
+                              recordPhoto={log.student_photo}
+                              name={log.student_id?.name || log.name}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{log.student_id?.name || log.name || 'Unknown'}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{log.student_id?.rollNo || log.rollNo || '—'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span className="badge badge-out">{getHostelLabel(log.student_id?.hostel || log.hostel)}</span>
+                            {(log.student_id?.roomNo || log.roomNo) && (
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                Room {log.student_id?.roomNo || log.roomNo}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`badge ${log.status === 'IN' ? 'badge-in' : 'badge-out'}`}>
+                            {log.status === 'IN' ? '🚪 IN' : '🔓 OUT'}
                           </span>
+                        </td>
+                        <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{log.place || '—'}</td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{log.date}</td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                          {log.out_time
+                            ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                            : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
+                        </td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                          {log.in_time
+                            ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                            : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
+                        </td>
+                        <td>
+                          {log.returned
+                            ? <span style={{ color: '#10b981', fontSize: 13 }}>✅ Yes</span>
+                            : <span style={{ color: '#ef4444', fontSize: 13 }}>❌ No</span>
+                          }
+                        </td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                          {log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.scannedBy?.email || 'Duty Guard'}
+                        </td>
+                        {isWarden && (
+                          <td>
+                            <button
+                              className="btn btn-ghost btn-xs"
+                              style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                              title="Delete record"
+                              onClick={() => {
+                                const studentName = log.student_id?.name || log.name || 'Student';
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: 'Delete Gate Scan Record',
+                                  description: `Delete gate scan record for ${studentName} (${log.status} on ${log.date})? This action cannot be undone.`,
+                                  confirmTargetText: 'delete',
+                                  onConfirm: async () => {
+                                    await api.delete(`/inout/${log._id}`);
+                                    toast.success('Gate record deleted successfully');
+                                    await fetchLogs('gate');
+                                  },
+                                });
+                                setConfirmInput('');
+                              }}
+                              disabled={clearing}
+                            >
+                              <MdDeleteOutline size={17} />
+                            </button>
+                          </td>
                         )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${log.status === 'IN' ? 'badge-in' : 'badge-out'}`}>
-                        {log.status === 'IN' ? '🚪 IN' : '🔓 OUT'}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{log.place || '—'}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{log.date}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {log.out_time
-                        ? new Date(log.out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-                        : (log.status === 'OUT' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
-                    </td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {log.in_time
-                        ? new Date(log.in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-                        : (log.status === 'IN' && log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—')}
-                    </td>
-                    <td>
-                      {log.returned
-                        ? <span style={{ color: '#10b981', fontSize: 13 }}>✅ Yes</span>
-                        : <span style={{ color: '#ef4444', fontSize: 13 }}>❌ No</span>
-                      }
-                    </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      {log.scanned_by_name || log.scannedBy?.name || log.scannedBy?.rollNo || log.scannedBy?.email || 'Duty Guard'}
-                    </td>
-                    {isWarden && (
-                      <td>
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
-                          title="Delete record"
-                          onClick={() => {
-                            const studentName = log.student_id?.name || log.name || 'Student';
-                            setConfirmModal({
-                              isOpen: true,
-                              title: 'Delete Gate Scan Record',
-                              description: `Delete gate scan record for ${studentName} (${log.status} on ${log.date})? This action cannot be undone.`,
-                              confirmTargetText: 'delete',
-                              onConfirm: async () => {
-                                await api.delete(`/inout/${log._id}`);
-                                toast.success('Gate record deleted successfully');
-                                await fetchLogs('gate');
-                              },
-                            });
-                            setConfirmInput('');
-                          }}
-                          disabled={clearing}
-                        >
-                          <MdDeleteOutline size={17} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
           </div>
         ) : (
           <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Hostel</th>
-                  <th>Place</th>
-                  <th>Reason</th>
-                  <th>Leave</th>
-                  <th>Return</th>
-                  <th>Home Out</th>
-                  <th>Home In</th>
-                  <th>Status</th>
-                  <th>Parent Phone</th>
-                  <th>Scanned By</th>
-                  {isWarden && <th>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {homeLogs.map((visit) => (
-                  <tr key={visit._id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <StudentAvatar
-                          student={visit.student_id}
-                          recordPhoto={visit.student_photo}
-                          name={visit.student_id?.name || visit.name}
-                        />
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{visit.student_id?.name || visit.name || 'Unknown'}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{visit.student_id?.rollNo || visit.rollNo || '—'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span className="badge badge-out">{getHostelLabel(visit.student_id?.hostel || visit.hostel)}</span>
-                        {(visit.student_id?.roomNo || visit.roomNo) && (
-                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                            Room {visit.student_id?.roomNo || visit.roomNo}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Hostel</th>
+                      <th>Place</th>
+                      <th>Reason</th>
+                      <th>Leave</th>
+                      <th>Return</th>
+                      <th>Home Out</th>
+                      <th>Home In</th>
+                      <th>Status</th>
+                      <th>Parent Phone</th>
+                      <th>Scanned By</th>
+                      {isWarden && <th>Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {homeLogs.map((visit) => (
+                      <tr key={visit._id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <StudentAvatar
+                              student={visit.student_id}
+                              recordPhoto={visit.student_photo}
+                              name={visit.student_id?.name || visit.name}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{visit.student_id?.name || visit.name || 'Unknown'}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{visit.student_id?.rollNo || visit.rollNo || '—'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span className="badge badge-out">{getHostelLabel(visit.student_id?.hostel || visit.hostel)}</span>
+                            {(visit.student_id?.roomNo || visit.roomNo) && (
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                Room {visit.student_id?.roomNo || visit.roomNo}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{visit.place || '—'}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={visit.reason}>
+                          {visit.reason || '—'}
+                        </td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.leave_date}</td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.return_date}</td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                          {visit.actual_out_time ? new Date(visit.actual_out_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
+                        </td>
+                        <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                          {visit.actual_in_time ? new Date(visit.actual_in_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
+                        </td>
+                        <td>
+                          <span className={`badge ${visit.actual_in_time ? 'badge-in' : 'badge-out'}`}>
+                            {visit.actual_in_time ? 'HOME IN' : visit.actual_out_time ? 'HOME OUT' : visit.overall_status}
                           </span>
+                        </td>
+                        <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                          {visit.student_id?.parentPhone || visit.parent_phone || '—'}
+                        </td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                          {visit.scanned_by_name ||
+                           visit.scannedBy?.name ||
+                           visit.scanned_by_in?.name ||
+                           visit.scanned_by_out?.name ||
+                           visit.parent_call_confirmed_by?.name ||
+                           (visit.actual_in_time || visit.actual_out_time ? 'Duty Guard' : '—')}
+                        </td>
+                        {isWarden && (
+                          <td>
+                            <button
+                              className="btn btn-ghost btn-xs"
+                              style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
+                              title="Delete record"
+                              onClick={() => {
+                                const studentName = visit.student_id?.name || visit.name || 'Student';
+                                setConfirmModal({
+                                  isOpen: true,
+                                  title: 'Delete Home Visit Record',
+                                  description: `Delete home visit record for ${studentName} (${visit.leave_date} to ${visit.return_date})? This action cannot be undone.`,
+                                  confirmTargetText: 'delete',
+                                  onConfirm: async () => {
+                                    await api.delete(`/homevisit/${visit._id}`);
+                                    toast.success('Home visit record deleted successfully');
+                                    await fetchLogs('home');
+                                  },
+                                });
+                                setConfirmInput('');
+                              }}
+                              disabled={clearing}
+                            >
+                              <MdDeleteOutline size={17} />
+                            </button>
+                          </td>
                         )}
-                      </div>
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{visit.place || '—'}</td>
-                    <td style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={visit.reason}>
-                      {visit.reason || '—'}
-                    </td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.leave_date}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{visit.return_date}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {visit.actual_out_time ? new Date(visit.actual_out_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
-                    </td>
-                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                      {visit.actual_in_time ? new Date(visit.actual_in_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—'}
-                    </td>
-                    <td>
-                      <span className={`badge ${visit.actual_in_time ? 'badge-in' : 'badge-out'}`}>
-                        {visit.actual_in_time ? 'HOME IN' : visit.actual_out_time ? 'HOME OUT' : visit.overall_status}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                      {visit.student_id?.parentPhone || visit.parent_phone || '—'}
-                    </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      {visit.scanned_by_name ||
-                       visit.scannedBy?.name ||
-                       visit.scanned_by_in?.name ||
-                       visit.scanned_by_out?.name ||
-                       visit.parent_call_confirmed_by?.name ||
-                       (visit.actual_in_time || visit.actual_out_time ? 'Duty Guard' : '—')}
-                    </td>
-                    {isWarden && (
-                      <td>
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          style={{ color: '#ef4444', padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}
-                          title="Delete record"
-                          onClick={() => {
-                            const studentName = visit.student_id?.name || visit.name || 'Student';
-                            setConfirmModal({
-                              isOpen: true,
-                              title: 'Delete Home Visit Record',
-                              description: `Delete home visit record for ${studentName} (${visit.leave_date} to ${visit.return_date})? This action cannot be undone.`,
-                              confirmTargetText: 'delete',
-                              onConfirm: async () => {
-                                await api.delete(`/homevisit/${visit._id}`);
-                                toast.success('Home visit record deleted successfully');
-                                await fetchLogs('home');
-                              },
-                            });
-                            setConfirmInput('');
-                          }}
-                          disabled={clearing}
-                        >
-                          <MdDeleteOutline size={17} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
           </div>
         )}
 

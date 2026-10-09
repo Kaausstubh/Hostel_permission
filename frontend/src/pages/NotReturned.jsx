@@ -3,6 +3,7 @@ import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdWarning, MdRefresh, MdPhone, MdAccessTime, MdInfoOutline } from 'react-icons/md';
+import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
 
 export default function NotReturned() {
@@ -191,92 +192,92 @@ export default function NotReturned() {
           </div>
         ) : (
           <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Roll Number</th>
-                  <th>Hostel</th>
-                  <th>Exit Time</th>
-                  <th>Curfew</th>
-                  <th>Status</th>
-                  <th>Parent / Contact</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.map((log) => {
-                  const student = log.student_id;
-                  const photoSrc = student?.studentPhoto || (!student?.picture?.includes('googleusercontent.com') ? student?.picture : null);
-                  return (
-                    <tr key={log._id} style={{
-                      background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.05)' : 'rgba(59, 130, 246, 0.03)',
-                      borderLeft: `3px solid ${curfewInfo.isPastCurfew ? '#ef4444' : '#3b82f6'}`,
-                    }}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {photoSrc ? (
-                            <img
-                              src={photoSrc}
-                              alt=""
-                              style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            <div style={{
-                              width: 32, height: 32, borderRadius: '50%',
-                              background: 'var(--primary)', color: '#fff',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontWeight: 700, fontSize: 13,
-                            }}>
-                              {student?.name?.charAt(0).toUpperCase() || 'S'}
-                            </div>
-                          )}
-                          <div style={{ fontWeight: 600 }}>{student?.name || 'Unknown'}</div>
-                        </div>
-                      </td>
-                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
-                        {student?.rollNo || '—'}
-                      </td>
-                      <td>
-                        <span className="badge badge-out">{getHostelLabel(student?.hostel)}</span>
-                      </td>
-                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: curfewInfo.isPastCurfew ? '#ef4444' : 'var(--text-secondary)' }}>
-                        {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—'}
-                      </td>
-                      <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <MdAccessTime size={14} /> 8:00 PM
-                        </span>
-                      </td>
-                      <td>
-                        {curfewInfo.isPastCurfew ? (
-                          <span className="badge badge-rejected" style={{ animation: 'pulse-red 2s infinite' }}>
-                            🔴 Curfew Breached
-                          </span>
-                        ) : (
-                          <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                            🟢 Authorized (Until 8:00 PM)
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
-                          {student?.phone && (
-                            <a href={`tel:${student.phone}`} style={{ color: 'var(--primary-light)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              <MdPhone size={13} /> {student.phone}
-                            </a>
-                          )}
-                          {student?.parentPhone && (
-                            <a href={`tel:${student.parentPhone}`} style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              👨‍👩‍👧 {student.parentPhone}
-                            </a>
-                          )}
-                        </div>
-                      </td>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Roll Number</th>
+                      <th>Hostel</th>
+                      <th>Exit Time</th>
+                      <th>Curfew</th>
+                      <th>Status</th>
+                      <th>Parent / Contact</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {students.map((log) => {
+                      const student = log.student_id;
+                      const photoSrc = student?.studentPhoto || (!student?.picture?.includes('googleusercontent.com') ? student?.picture : null);
+                      return (
+                        <tr key={log._id} style={{
+                          background: curfewInfo.isPastCurfew ? 'rgba(239,68,68,0.05)' : 'rgba(59, 130, 246, 0.03)',
+                          borderLeft: `3px solid ${curfewInfo.isPastCurfew ? '#ef4444' : '#3b82f6'}`,
+                        }}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              {photoSrc ? (
+                                <img
+                                  src={photoSrc}
+                                  alt=""
+                                  style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: 32, height: 32, borderRadius: '50%',
+                                  background: 'var(--primary)', color: '#fff',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontWeight: 700, fontSize: 13,
+                                }}>
+                                  {student?.name?.charAt(0).toUpperCase() || 'S'}
+                                </div>
+                              )}
+                              <div style={{ fontWeight: 600 }}>{student?.name || 'Unknown'}</div>
+                            </div>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                            {student?.rollNo || '—'}
+                          </td>
+                          <td>
+                            <span className="badge badge-out">{getHostelLabel(student?.hostel)}</span>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: curfewInfo.isPastCurfew ? '#ef4444' : 'var(--text-secondary)' }}>
+                            {log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN') : '—'}
+                          </td>
+                          <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <MdAccessTime size={14} /> 8:00 PM
+                            </span>
+                          </td>
+                          <td>
+                            {curfewInfo.isPastCurfew ? (
+                              <span className="badge badge-rejected" style={{ animation: 'pulse-red 2s infinite' }}>
+                                🔴 Curfew Breached
+                              </span>
+                            ) : (
+                              <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                                🟢 Authorized (Until 8:00 PM)
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+                              {student?.phone && (
+                                <a href={`tel:${student.phone}`} style={{ color: 'var(--primary-light)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <MdPhone size={13} /> {student.phone}
+                                </a>
+                              )}
+                              {student?.parentPhone && (
+                                <a href={`tel:${student.parentPhone}`} style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  👨‍👩‍👧 {student.parentPhone}
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
           </div>
         )}
       </div>
