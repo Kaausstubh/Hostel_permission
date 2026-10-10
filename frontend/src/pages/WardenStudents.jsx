@@ -6,9 +6,11 @@ import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline, MdRefres
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
+import HostelRooms3D from './HostelRooms3D';
 
 export default function WardenStudents() {
   const { user } = useAuth();
+  const [bh2ViewMode, setBh2ViewMode] = useState('3d'); // '3d' | 'table'
   const [students, setStudents] = useState(() => {
     try {
       const cached = sessionStorage.getItem('heimdall_warden_students');
@@ -217,15 +219,35 @@ export default function WardenStudents() {
             style={{
               padding: '14px 18px',
               cursor: 'pointer',
-              border: selectedHostel === 'BH2' ? '2px solid var(--primary)' : 'var(--border)',
+              border: selectedHostel === 'BH2' ? '2px solid #6366f1' : 'var(--border)',
+              background: selectedHostel === 'BH2' ? 'rgba(99, 102, 241, 0.08)' : undefined,
+              boxShadow: selectedHostel === 'BH2' ? '0 4px 18px rgba(99, 102, 241, 0.2)' : undefined,
             }}
-            onClick={() => setSelectedHostel('BH2')}
+            onClick={() => {
+              setSelectedHostel('BH2');
+              setBh2ViewMode('3d');
+            }}
           >
-            <div className="stat-label">Krishna (BH2)</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label">Krishna (BH2)</div>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                  color: '#fff',
+                  padding: '2px 8px',
+                  borderRadius: 8,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                3D ROOMS
+              </span>
+            </div>
             <div className="stat-value" style={{ fontSize: 26, marginTop: 4, color: '#6366f1' }}>
               {loading ? '—' : countBH2}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Registered in Krishna (BH2)</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Click to view 3D rooms & vacancies</div>
           </div>
 
           <div
@@ -279,11 +301,66 @@ export default function WardenStudents() {
           )}
         </div>
 
-        <div className="card">
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: 10, flex: 1, maxWidth: 500 }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <MdSearch size={20} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
+        {/* ── BH-2 View Mode Toggle (when BH2 selected) ── */}
+        {selectedHostel === 'BH2' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              borderRadius: 14,
+              padding: '12px 18px',
+              marginBottom: 20,
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 20 }}>🏢</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text-primary)' }}>
+                  Hostel BH-2 (Krishna) Allocation Console
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  {bh2ViewMode === '3d'
+                    ? 'Interactive 3D Room Grid with live vacancy tracker, room allocations & student management'
+                    : 'Tabular directory list of BH-2 students'}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${bh2ViewMode === '3d' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setBh2ViewMode('3d')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              >
+                <span>🏢 3D Room Grid & Vacancies</span>
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${bh2ViewMode === 'table' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setBh2ViewMode('table')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              >
+                <span>📋 Student Directory Table</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedHostel === 'BH2' && bh2ViewMode === '3d' ? (
+          <div className="fade-in">
+            <HostelRooms3D embedded={true} />
+          </div>
+        ) : (
+          <div className="card">
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 10, flex: 1, maxWidth: 500 }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <MdSearch size={20} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
                 <input
                   type="text"
                   className="form-input"
@@ -473,6 +550,7 @@ export default function WardenStudents() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

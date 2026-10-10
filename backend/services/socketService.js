@@ -96,6 +96,12 @@ const initSocketIO = (httpServer) => {
       }
     });
 
+    socket.on('join_roll', (rollNo) => {
+      if (rollNo) {
+        socket.join(`rollno:${String(rollNo).trim().toUpperCase()}`);
+      }
+    });
+
     socket.on('disconnect', () => {
       logger.info('[Socket] Global client disconnected', { userId: socket.userId, id: socket.id });
     });
@@ -117,6 +123,12 @@ const initSocketIO = (httpServer) => {
       if (studentId) {
         socket.join(`user:${studentId}`);
         socket.join(`student:${studentId}`);
+      }
+    });
+
+    socket.on('join_roll', (rollNo) => {
+      if (rollNo) {
+        socket.join(`rollno:${String(rollNo).trim().toUpperCase()}`);
       }
     });
 
@@ -303,6 +315,13 @@ const broadcastVisitorRequest = (visitor, studentId = null) => {
       _io.of('/scanner').to(`user:${sId}`).emit('visitor:request', payload);
     }
     sendSseVisitorEvent(sId, payload);
+  }
+
+  // Also broadcast to student's roll room if available
+  if (visitor?.studentRollNo && _io) {
+    const rollRoom = `rollno:${String(visitor.studentRollNo).trim().toUpperCase()}`;
+    _io.to(rollRoom).emit('visitor:request', payload);
+    _io.of('/dashboard').to(rollRoom).emit('visitor:request', payload);
   }
 
   // 2. Dashboards (Security & Hostel Staff)

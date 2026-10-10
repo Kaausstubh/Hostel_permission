@@ -49,6 +49,7 @@ const ParentHomeVisitRespond = lazyWithRetry(() => import('./pages/ParentHomeVis
 const Onboarding          = lazyWithRetry(() => import('./pages/Onboarding'));
 const VisitorManagement   = lazyWithRetry(() => import('./pages/VisitorManagement'));
 const VisitorPassRequest   = lazyWithRetry(() => import('./pages/VisitorPassRequest'));
+const HostelRooms3D        = lazyWithRetry(() => import('./pages/HostelRooms3D'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -184,6 +185,11 @@ function AppRoutes() {
         <Route path="/dashboard" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><WardenDashboard /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/rooms-3d" element={
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'admin']}>
+            <AppLayout><HostelRooms3D /></AppLayout>
           </ProtectedRoute>
         } />
         <Route path="/students" element={

@@ -110,8 +110,11 @@ const userSchema = new mongoose.Schema(
 );
 
 // ── Indexes ────────────────────────────────────────────────────────────────────
-// Fast OAuth login lookup (primary auth path)
-userSchema.index({ oauthId: 1, oauthProvider: 1 }, { unique: true, sparse: true });
+// Fast OAuth login lookup (primary auth path) — partial filter so null/missing oauthId don't conflict
+userSchema.index(
+  { oauthId: 1, oauthProvider: 1 },
+  { unique: true, partialFilterExpression: { oauthId: { $type: 'string' } } }
+);
 // Fast roll number lookup — sparse so null values don't conflict
 userSchema.index({ rollNo: 1 }, { unique: true, sparse: true });
 // Fast role-based queries (dashboard counts, lists)

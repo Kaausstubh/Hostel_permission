@@ -539,7 +539,9 @@ router.get('/students-search', protect, authorize('warden', 'hostel_staff', 'adm
 router.get('/my-pending', protect, authorize('student', 'admin'), async (req, res) => {
   try {
     const studentId = req.user._id;
-    const studentRollNo = req.user.rollNo ? String(req.user.rollNo).trim() : null;
+    const emailPrefix = req.user.email ? req.user.email.split('@')[0].trim() : '';
+    const studentRollNo = (req.user.rollNo || emailPrefix || '').trim();
+    const studentName = (req.user.name || '').trim();
 
     const query = {
       studentApprovalStatus: 'PENDING',
@@ -547,9 +549,16 @@ router.get('/my-pending', protect, authorize('student', 'admin'), async (req, re
     };
 
     if (req.user.role !== 'admin') {
-      const orClauses = [{ student_id: studentId }];
+      const orClauses = [
+        { student_id: studentId },
+        { student_id: String(studentId) },
+      ];
       if (studentRollNo) {
         orClauses.push({ studentRollNo: { $regex: new RegExp(`^${studentRollNo}$`, 'i') } });
+      }
+      if (studentName) {
+        const escapedName = studentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        orClauses.push({ studentName: { $regex: new RegExp(`^${escapedName}$`, 'i') } });
       }
       query.$or = orClauses;
     }
@@ -562,6 +571,44 @@ router.get('/my-pending', protect, authorize('student', 'admin'), async (req, re
   } catch (err) {
     logger.error('[Visitor Route] Failed to fetch pending requests', { error: err.message });
     res.status(500).json({ success: false, message: 'Failed to fetch pending requests: ' + err.message });
+  }
+});
+
+// ─── GET /api/visitors/my-history ─────────────────────────────────────────────
+// Get past visitor clearance history for the logged-in student
+router.get('/my-history', protect, authorize('student', 'admin'), async (req, res) => {
+  try {
+    const studentId = req.user._id;
+    const emailPrefix = req.user.email ? req.user.email.split('@')[0].trim() : '';
+    const studentRollNo = (req.user.rollNo || emailPrefix || '').trim();
+    const studentName = (req.user.name || '').trim();
+
+    const query = {};
+
+    if (req.user.role !== 'admin') {
+      const orClauses = [
+        { student_id: studentId },
+        { student_id: String(studentId) },
+      ];
+      if (studentRollNo) {
+        orClauses.push({ studentRollNo: { $regex: new RegExp(`^${studentRollNo}$`, 'i') } });
+      }
+      if (studentName) {
+        const escapedName = studentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        orClauses.push({ studentName: { $regex: new RegExp(`^${escapedName}$`, 'i') } });
+      }
+      query.$or = orClauses;
+    }
+
+    const history = await VisitorLog.find(query)
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .lean();
+
+    res.json({ success: true, history });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch visitor history', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch visitor history: ' + err.message });
   }
 });
 
@@ -581,12 +628,16 @@ router.post('/:id/student-response', protect, authorize('student', 'admin'), asy
 
     const reqUserId = String(req.user._id || req.user.id || '');
     const visitorStudentId = visitor.student_id ? String(visitor.student_id) : '';
-    const reqRollNo = String(req.user.rollNo || '').trim().toUpperCase();
+    const emailPrefix = req.user.email ? req.user.email.split('@')[0].trim().toUpperCase() : '';
+    const reqRollNo = String(req.user.rollNo || emailPrefix || '').trim().toUpperCase();
     const visitorRollNo = String(visitor.studentRollNo || '').trim().toUpperCase();
+    const reqName = String(req.user.name || '').trim().toLowerCase();
+    const visitorStudentName = String(visitor.studentName || '').trim().toLowerCase();
 
     const isMatch =
       (visitorStudentId && visitorStudentId === reqUserId) ||
       (reqRollNo && visitorRollNo && reqRollNo === visitorRollNo) ||
+      (reqName && visitorStudentName && reqName === visitorStudentName) ||
       (req.user.role === 'admin');
 
     if (!isMatch) {

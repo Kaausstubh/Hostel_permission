@@ -58,6 +58,7 @@ const studentRoutes   = require('./routes/student');
 const gateScanRoutes  = require('./routes/gateScan');
 const archiveRoutes   = require('./routes/archive');
 const visitorRoutes   = require('./routes/visitors');
+const roomRoutes      = require('./routes/rooms');
 
 // ── App & HTTP server (shared with Socket.IO) ─────────────────────────────────
 const app = express();
@@ -273,6 +274,7 @@ app.use('/api/student',    studentRoutes);
 app.use('/api/gatescan',   gateScanRoutes);
 app.use('/api/archive',    archiveRoutes);
 app.use('/api/visitors',   visitorRoutes);
+app.use('/api/rooms',      roomRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 const handleHealth = (req, res) => {

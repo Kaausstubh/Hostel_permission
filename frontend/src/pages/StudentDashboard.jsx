@@ -186,6 +186,7 @@ const FLOW_RECOVERY_BUTTONS = [
 const MAIN_MENU_BUTTONS = [
   { id: '1', label: '🔄 In/Out Request', icon: '🔄' },
   { id: '2', label: '🏠 Home Visit Request', icon: '🏠' },
+  { id: 'parent_visit', label: '👨‍👩‍👦 Parent Visit Request', icon: '👨‍👩‍👦' },
   { id: '3', label: '🧾 File a Complaint', icon: '🧾' },
   { id: '4', label: '📊 View My Status', icon: '📊' },
 ];
@@ -532,6 +533,9 @@ export default function StudentDashboard() {
   // ── Pending Visitor Pass Approvals (Real-time Gate Visitor Popup) ──────────
   const [pendingVisitorRequests, setPendingVisitorRequests] = useState([]);
   const [activeVisitorModal, setActiveVisitorModal] = useState(null);
+  const [showParentVisitInfoModal, setShowParentVisitInfoModal] = useState(false);
+  const [visitorHistory, setVisitorHistory] = useState([]);
+  const [visitorHistoryLoading, setVisitorHistoryLoading] = useState(false);
   const [visitorActionLoading, setVisitorActionLoading] = useState(false);
   const [visitorRemarks, setVisitorRemarks] = useState('');
   const [visitorResponseResult, setVisitorResponseResult] = useState(null);
@@ -547,6 +551,26 @@ export default function StudentDashboard() {
       }
     } catch (_) {}
   }, []);
+
+  const fetchVisitorHistory = useCallback(async () => {
+    try {
+      setVisitorHistoryLoading(true);
+      const res = await api.get('/visitors/my-history');
+      if (res.data?.success && Array.isArray(res.data.history)) {
+        setVisitorHistory(res.data.history);
+      }
+    } catch (_) {
+    } finally {
+      setVisitorHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showParentVisitInfoModal) {
+      fetchVisitorHistory();
+      fetchPendingVisitorRequests();
+    }
+  }, [showParentVisitInfoModal, fetchVisitorHistory, fetchPendingVisitorRequests]);
 
   const lastScanStateRef = useRef(null);
   const isInitialStatusLoadedRef = useRef(false);
@@ -982,6 +1006,18 @@ export default function StudentDashboard() {
             { id: 'flow_menu', label: '🏠 Main menu' },
           ]
         });
+      } else if (id === 'parent_visit') {
+        if (pendingVisitorRequests.length > 0) {
+          setActiveVisitorModal(pendingVisitorRequests[0]);
+          botSay(
+            `🔔 *Parent Visit Request Alert*\n\nYou have *${pendingVisitorRequests.length}* pending visitor/parent request(s) waiting at the campus gate.\n\nA review popup has opened for you to allow or deny gate entry.`
+          );
+        } else {
+          setShowParentVisitInfoModal(true);
+          botSay(
+            `👨‍👩‍👦 *Parent Visit Request*\n\nThere are no parents or visitors waiting at the gate right now.\n\n💡 When your parents arrive at the campus entry gate, security will verify your details and an instant pop-up will ring here for you to admit them.`
+          );
+        }
       } else if (id === '3') {
         setStep(STEPS.CPL_TYPE);
         botSay('🧾 *File a Complaint*\n\nSelect complaint category:', 'buttons', {
@@ -1830,6 +1866,10 @@ export default function StudentDashboard() {
 
       socket.on('connect', () => {
         socket.emit('join_student', studentId);
+        const roll = user?.rollNo || (user?.email ? user.email.split('@')[0] : '');
+        if (roll) {
+          socket.emit('join_roll', String(roll).trim().toUpperCase());
+        }
       });
 
       socket.on('scan_verified', (data) => {
@@ -2707,19 +2747,64 @@ export default function StudentDashboard() {
         </div>
 
         {/* Nav */}
-        <nav style={{ padding: '12px 0', flex: 1 }}>
+        <nav style={{ padding: '12px 0', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {[
-            { icon: <MdDashboard />, label: 'My Chatbot', active: true },
+            { icon: <MdDashboard size={18} />, label: 'My Chatbot', active: true, onClick: () => {} },
+            {
+              icon: <span style={{ fontSize: 16 }}>👨‍👩‍👦</span>,
+              label: pendingVisitorRequests.length > 0 ? `Parent Visit (${pendingVisitorRequests.length})` : 'Parent Visit Request',
+              active: false,
+              badge: pendingVisitorRequests.length > 0 ? pendingVisitorRequests.length : null,
+              onClick: () => {
+                if (pendingVisitorRequests.length > 0) {
+                  setActiveVisitorModal(pendingVisitorRequests[0]);
+                } else {
+                  setShowParentVisitInfoModal(true);
+                }
+              },
+            },
           ].map((item) => (
-            <div key={item.label} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '10px 20px', fontSize: 13.5, fontWeight: 600,
-              background: item.active ? 'rgba(99,102,241,0.15)' : 'transparent',
-              color: item.active ? 'var(--primary-light)' : 'var(--text-muted)',
-              borderLeft: item.active ? '3px solid var(--primary)' : '3px solid transparent',
-              cursor: 'pointer',
-            }}>
-              {item.icon} {item.label}
+            <div
+              key={item.label}
+              onClick={item.onClick}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 20px',
+                fontSize: 13.5,
+                fontWeight: 600,
+                background: item.active ? 'rgba(99,102,241,0.15)' : 'transparent',
+                color: item.active ? 'var(--primary-light)' : 'var(--text-muted)',
+                borderLeft: item.active ? '3px solid var(--primary)' : '3px solid transparent',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!item.active) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              }}
+              onMouseLeave={(e) => {
+                if (!item.active) e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {item.icon} {item.label}
+              </div>
+              {item.badge && (
+                <span
+                  style={{
+                    background: '#f59e0b',
+                    color: '#000',
+                    fontSize: 11,
+                    fontWeight: 900,
+                    borderRadius: 999,
+                    padding: '2px 7px',
+                    animation: 'pulse 1.5s infinite',
+                  }}
+                >
+                  {item.badge}
+                </span>
+              )}
             </div>
           ))}
         </nav>
@@ -2819,14 +2904,14 @@ export default function StudentDashboard() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {/* Pending Visitor Notification Button */}
-                {pendingVisitorRequests.length > 0 && (
+                {/* Parent Visit Notification / Status Button */}
+                {pendingVisitorRequests.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
                     style={{
-                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                      color: '#000',
+                      background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                      color: '#ffffff',
                       border: 'none',
                       fontWeight: 800,
                       padding: '5px 10px',
@@ -2836,12 +2921,35 @@ export default function StudentDashboard() {
                       alignItems: 'center',
                       gap: 4,
                       cursor: 'pointer',
-                      boxShadow: '0 0 12px rgba(245, 158, 11, 0.45)',
+                      boxShadow: '0 0 14px rgba(245, 158, 11, 0.65)',
+                      animation: 'pulse 1.6s infinite',
                     }}
-                    title="Visitor waiting at gate for approval"
+                    title="Parent/Visitor waiting at gate for approval"
                   >
                     <span>🔔</span>
-                    <span>Visitor ({pendingVisitorRequests.length})</span>
+                    <span>Parent Visit ({pendingVisitorRequests.length})</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowParentVisitInfoModal(true)}
+                    style={{
+                      background: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
+                      color: 'var(--text-primary)',
+                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)',
+                      fontWeight: 700,
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      cursor: 'pointer',
+                    }}
+                    title="Parent / Visitor Gate Pass & Clearance Status"
+                  >
+                    <span>👨‍👩‍👦</span>
+                    <span>Parent Visits</span>
                   </button>
                 )}
 
@@ -2997,16 +3105,52 @@ export default function StudentDashboard() {
               </div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
-              {/* Pending Visitor Notification Button */}
-              {pendingVisitorRequests.length > 0 && (
+              {/* Parent Visit Request Top Button */}
+              {pendingVisitorRequests.length > 0 ? (
                 <button
                   type="button"
                   onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
                   style={{
-                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                    color: '#000',
+                    background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                    color: '#ffffff',
                     border: 'none',
                     fontWeight: 800,
+                    padding: '8px 16px',
+                    fontSize: 12.5,
+                    borderRadius: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    cursor: 'pointer',
+                    boxShadow: '0 0 18px rgba(245, 158, 11, 0.65)',
+                    animation: 'pulse 1.6s infinite',
+                  }}
+                  title="Parent/Visitor waiting at gate — Click to approve or decline"
+                >
+                  <span style={{ fontSize: 15, animation: 'bounce 1s infinite' }}>🔔</span>
+                  <span>Parent Visit Waiting ({pendingVisitorRequests.length})</span>
+                  <span
+                    style={{
+                      background: '#ffffff',
+                      color: '#b45309',
+                      borderRadius: 99,
+                      padding: '1px 7px',
+                      fontSize: 11,
+                      fontWeight: 900,
+                    }}
+                  >
+                    Action Needed
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowParentVisitInfoModal(true)}
+                  style={{
+                    background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.07)',
+                    color: 'var(--text-primary)',
+                    border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.16)',
+                    fontWeight: 700,
                     padding: '8px 14px',
                     fontSize: 12.5,
                     borderRadius: 12,
@@ -3014,12 +3158,12 @@ export default function StudentDashboard() {
                     alignItems: 'center',
                     gap: 6,
                     cursor: 'pointer',
-                    boxShadow: '0 0 16px rgba(245, 158, 11, 0.45)',
+                    transition: 'all 0.2s ease',
                   }}
-                  title="Visitor waiting at gate for approval"
+                  title="Parent & Visitor Gate Pass Status"
                 >
-                  <span style={{ fontSize: 14 }}>🔔</span>
-                  <span>Visitor Waiting ({pendingVisitorRequests.length})</span>
+                  <span style={{ fontSize: 14 }}>👨‍👩‍👦</span>
+                  <span>Parent Visit Request</span>
                 </button>
               )}
 
@@ -3094,28 +3238,48 @@ export default function StudentDashboard() {
           <div
             onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
             style={{
-              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.16))',
-              borderBottom: '1px solid rgba(245, 158, 11, 0.4)',
-              padding: '9px 16px',
+              background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.28), rgba(217, 119, 6, 0.22))',
+              borderBottom: '2px solid rgba(245, 158, 11, 0.6)',
+              padding: '11px 18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               cursor: 'pointer',
-              fontSize: 13,
+              fontSize: 13.5,
               color: '#fbbf24',
-              fontWeight: 600,
+              fontWeight: 700,
               zIndex: 10,
+              boxShadow: '0 4px 14px rgba(245, 158, 11, 0.25)',
+              animation: 'pulse 2s infinite',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>🔔</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🔔</span>
               <span>
-                Visitor <strong>{pendingVisitorRequests[0].name}</strong> is waiting at the gate to meet you.
+                <strong>Parent / Visitor Waiting at Gate:</strong> {pendingVisitorRequests[0].name} ({pendingVisitorRequests[0].visitorCount || 1} person) has arrived at the gate and is awaiting your permission!
               </span>
             </div>
-            <span style={{ textDecoration: 'underline', fontSize: 12, fontWeight: 700 }}>
-              Tap to Approve / Reject →
-            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveVisitorModal(pendingVisitorRequests[0]);
+              }}
+              style={{
+                background: '#f59e0b',
+                color: '#000',
+                fontWeight: 800,
+                border: 'none',
+                padding: '6px 14px',
+                borderRadius: 8,
+                fontSize: 12,
+                cursor: 'pointer',
+                flexShrink: 0,
+                marginLeft: 10,
+              }}
+            >
+              Review & Allow Entry →
+            </button>
           </div>
         )}
 
@@ -4626,6 +4790,322 @@ export default function StudentDashboard() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PARENT VISIT STATUS & INFO MODAL ── */}
+      {showParentVisitInfoModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 99998,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            animation: 'fadeInModal 0.2s ease-out',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowParentVisitInfoModal(false);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
+              borderRadius: 24,
+              border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.15)',
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.65)',
+              maxWidth: 540,
+              width: '100%',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'scaleUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: '20px 24px 16px',
+                borderBottom: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                background: theme === 'light' ? 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)' : 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 14,
+                    background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 22,
+                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                  }}
+                >
+                  👨‍👩‍👦
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: theme === 'light' ? '#0f172a' : '#ffffff' }}>
+                    Parent & Visitor Gate Pass
+                  </h3>
+                  <div style={{ fontSize: 12, color: theme === 'light' ? '#64748b' : '#94a3b8', marginTop: 2 }}>
+                    Campus Gate Entry Authorization & History
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowParentVisitInfoModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: 20,
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  padding: 6,
+                  borderRadius: 8,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* If there are pending requests right now */}
+              {pendingVisitorRequests.length > 0 ? (
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(217, 119, 6, 0.08))',
+                    border: '1.5px solid #f59e0b',
+                    borderRadius: 16,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#f59e0b', fontSize: 14 }}>
+                    <span>🔔</span>
+                    <span>Action Required: {pendingVisitorRequests.length} Visitor(s) at Gate</span>
+                  </div>
+                  <div style={{ fontSize: 13, marginTop: 8, color: theme === 'light' ? '#1e293b' : '#f8fafc' }}>
+                    <strong>{pendingVisitorRequests[0].name}</strong> ({pendingVisitorRequests[0].visitorCount || 1} person) is currently waiting at the gate.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowParentVisitInfoModal(false);
+                      setActiveVisitorModal(pendingVisitorRequests[0]);
+                    }}
+                    style={{
+                      marginTop: 12,
+                      width: '100%',
+                      padding: '11px',
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      color: '#000',
+                      border: 'none',
+                      borderRadius: 12,
+                      fontWeight: 800,
+                      fontSize: 13.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Review & Allow Entry →
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    background: theme === 'light' ? '#f0fdf4' : 'rgba(16, 185, 129, 0.08)',
+                    border: theme === 'light' ? '1px solid #bbf7d0' : '1px solid rgba(16, 185, 129, 0.25)',
+                    borderRadius: 16,
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>🟢</span>
+                  <div>
+                    <div style={{ fontWeight: 800, color: theme === 'light' ? '#166534' : '#34d399', fontSize: 13.5 }}>
+                      No Visitors Waiting at Gate
+                    </div>
+                    <div style={{ fontSize: 12, color: theme === 'light' ? '#15803d' : '#a7f3d0', marginTop: 3, lineHeight: 1.5 }}>
+                      Whenever your parents or guests arrive at the campus entry gate, security registers them and an instant permission pop-up will appear here for you to admit them.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* How it works info card */}
+              <div
+                style={{
+                  background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.03)',
+                  border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 16,
+                  padding: 14,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  ⚡ How Campus Visitor Entry Works
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                  <div>1️⃣ <strong>Arrival:</strong> Parents arrive at campus gate & state your name ({user?.name || 'Student'}).</div>
+                  <div>2️⃣ <strong>Instant Alert:</strong> A pop-up immediately rings on your phone/laptop to approve or decline.</div>
+                  <div>3️⃣ <strong>Gate Access:</strong> Once you tap <strong>Allow Entry</strong>, security immediately admits them inside.</div>
+                </div>
+              </div>
+
+              {/* Share digital pass link with parents */}
+              <div
+                style={{
+                  background: theme === 'light' ? '#eff6ff' : 'rgba(59, 130, 246, 0.08)',
+                  border: theme === 'light' ? '1px solid #bfdbfe' : '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: 16,
+                  padding: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: theme === 'light' ? '#1e40af' : '#93c5fd' }}>
+                    Pre-Fill Visitor Pass for Parents
+                  </div>
+                  <div style={{ fontSize: 11.5, color: theme === 'light' ? '#3b82f6' : '#bfdbfe', marginTop: 2 }}>
+                    Parents can fill their details ahead of arriving at the gate
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/visitor-pass`;
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(url);
+                      toast.success('Visitor Pass link copied! Share this with your parents.');
+                    }
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: '#3b82f6',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  📋 Copy Link
+                </button>
+              </div>
+
+              {/* Visit History Section */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Recent Parent & Visitor Records
+                </div>
+                {visitorHistoryLoading ? (
+                  <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: 12.5 }}>
+                    Loading visit history...
+                  </div>
+                ) : visitorHistory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: 12.5, background: 'rgba(255,255,255,0.02)', borderRadius: 12 }}>
+                    No past visitor records on file.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {visitorHistory.slice(0, 5).map((vh) => (
+                      <div
+                        key={vh._id}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: 12,
+                          background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.03)',
+                          border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.06)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: 12.5,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {vh.name} {vh.visitorCount > 1 ? `(+${vh.visitorCount - 1})` : ''}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                            📅 {vh.date || 'Today'} • {vh.purpose || 'Meeting student'}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            background:
+                              vh.studentApprovalStatus === 'APPROVED' || vh.status === 'INSIDE' || vh.status === 'COMPLETED'
+                                ? 'rgba(16, 185, 129, 0.15)'
+                                : vh.studentApprovalStatus === 'REJECTED'
+                                ? 'rgba(239, 68, 68, 0.15)'
+                                : 'rgba(245, 158, 11, 0.15)',
+                            color:
+                              vh.studentApprovalStatus === 'APPROVED' || vh.status === 'INSIDE' || vh.status === 'COMPLETED'
+                                ? '#10b981'
+                                : vh.studentApprovalStatus === 'REJECTED'
+                                ? '#ef4444'
+                                : '#f59e0b',
+                          }}
+                        >
+                          {vh.studentApprovalStatus === 'APPROVED' ? 'ALLOWED' : vh.studentApprovalStatus || vh.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                padding: '12px 24px',
+                borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowParentVisitInfoModal(false)}
+                style={{
+                  padding: '9px 20px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
