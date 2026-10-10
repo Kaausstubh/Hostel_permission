@@ -170,7 +170,7 @@ const visitorLogSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: ['MANUAL', 'GOOGLE_FORM', 'WEBHOOK'],
+      enum: ['MANUAL', 'GOOGLE_FORM', 'WEBHOOK', 'SELF_WEB', 'KIOSK_FORM'],
       default: 'MANUAL',
     },
     passNumber: {

@@ -20,6 +20,9 @@ import {
   MdClose,
   MdPhone,
   MdApartment,
+  MdQrCode2,
+  MdContentCopy,
+  MdOpenInNew,
 } from 'react-icons/md';
 import { RiFilePdf2Line, RiFileExcel2Line } from 'react-icons/ri';
 import { useAuth } from '../context/AuthContext';
@@ -82,6 +85,33 @@ export default function VisitorManagement() {
   const [studentResults, setStudentResults] = useState([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+
+  // Visitor Self Check-In Kiosk & QR modal state
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [kioskQrData, setKioskQrData] = useState(null);
+  const [loadingKioskQr, setLoadingKioskQr] = useState(false);
+
+  useEffect(() => {
+    if (!isQrModalOpen) return;
+    setLoadingKioskQr(true);
+    api
+      .get(`/visitors/public/kiosk-qr?origin=${encodeURIComponent(window.location.origin)}`)
+      .then((res) => {
+        if (res.data?.success) {
+          setKioskQrData(res.data);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Visitor] Failed to fetch kiosk QR:', err);
+      })
+      .finally(() => setLoadingKioskQr(false));
+  }, [isQrModalOpen]);
+
+  const handleCopyKioskLink = () => {
+    const link = kioskQrData?.url || `${window.location.origin}/visitor-pass`;
+    navigator.clipboard.writeText(link);
+    toast.success('Visitor check-in link copied to clipboard!');
+  };
 
   // Debounce search
   useEffect(() => {
@@ -392,6 +422,17 @@ export default function VisitorManagement() {
             </div>
           </div>
           <div className="section-actions" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsQrModalOpen(true)}
+              id="btn-visitor-kiosk-qr"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              title="Display Gate QR code and link for guest self check-in"
+            >
+              <MdQrCode2 size={18} />
+              <span>Visitor Check-In Link & QR</span>
+            </button>
             <button
               type="button"
               className="btn btn-primary"
@@ -1270,6 +1311,135 @@ export default function VisitorManagement() {
           </div>
         )}
 
+        {/* ── Visitor Self Check-In QR & Link Modal ── */}
+        {isQrModalOpen && (
+          <div className="modal-backdrop" onClick={() => setIsQrModalOpen(false)}>
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+              <div className="modal-header">
+                <div className="modal-title-group">
+                  <div className="modal-title-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>
+                    <MdQrCode2 size={24} />
+                  </div>
+                  <div>
+                    <h3>Visitor Self Check-In Portal</h3>
+                    <p className="modal-subtitle">Direct link & Gate QR for guest entry self-registration</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={() => setIsQrModalOpen(false)}
+                  aria-label="Close modal"
+                >
+                  <MdClose size={20} />
+                </button>
+              </div>
+
+              <div style={{ padding: '20px 24px', textAlign: 'center' }}>
+                <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
+                  Guests scan this QR code at the campus gate or access the link on mobile. It accesses the MongoDB student directory to search students by Name or MIS, and dispatches real-time approval requests directly to the student portal.
+                </p>
+
+                {/* QR Code Container */}
+                <div style={{
+                  background: '#ffffff',
+                  padding: 16,
+                  borderRadius: 16,
+                  display: 'inline-block',
+                  margin: '0 auto 18px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+                  border: '2px solid rgba(99, 102, 241, 0.2)',
+                }}>
+                  {loadingKioskQr ? (
+                    <div style={{ width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div className="loading-spinner" style={{ width: 32, height: 32 }} />
+                    </div>
+                  ) : kioskQrData?.qrDataUrl ? (
+                    <img
+                      src={kioskQrData.qrDataUrl}
+                      alt="Visitor Self Check-In QR Code"
+                      style={{ width: 220, height: 220, display: 'block' }}
+                    />
+                  ) : (
+                    <div style={{ width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+                      QR Preview Unavailable
+                    </div>
+                  )}
+                </div>
+
+                {/* Direct Link Display */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  background: 'var(--bg-base)',
+                  border: '1px solid var(--border)',
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}>
+                  <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left', fontFamily: 'monospace' }}>
+                    {kioskQrData?.url || `${window.location.origin}/visitor-pass`}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={handleCopyKioskLink}
+                    style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                    title="Copy URL"
+                  >
+                    <MdContentCopy size={15} />
+                    <span>Copy</span>
+                  </button>
+                </div>
+
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  background: 'rgba(99, 102, 241, 0.06)',
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  marginBottom: 20,
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <span>🔒</span>
+                  <span>
+                    <strong>Isolation Note:</strong> This self-registration link is strictly withheld from the student portal navigation.
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const link = kioskQrData?.url || `${window.location.origin}/visitor-pass`;
+                      window.open(link, '_blank');
+                    }}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  >
+                    <MdOpenInNew size={16} />
+                    <span>Open Kiosk Page</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleCopyKioskLink}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  >
+                    <MdContentCopy size={16} />
+                    <span>Copy Link</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

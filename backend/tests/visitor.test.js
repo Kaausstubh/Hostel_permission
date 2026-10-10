@@ -287,7 +287,36 @@ async function runVisitorTestSuite() {
 
   console.log('✅ Test 7 Passed: Phone and vehicle numbers safely masked for application logs.');
 
-  console.log('\n🎉 ALL 7 VISITOR MODULE TEST SUITES PASSED SUCCESSFULLY!\n');
+  // ─── Test 8: Self Web Check-In Schema & Validation ───────────────────────
+  console.log('\n--- Test 8: Self Web Check-In Source & Student Pass Attributes ---');
+
+  const webVisitorDoc = new VisitorLog({
+    name: 'Suresh Kumar',
+    phone: '9876543210',
+    visitorCount: 2,
+    hasVehicle: true,
+    vehicleNumber: 'MH12CD5678',
+    purpose: 'Meeting a student',
+    studentName: 'Aarav Patel',
+    studentRollNo: '202301045',
+    studentHostel: 'BH1',
+    studentRoomNo: 'B-302',
+    status: 'PENDING',
+    studentApprovalStatus: 'PENDING',
+    source: 'SELF_WEB',
+    passNumber: 'VIS-WEB-20261010-ABCD',
+  });
+
+  const webValErr = webVisitorDoc.validateSync();
+  assert.strictEqual(webValErr, undefined, 'SELF_WEB visitor log must validate without errors');
+  assert.strictEqual(webVisitorDoc.source, 'SELF_WEB');
+  assert.strictEqual(webVisitorDoc.studentApprovalStatus, 'PENDING');
+  assert.strictEqual(webVisitorDoc.status, 'PENDING');
+  assert.strictEqual(webVisitorDoc.vehicleNumber, 'MH12CD5678');
+
+  console.log('✅ Test 8 Passed: Self Web Check-In schema validation and attributes.');
+
+  console.log('\n🎉 ALL 8 VISITOR MODULE TEST SUITES PASSED SUCCESSFULLY!\n');
 }
 
 // Execute tests

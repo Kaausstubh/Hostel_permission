@@ -37,11 +37,327 @@ const {
 } = require('../services/socketService');
 const { invalidateDashboardCache } = require('../services/dashboardCache');
 
+const QRCode = require('qrcode');
+
 // Helper: current date in Asia/Kolkata timezone
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 // Helper: calculate total headcount sum from an array or query
 const sumHeadcount = (list = []) => list.reduce((acc, item) => acc + (Number(item.visitorCount) || 1), 0);
+
+// ─── GET /api/visitors/public/stats ───────────────────────────────────────────
+// Public endpoint for visitor self-registration page to get total students count
+router.get('/public/stats', async (req, res) => {
+  try {
+    const totalStudents = await User.countDocuments({ role: 'student', isActive: true });
+    res.json({
+      success: true,
+      totalStudents,
+      campusName: 'IIIT Pune Hostel Campus',
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch visitor public stats', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch student directory stats' });
+  }
+});
+
+// ─── GET /api/visitors/public/students-search ──────────────────────────────────
+// Public autocomplete search for student hosts by Name or MIS (rollNo).
+// Returns only safe public directory fields (_id, name, rollNo, hostel, roomNo).
+router.get('/public/students-search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const totalStudents = await User.countDocuments({ role: 'student', isActive: true });
+
+    if (!q || q.length < 1) {
+      // Return a small list of sample/recommended students when search box is opened
+      const recommended = await User.find({ role: 'student', isActive: true })
+        .select('_id name rollNo hostel roomNo')
+        .sort({ name: 1 })
+        .limit(8)
+        .lean();
+      return res.json({ success: true, students: recommended, totalStudents });
+    }
+
+    const escapedTerm = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const searchRegex = new RegExp(escapedTerm, 'i');
+
+    const students = await User.find({
+      role: 'student',
+      isActive: true,
+      $or: [
+        { name: searchRegex },
+        { rollNo: searchRegex },
+        { roomNo: searchRegex },
+      ],
+    })
+      .select('_id name rollNo hostel roomNo')
+      .limit(15)
+      .lean();
+
+    res.json({ success: true, students, totalStudents });
+  } catch (err) {
+    logger.error('[Visitor Route] Public student search failed', { error: err.message });
+    res.status(500).json({ success: false, message: 'Student search failed: ' + err.message });
+  }
+});
+
+// ─── GET /api/visitors/public/pass-status/:id ──────────────────────────────────
+// Public status check for visitor pass so visitor web page updates live
+router.get('/public/pass-status/:id', async (req, res) => {
+  try {
+    const visitor = await VisitorLog.findById(req.params.id).lean();
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: 'Visitor pass not found' });
+    }
+
+    res.json({
+      success: true,
+      visitor: {
+        _id: visitor._id,
+        passNumber: visitor.passNumber,
+        name: visitor.name,
+        phone: maskPhone(visitor.phone),
+        purpose: visitor.purpose,
+        purposeDetails: visitor.purposeDetails,
+        visitorCount: visitor.visitorCount,
+        hasVehicle: visitor.hasVehicle,
+        vehicleNumber: visitor.vehicleNumber,
+        student_id: visitor.student_id,
+        studentName: visitor.studentName,
+        studentRollNo: visitor.studentRollNo,
+        studentHostel: visitor.studentHostel,
+        studentRoomNo: visitor.studentRoomNo,
+        studentApprovalStatus: visitor.studentApprovalStatus,
+        studentApprovalRemarks: visitor.studentApprovalRemarks,
+        studentApprovalTime: visitor.studentApprovalTime,
+        status: visitor.status,
+        entryTime: visitor.entryTime,
+        date: visitor.date,
+        entryGate: visitor.entryGate,
+        source: visitor.source,
+      },
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to fetch pass status', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to retrieve pass status' });
+  }
+});
+
+// ─── GET /api/visitors/public/kiosk-qr ─────────────────────────────────────────
+// Generates QR code for campus gate signage pointing to visitor self-check-in URL
+router.get('/public/kiosk-qr', async (req, res) => {
+  try {
+    const rawOrigin = req.query.origin || req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const origin = rawOrigin.split(',')[0].trim().replace(/\/+$/, '');
+    const targetUrl = `${origin}/visitor-pass`;
+
+    const qrDataUrl = await QRCode.toDataURL(targetUrl, {
+      errorCorrectionLevel: 'H',
+      width: 480,
+      margin: 3,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+
+    res.json({
+      success: true,
+      url: targetUrl,
+      qrDataUrl,
+    });
+  } catch (err) {
+    logger.error('[Visitor Route] Failed to generate kiosk QR', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to generate kiosk QR' });
+  }
+});
+
+// ─── POST /api/visitors/public/register ────────────────────────────────────────
+// Public self-check-in endpoint for visitors on the webpage
+router.post('/public/register', async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      purpose,
+      purposeDetails,
+      student_id,
+      studentName,
+      studentRollNo,
+      studentHostel,
+      studentRoomNo,
+      visitorCount: rawVisitorCount,
+      hasVehicle: rawHasVehicle,
+      vehicleNumber: rawVehicleNumber,
+      entryGate,
+    } = req.body;
+
+    // Validate Name
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor name is required.' });
+    }
+
+    // Validate Phone
+    if (!phone || !String(phone).trim()) {
+      return res.status(400).json({ success: false, message: 'Visitor phone number is required.' });
+    }
+    const phoneValidation = validateIndianPhone(phone, 'Visitor phone');
+    if (!phoneValidation.valid) {
+      return res.status(400).json({ success: false, message: phoneValidation.error });
+    }
+    const normalizedPhone = phoneValidation.e164 || String(phone).trim();
+
+    // Validate Purpose
+    const sanitizedPurpose = purpose ? String(purpose).trim() : 'Other';
+
+    // Resolve Student Details if Purpose is 'Meeting a student'
+    const isStudentVisit = (sanitizedPurpose === PURPOSE_STUDENT_REQUIRED || sanitizedPurpose.toLowerCase().includes('student'));
+    let resolvedStudentId = null;
+    let resolvedStudentName = studentName ? String(studentName).trim() : '';
+    let resolvedRollNo = studentRollNo ? String(studentRollNo).trim() : '';
+    let resolvedStudentHostel = studentHostel ? String(studentHostel).trim() : '';
+    let resolvedStudentRoom = studentRoomNo ? String(studentRoomNo).trim() : '';
+
+    if (isStudentVisit) {
+      if (student_id) {
+        const targetUser = await User.findById(student_id);
+        if (targetUser && targetUser.role === 'student') {
+          resolvedStudentId = targetUser._id;
+          resolvedStudentName = targetUser.name || resolvedStudentName;
+          resolvedRollNo = targetUser.rollNo || resolvedRollNo;
+          resolvedStudentHostel = targetUser.hostel || resolvedStudentHostel;
+          resolvedStudentRoom = targetUser.roomNo || resolvedStudentRoom;
+        }
+      } else if (resolvedRollNo || resolvedStudentName) {
+        const matchCriteria = [];
+        if (resolvedRollNo) matchCriteria.push({ rollNo: resolvedRollNo });
+        if (resolvedStudentName) matchCriteria.push({ name: new RegExp(`^${resolvedStudentName}$`, 'i') });
+        if (matchCriteria.length > 0) {
+          const targetUser = await User.findOne({ role: 'student', $or: matchCriteria });
+          if (targetUser) {
+            resolvedStudentId = targetUser._id;
+            resolvedStudentName = targetUser.name || resolvedStudentName;
+            resolvedRollNo = targetUser.rollNo || resolvedRollNo;
+            resolvedStudentHostel = targetUser.hostel || resolvedStudentHostel;
+            resolvedStudentRoom = targetUser.roomNo || resolvedStudentRoom;
+          }
+        }
+      }
+
+      if (!resolvedStudentName) {
+        return res.status(400).json({ success: false, message: 'Student name is required when purpose is "Meeting a student".' });
+      }
+      if (!resolvedStudentHostel) {
+        return res.status(400).json({ success: false, message: 'Student hostel is required.' });
+      }
+      if (!resolvedStudentRoom) {
+        return res.status(400).json({ success: false, message: 'Student room number is required.' });
+      }
+    }
+
+    // If purpose is 'Other', require purpose details
+    if (sanitizedPurpose === PURPOSE_OTHER || sanitizedPurpose.toLowerCase() === 'other') {
+      if (!purposeDetails || !String(purposeDetails).trim()) {
+        return res.status(400).json({ success: false, message: 'Specific reason / details is required when purpose is "Other".' });
+      }
+    }
+
+    // Parse visitor count
+    const countRes = parseVisitorCount(rawVisitorCount);
+    if (!countRes.valid) {
+      return res.status(400).json({ success: false, message: countRes.error });
+    }
+    const visitorCount = countRes.count;
+
+    // Parse hasVehicle & vehicleNumber
+    const hasVehicle = parseBoolean(rawHasVehicle);
+    const vehicleRes = normalizeVehicleNumber(rawVehicleNumber, hasVehicle);
+    if (!vehicleRes.valid) {
+      return res.status(400).json({ success: false, message: vehicleRes.error });
+    }
+    const vehicleNumber = vehicleRes.normalized;
+
+    const now = new Date();
+    const date = todayStr();
+    const passNumber = `VIS-WEB-${date.replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    // Student visit -> PENDING (student approves/rejects from portal)
+    // Non-student visit -> INSIDE
+    const status = isStudentVisit ? 'PENDING' : 'INSIDE';
+    const studentApprovalStatus = isStudentVisit ? 'PENDING' : 'NA';
+
+    const newVisitor = await VisitorLog.create({
+      name: String(name).trim(),
+      phone: normalizedPhone,
+      visitorCount,
+      hasVehicle,
+      vehicleNumber,
+      purpose: sanitizedPurpose,
+      purposeDetails: purposeDetails ? String(purposeDetails).trim() : '',
+      student_id: resolvedStudentId,
+      studentName: resolvedStudentName,
+      studentRollNo: resolvedRollNo,
+      studentHostel: resolvedStudentHostel,
+      studentRoomNo: resolvedStudentRoom,
+      studentApprovalStatus,
+      status,
+      entryTime: isStudentVisit ? null : now,
+      exitTime: null,
+      date,
+      entryGate: entryGate ? String(entryGate).trim() : 'Main Gate (Visitor Kiosk)',
+      loggedBy: null,
+      logged_by_name: 'Visitor Self Check-In',
+      source: 'SELF_WEB',
+      passNumber,
+    });
+
+    logger.info('[Visitor Web] Self check-in pass requested', {
+      visitorId: newVisitor._id,
+      passNumber,
+      purpose: sanitizedPurpose,
+      status,
+      studentApprovalStatus,
+      studentId: resolvedStudentId,
+      visitorCount,
+      hasVehicle,
+      maskedPhone: maskPhone(normalizedPhone),
+      maskedVehicle: maskVehicle(vehicleNumber),
+    });
+
+    // Real-time broadcast
+    if (isStudentVisit) {
+      // Dispatches real-time popup to the student's dashboard
+      broadcastVisitorRequest(newVisitor, resolvedStudentId);
+    } else {
+      const io = getIO();
+      if (io) {
+        io.of('/dashboard').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+        io.of('/scanner').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+      }
+    }
+
+    invalidateDashboardCache().catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      message: isStudentVisit
+        ? 'Pass request created! Notification sent to student portal for approval.'
+        : 'Visitor pass issued successfully.',
+      passNumber,
+      visitorId: newVisitor._id,
+      visitor: newVisitor,
+    });
+  } catch (err) {
+    logger.error('[Visitor Web] Self check-in error', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to process visitor registration: ' + err.message });
+  }
+});
 
 // ─── GET /api/visitors ────────────────────────────────────────────────────────
 // List all visitor logs with multi-field search and filters
