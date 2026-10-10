@@ -445,6 +445,8 @@ router.get('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'
 
     const totalPending = pendingDocs.length;
     const totalPendingHeadcount = sumHeadcount(pendingDocs);
+    const readyToAdmit = pendingDocs.filter((d) => d.studentApprovalStatus === 'APPROVED').length;
+    const awaitingStudent = pendingDocs.filter((d) => d.studentApprovalStatus === 'PENDING').length;
 
     const totalToday = todayDocs.length;
     const totalTodayHeadcount = sumHeadcount(todayDocs);
@@ -463,6 +465,8 @@ router.get('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'
         vehiclesInside,
         totalPending,
         totalPendingHeadcount,
+        readyToAdmit,
+        awaitingStudent,
         totalToday,
         totalTodayHeadcount,
       },

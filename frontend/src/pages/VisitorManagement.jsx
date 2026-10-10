@@ -71,6 +71,8 @@ export default function VisitorManagement() {
     vehiclesInside: 0,
     totalPending: 0,
     totalPendingHeadcount: 0,
+    readyToAdmit: 0,
+    awaitingStudent: 0,
     totalToday: 0,
     totalTodayHeadcount: 0,
   });
@@ -80,7 +82,7 @@ export default function VisitorManagement() {
   const [grantingEntryId, setGrantingEntryId] = useState(null);
 
   // Filters
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'pending' | 'inside' | 'exited'
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'ready' | 'waiting' | 'inside' | 'exited'
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -206,9 +208,19 @@ export default function VisitorManagement() {
     setIsRefreshing(true);
     try {
       const params = new URLSearchParams();
-      if (activeTab === 'pending') params.append('status', 'PENDING');
-      if (activeTab === 'inside') params.append('status', 'INSIDE');
-      if (activeTab === 'exited') params.append('status', 'EXITED');
+      if (activeTab === 'ready') {
+        params.append('status', 'PENDING');
+        params.append('studentApprovalStatus', 'APPROVED');
+      } else if (activeTab === 'waiting') {
+        params.append('status', 'PENDING');
+        params.append('studentApprovalStatus', 'PENDING');
+      } else if (activeTab === 'pending') {
+        params.append('status', 'PENDING');
+      } else if (activeTab === 'inside') {
+        params.append('status', 'INSIDE');
+      } else if (activeTab === 'exited') {
+        params.append('status', 'EXITED');
+      }
       if (dateFilter) params.append('date', dateFilter);
       if (purposeFilter !== 'all') params.append('purpose', purposeFilter);
       if (vehicleOnlyFilter) params.append('hasVehicle', 'true');
@@ -493,41 +505,122 @@ export default function VisitorManagement() {
           </div>
         </div>
 
-        {/* ── KPI Stat Cards ── */}
+        {/* ── Security Guard Quick Helper Banner (Bilingual & Dead-Simple) ── */}
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(99, 102, 241, 0.08) 100%)',
+          border: '1.5px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: 14,
+          padding: '14px 20px',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 42,
+              height: 42,
+              borderRadius: '50%',
+              background: '#10b981',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.35)',
+            }}>
+              🛡️
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>
+                Gate Guard Simple Rule / सुरक्षा गार्ड नियम:
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                1. Visitor fills pass ➔ 2. Student confirms on phone ➔ 3. <strong>Tap Green Button to Allow Entry</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{
+              background: 'rgba(245, 158, 11, 0.18)',
+              color: '#b45309',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              padding: '5px 10px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 800,
+            }}>
+              ⏳ Yellow = WAIT (Don't allow inside)
+            </span>
+            <span style={{
+              background: 'rgba(16, 185, 129, 0.18)',
+              color: '#047857',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              padding: '5px 10px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 800,
+            }}>
+              🟢 Green = ADMIT (Tap button to let in)
+            </span>
+          </div>
+        </div>
+
+        {/* ── KPI Stat Cards (Color-Coded for Security) ── */}
         <div className="stats-grid">
+          {/* Card 1: Ready to Admit (Highlighted if > 0) */}
           <div
-            className={`stat-card ${summary.totalPending > 0 ? 'warning' : ''}`}
+            className={`stat-card ${summary.readyToAdmit > 0 ? 'success' : ''}`}
+            style={{
+              cursor: 'pointer',
+              border: summary.readyToAdmit > 0 ? '2px solid #10b981' : undefined,
+              boxShadow: summary.readyToAdmit > 0 ? '0 0 15px rgba(16, 185, 129, 0.25)' : undefined,
+            }}
+            onClick={() => { setActiveTab('ready'); setPage(1); }}
+            title="Visitors approved by student, waiting for guard to give gate access"
+          >
+            <div className="stat-edge-glow" />
+            <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
+              <MdCheckCircle size={22} />
+            </div>
+            <div className="stat-value" style={{ color: summary.readyToAdmit > 0 ? '#10b981' : undefined }}>
+              {summary.readyToAdmit || 0}
+            </div>
+            <div className="stat-label">🟢 Ready to Admit (Student Approved)</div>
+          </div>
+
+          {/* Card 2: Waiting on Student */}
+          <div
+            className={`stat-card ${summary.awaitingStudent > 0 ? 'warning' : ''}`}
             style={{ cursor: 'pointer' }}
-            onClick={() => { setActiveTab('pending'); setPage(1); }}
-            title="Filter passes awaiting student approval"
+            onClick={() => { setActiveTab('waiting'); setPage(1); }}
+            title="Passes waiting for student response"
           >
             <div className="stat-edge-glow" />
             <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
               <MdAccessTime size={22} />
             </div>
-            <div className="stat-value" id="kpi-pending-count">{summary.totalPending || 0}</div>
-            <div className="stat-label">Pending Student Approval</div>
+            <div className="stat-value" id="kpi-pending-count">{summary.awaitingStudent || summary.totalPending || 0}</div>
+            <div className="stat-label">⏳ Waiting for Student Approval</div>
           </div>
 
-          <div className="stat-card success" style={{ cursor: 'pointer' }} onClick={() => { setActiveTab('inside'); setPage(1); }}>
+          {/* Card 3: Inside Campus Headcount */}
+          <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => { setActiveTab('inside'); setPage(1); }}>
             <div className="stat-edge-glow" />
-            <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+            <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>
               <MdPeople size={22} />
             </div>
             <div className="stat-value" id="kpi-inside-headcount">{summary.totalInsideHeadcount}</div>
             <div className="stat-label">People Inside ({summary.totalInside} passes)</div>
           </div>
 
+          {/* Card 4: Vehicles on Campus */}
           <div className="stat-card" style={{ cursor: 'default' }}>
-            <div className="stat-edge-glow" />
-            <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>
-              <MdCheckCircle size={22} />
-            </div>
-            <div className="stat-value">{summary.totalInside}</div>
-            <div className="stat-label">Active Inside Passes</div>
-          </div>
-
-          <div className="stat-card warning" style={{ cursor: 'default' }}>
             <div className="stat-edge-glow" />
             <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
               <MdDirectionsCar size={22} />
@@ -536,6 +629,7 @@ export default function VisitorManagement() {
             <div className="stat-label">Vehicles On Campus</div>
           </div>
 
+          {/* Card 5: Today's Total Headcount */}
           <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => { setActiveTab('all'); setPage(1); }}>
             <div className="stat-edge-glow" />
             <div className="stat-icon" style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
@@ -561,12 +655,38 @@ export default function VisitorManagement() {
                 </button>
                 <button
                   type="button"
-                  className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
-                  onClick={() => { setActiveTab('pending'); setPage(1); }}
+                  className={`tab ${activeTab === 'ready' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('ready'); setPage(1); }}
+                  style={{
+                    position: 'relative',
+                    fontWeight: 700,
+                    color: summary.readyToAdmit > 0 ? '#10b981' : undefined,
+                  }}
+                >
+                  🟢 Ready to Admit
+                  {summary.readyToAdmit > 0 && (
+                    <span style={{
+                      marginLeft: 6,
+                      background: '#10b981',
+                      color: '#fff',
+                      borderRadius: '10px',
+                      padding: '2px 7px',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
+                    }}>
+                      {summary.readyToAdmit}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`tab ${activeTab === 'waiting' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('waiting'); setPage(1); }}
                   style={{ position: 'relative' }}
                 >
-                  Pending Approval
-                  {summary.totalPending > 0 && (
+                  ⏳ Waiting for Student
+                  {(summary.awaitingStudent || 0) > 0 && (
                     <span style={{
                       marginLeft: 6,
                       background: '#f59e0b',
@@ -576,7 +696,7 @@ export default function VisitorManagement() {
                       fontSize: 11,
                       fontWeight: 800,
                     }}>
-                      {summary.totalPending}
+                      {summary.awaitingStudent}
                     </span>
                   )}
                 </button>
@@ -760,8 +880,19 @@ export default function VisitorManagement() {
                   <tbody>
                     {visitors.map((log, idx) => {
                       const isInside = log.status === 'INSIDE';
+                      const isReadyToAdmit = log.status === 'PENDING' && log.studentApprovalStatus === 'APPROVED';
                       return (
-                        <tr key={log._id || idx} style={{ background: isInside ? 'rgba(16, 185, 129, 0.03)' : undefined }}>
+                        <tr
+                          key={log._id || idx}
+                          style={{
+                            background: isReadyToAdmit
+                              ? 'rgba(16, 185, 129, 0.08)'
+                              : isInside
+                                ? 'rgba(16, 185, 129, 0.02)'
+                                : undefined,
+                            borderLeft: isReadyToAdmit ? '4px solid #10b981' : undefined,
+                          }}
+                        >
                           <td style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>
                             {(page - 1) * 50 + idx + 1}
                           </td>
@@ -770,22 +901,22 @@ export default function VisitorManagement() {
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                               <div style={{
-                                width: 32,
-                                height: 32,
+                                width: 34,
+                                height: 34,
                                 borderRadius: '50%',
-                                background: 'var(--primary)',
+                                background: isReadyToAdmit ? '#10b981' : 'var(--primary)',
                                 color: '#fff',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                fontWeight: 700,
-                                fontSize: 13,
+                                fontWeight: 800,
+                                fontSize: 14,
                                 flexShrink: 0,
                               }}>
                                 {log.name?.charAt(0).toUpperCase() || 'V'}
                               </div>
                               <div>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{log.name || 'Unknown'}</div>
+                                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>{log.name || 'Unknown'}</div>
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                   <MdPhone size={12} /> {log.phone || '—'}
                                 </div>
@@ -807,12 +938,17 @@ export default function VisitorManagement() {
                                   : log.status === 'REJECTED'
                                     ? 'badge-rejected'
                                     : 'badge-out'
-                            }`}>
+                            }`} style={{
+                              fontWeight: 800,
+                              padding: '5px 10px',
+                              fontSize: 11.5,
+                              letterSpacing: '0.02em',
+                            }}>
                               {log.status === 'INSIDE'
-                                ? '● INSIDE'
+                                ? '● INSIDE CAMPUS'
                                 : log.status === 'PENDING'
                                   ? log.studentApprovalStatus === 'APPROVED'
-                                    ? '🟢 APPROVED'
+                                    ? '🟢 READY TO ENTER'
                                     : log.studentApprovalStatus === 'REJECTED'
                                       ? '✕ DECLINED'
                                       : (log.purpose === PURPOSE_STUDENT_REQUIRED || log.student_id)
@@ -826,7 +962,7 @@ export default function VisitorManagement() {
 
                           {/* Visitors Count Badge */}
                           <td style={{ textAlign: 'center' }}>
-                            <span className={`badge ${log.visitorCount > 1 ? 'badge-progress' : 'badge-out'}`}>
+                            <span className={`badge ${log.visitorCount > 1 ? 'badge-progress' : 'badge-out'}`} style={{ fontWeight: 700 }}>
                               👥 {log.visitorCount || 1}
                             </span>
                           </td>
@@ -834,7 +970,7 @@ export default function VisitorManagement() {
                           {/* Vehicle Number Badge */}
                           <td>
                             {log.hasVehicle && log.vehicleNumber ? (
-                              <span className="vehicle-badge">
+                              <span className="vehicle-badge" style={{ fontWeight: 700 }}>
                                 <MdDirectionsCar size={13} />
                                 <span>{log.vehicleNumber}</span>
                               </span>
@@ -862,13 +998,13 @@ export default function VisitorManagement() {
                                   <span className="badge badge-out" style={{ fontSize: 10.5, padding: '2px 6px' }}>{getHostelLabel(log.studentHostel)}</span>
                                   {log.studentRoomNo && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>Rm {log.studentRoomNo}</span>}
                                   {log.studentApprovalStatus === 'PENDING' && (
-                                    <span style={{ fontSize: 10.5, color: '#f59e0b', fontWeight: 600 }}>· ⏳ Pending</span>
+                                    <span style={{ fontSize: 11, color: '#b45309', fontWeight: 800, background: 'rgba(245, 158, 11, 0.15)', padding: '1px 6px', borderRadius: 4 }}>· ⏳ Waiting</span>
                                   )}
                                   {log.studentApprovalStatus === 'APPROVED' && (
-                                    <span style={{ fontSize: 10.5, color: '#10b981', fontWeight: 600 }}>· 🟢 Approved</span>
+                                    <span style={{ fontSize: 11, color: '#047857', fontWeight: 800, background: 'rgba(16, 185, 129, 0.2)', padding: '1px 6px', borderRadius: 4 }}>· 🟢 Confirmed</span>
                                   )}
                                   {log.studentApprovalStatus === 'REJECTED' && (
-                                    <span style={{ fontSize: 10.5, color: '#ef4444', fontWeight: 600 }}>· 🔴 Rejected</span>
+                                    <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 800, background: 'rgba(239, 68, 68, 0.15)', padding: '1px 6px', borderRadius: 4 }}>· 🔴 Denied</span>
                                   )}
                                 </div>
                               </div>
@@ -887,7 +1023,7 @@ export default function VisitorManagement() {
                           {/* Entry Time */}
                           <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
                             {log.status === 'PENDING' ? (
-                              <span style={{ color: '#f59e0b', fontStyle: 'italic' }}>Awaiting…</span>
+                              <span style={{ color: '#f59e0b', fontStyle: 'italic', fontWeight: 600 }}>Awaiting…</span>
                             ) : log.entryTime ? (
                               new Date(log.entryTime).toLocaleTimeString('en-IN', {
                                 hour: '2-digit',
@@ -918,50 +1054,54 @@ export default function VisitorManagement() {
                               log.studentApprovalStatus === 'APPROVED' ? (
                                 <button
                                   type="button"
-                                  className="btn btn-sm"
                                   style={{
-                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                    color: '#fff',
+                                    background: '#10b981',
+                                    color: '#ffffff',
                                     border: 'none',
-                                    padding: '6px 14px',
-                                    fontSize: 12.5,
-                                    fontWeight: 700,
-                                    borderRadius: 6,
+                                    padding: '7px 15px',
+                                    fontSize: 13,
+                                    fontWeight: 800,
+                                    borderRadius: 8,
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: 5,
-                                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                                    gap: 6,
+                                    boxShadow: '0 3px 10px rgba(16, 185, 129, 0.4)',
                                     cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
                                   }}
                                   onClick={() => handleGrantEntry(log._id, log.name)}
-                                  title="Host student accepted! Click to grant gate access to visitor"
+                                  title="Student approved! Click to allow entry through gate"
                                   disabled={grantingEntryId === log._id}
                                 >
-                                  <MdCheckCircle size={15} />
-                                  <span>{grantingEntryId === log._id ? 'Admitting…' : 'Grant Entry'}</span>
+                                  <MdCheckCircle size={17} />
+                                  <span>{grantingEntryId === log._id ? 'Admitting…' : '🟢 ALLOW ENTRY'}</span>
                                 </button>
                               ) : log.studentApprovalStatus === 'REJECTED' ? (
-                                <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 600 }}>
-                                  Declined by Student
+                                <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', padding: '4px 8px', borderRadius: 6 }}>
+                                  🛑 Denied by Student
                                 </span>
                               ) : (log.purpose === PURPOSE_STUDENT_REQUIRED || log.student_id) ? (
-                                <div
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    padding: '5px 10px',
-                                    borderRadius: 6,
-                                    background: 'rgba(245, 158, 11, 0.12)',
-                                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                                    color: '#d97706',
-                                    fontSize: 11.5,
-                                    fontWeight: 600,
-                                  }}
-                                  title="Student must approve from their portal first. Gate security cannot admit yet."
-                                >
-                                  <MdAccessTime size={13} />
-                                  <span>Waiting for Student</span>
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                  <div
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 5,
+                                      padding: '5px 10px',
+                                      borderRadius: 6,
+                                      background: 'rgba(245, 158, 11, 0.15)',
+                                      border: '1px solid rgba(245, 158, 11, 0.35)',
+                                      color: '#b45309',
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    <MdAccessTime size={13} />
+                                    <span>Student Must Approve</span>
+                                  </div>
+                                  <span style={{ fontSize: 10.5, color: '#ef4444', fontWeight: 600 }}>
+                                    ⛔ Wait at gate
+                                  </span>
                                 </div>
                               ) : (
                                 /* Non-student visits (Delivery, Maintenance) where guard can directly admit */
@@ -973,7 +1113,7 @@ export default function VisitorManagement() {
                                       background: '#10b981',
                                       color: '#fff',
                                       border: 'none',
-                                      padding: '4px 8px',
+                                      padding: '5px 10px',
                                       fontSize: 12,
                                       fontWeight: 700,
                                       borderRadius: 6,
@@ -989,7 +1129,7 @@ export default function VisitorManagement() {
                                     style={{
                                       color: '#ef4444',
                                       border: '1px solid rgba(239, 68, 68, 0.3)',
-                                      padding: '4px 8px',
+                                      padding: '5px 10px',
                                       fontSize: 12,
                                       borderRadius: 6,
                                     }}
@@ -1003,13 +1143,24 @@ export default function VisitorManagement() {
                             ) : isInside ? (
                               <button
                                 type="button"
-                                className="btn btn-outline btn-sm btn-mark-exit"
+                                style={{
+                                  background: 'transparent',
+                                  border: '1.5px solid #64748b',
+                                  color: 'var(--text-primary)',
+                                  padding: '5px 10px',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  borderRadius: 6,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  cursor: 'pointer',
+                                }}
                                 onClick={() => handleMarkExit(log._id, log.name)}
                                 title="Mark visitor as EXITED"
-                                style={{ padding: '4px 8px', fontSize: 12 }}
                               >
-                                <MdExitToApp size={14} />
-                                <span>Mark Exit</span>
+                                <MdExitToApp size={15} color="#ef4444" />
+                                <span>🚪 Mark Exit (Out)</span>
                               </button>
                             ) : log.status === 'REJECTED' ? (
                               <span style={{ color: '#ef4444', fontSize: 12.5, fontWeight: 600 }}>Declined</span>
@@ -1606,47 +1757,47 @@ export default function VisitorManagement() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 7,
-                background: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                padding: '5px 14px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1.5px solid rgba(16, 185, 129, 0.45)',
+                padding: '6px 16px',
                 borderRadius: 20,
-                color: '#059669',
-                fontSize: 12,
-                fontWeight: 700,
+                color: '#047857',
+                fontSize: 12.5,
+                fontWeight: 800,
                 letterSpacing: '0.04em',
                 textTransform: 'uppercase',
                 marginBottom: 14,
               }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
-                <span>Host Student Accepted Request</span>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
+                <span>✅ STUDENT SAID YES · छात्र ने अनुमति दी</span>
               </div>
 
-              <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
-                🎉 Student Accepted Visitor!
+              <h2 style={{ fontSize: 23, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 6px', letterSpacing: '-0.02em' }}>
+                🟢 Student Approved! Allow Visitor In
               </h2>
-              <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', margin: '0 0 20px', lineHeight: 1.5 }}>
-                Host student <strong>{studentApprovalAlert.studentName || studentApprovalAlert.visitor?.studentName}</strong> has confirmed and allowed this visit from their portal. Security can now grant entry pass at gate.
-              </p>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#047857', marginBottom: 16 }}>
+                छात्र ने अनुमति दे दी है — कृपया गेट पर एंट्री दें (Gate Open / Entry Allowed)
+              </div>
 
               {/* Information Cards Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, textAlign: 'left', marginBottom: 22 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, textAlign: 'left', marginBottom: 20 }}>
                 {/* Visitor Card */}
-                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                    👤 Visitor Details
+                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1.5px solid var(--border)', borderRadius: 12, padding: '14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    👤 VISITOR / आगंतुक
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {studentApprovalAlert.visitor?.name}
                   </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                    <MdPhone size={13} /> {studentApprovalAlert.visitor?.phone}
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                    <MdPhone size={14} /> {studentApprovalAlert.visitor?.phone}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ background: 'rgba(99, 102, 241, 0.12)', color: '#4338ca', padding: '3px 8px', borderRadius: 5, fontWeight: 700 }}>
                       👥 {studentApprovalAlert.visitor?.visitorCount || 1} Person(s)
                     </span>
                     {studentApprovalAlert.visitor?.hasVehicle && studentApprovalAlert.visitor?.vehicleNumber && (
-                      <span style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#b45309', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                      <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#b45309', padding: '3px 8px', borderRadius: 5, fontWeight: 700 }}>
                         🚗 {studentApprovalAlert.visitor?.vehicleNumber}
                       </span>
                     )}
@@ -1654,24 +1805,24 @@ export default function VisitorManagement() {
                 </div>
 
                 {/* Host Student Card */}
-                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                    🎓 Host Student
+                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1.5px solid var(--border)', borderRadius: 12, padding: '14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    🎓 HOST STUDENT / छात्र
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
                     {studentApprovalAlert.studentName || studentApprovalAlert.visitor?.studentName}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                    <MdApartment size={13} />
-                    <span>{getHostelLabel(studentApprovalAlert.studentHostel || studentApprovalAlert.visitor?.studentHostel)} · Rm {studentApprovalAlert.studentRoomNo || studentApprovalAlert.visitor?.studentRoomNo || 'N/A'}</span>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                    <MdApartment size={14} />
+                    <strong>{getHostelLabel(studentApprovalAlert.studentHostel || studentApprovalAlert.visitor?.studentHostel)} · Rm {studentApprovalAlert.studentRoomNo || studentApprovalAlert.visitor?.studentRoomNo || 'N/A'}</strong>
                   </div>
                   {(studentApprovalAlert.studentRollNo || studentApprovalAlert.visitor?.studentRollNo) && (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       MIS: {studentApprovalAlert.studentRollNo || studentApprovalAlert.visitor?.studentRollNo}
                     </div>
                   )}
                   {studentApprovalAlert.remarks && (
-                    <div style={{ fontSize: 11.5, fontStyle: 'italic', color: '#059669', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, fontStyle: 'italic', color: '#047857', marginTop: 4, fontWeight: 600 }}>
                       "{studentApprovalAlert.remarks}"
                     </div>
                   )}
@@ -1679,39 +1830,40 @@ export default function VisitorManagement() {
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button
                   type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setStudentApprovalAlert(null)}
-                  style={{ flex: 1, padding: '12px', fontSize: 13, fontWeight: 600, borderRadius: 10 }}
-                >
-                  Review in Table
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
                   onClick={() => handleGrantEntry(studentApprovalAlert.visitor?._id, studentApprovalAlert.visitor?.name)}
                   disabled={grantingEntryId === studentApprovalAlert.visitor?._id}
                   style={{
-                    flex: 1.4,
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    width: '100%',
+                    background: '#10b981',
                     color: '#fff',
                     border: 'none',
-                    padding: '12px 18px',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    borderRadius: 10,
+                    padding: '14px 20px',
+                    fontSize: 16,
+                    fontWeight: 800,
+                    borderRadius: 12,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
+                    gap: 10,
+                    boxShadow: '0 4px 16px rgba(16, 185, 129, 0.45)',
                     cursor: 'pointer',
+                    letterSpacing: '0.01em',
                   }}
                 >
-                  <MdCheckCircle size={18} />
-                  <span>{grantingEntryId === studentApprovalAlert.visitor?._id ? 'Admitting…' : '🚪 Grant Gate Entry Now'}</span>
+                  <MdCheckCircle size={22} />
+                  <span>{grantingEntryId === studentApprovalAlert.visitor?._id ? 'Admitting…' : '👉 🟢 ALLOW VISITOR ENTRY NOW (गेट एंट्री दें)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setStudentApprovalAlert(null)}
+                  style={{ width: '100%', padding: '10px', fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer' }}
+                >
+                  ✕ Close (Do Later from Table / बाद में एंट्री दें)
                 </button>
               </div>
             </div>
