@@ -608,7 +608,10 @@ router.post('/:id/exit', protect, authorize('warden', 'hostel_staff', 'admin', '
 });
 
 // ─── POST /api/visitors/webhook ───────────────────────────────────────────────
-// Webhook endpoint for Google Forms & Apps Script automation
+// Webhook endpoint for Google Forms & Apps Script automation.
+// The form URL is kept private — only a QR code is distributed physically at the gate.
+// When a studentName / studentRollNo is present → status PENDING (student approves/rejects).
+// When no student is mentioned → status INSIDE directly (general campus visitor).
 router.post('/webhook', async (req, res) => {
   try {
     // Optional secret verification
@@ -671,9 +674,41 @@ router.post('/webhook', async (req, res) => {
       vehicleNumber = vehRes.valid ? vehRes.normalized : (rawVehicleNumber ? String(rawVehicleNumber).trim().toUpperCase().replace(/[\s-]/g, '') : null);
     }
 
+    // ── Student Lookup ────────────────────────────────────────────────────────
+    // If the visitor mentions a student (roll no. or name), route the request
+    // as PENDING so the student can approve/reject it from their portal.
+    // This mirrors the manual guard entry flow for "Meeting a student" purpose.
+    const rawStudentRollNo = req.body.studentRollNo ? String(req.body.studentRollNo).trim() : '';
+    const resolvedStudentName = studentName ? String(studentName).trim() : '';
+    const resolvedStudentHostel = studentHostel ? String(studentHostel).trim() : '';
+    const resolvedStudentRoom = studentRoomNo ? String(studentRoomNo).trim() : '';
+
+    let resolvedStudentId = null;
+    let resolvedRollNo = rawStudentRollNo;
+    const isStudentVisit = !!(resolvedStudentName || rawStudentRollNo);
+
+    if (isStudentVisit) {
+      // Attempt to find the student in the DB for live socket notification
+      const matchCriteria = [];
+      if (rawStudentRollNo) matchCriteria.push({ rollNo: rawStudentRollNo });
+      if (resolvedStudentName) matchCriteria.push({ name: new RegExp(`^${resolvedStudentName}$`, 'i') });
+      if (matchCriteria.length > 0) {
+        const targetUser = await User.findOne({ role: 'student', $or: matchCriteria });
+        if (targetUser) {
+          resolvedStudentId = targetUser._id;
+          resolvedRollNo = targetUser.rollNo || resolvedRollNo;
+        }
+      }
+    }
+
     const now = new Date();
     const date = todayStr();
     const passNumber = `VIS-GF-${date.replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    // Student visit → PENDING (student approves/rejects from portal)
+    // General visitor → INSIDE directly (no student approval needed)
+    const status = isStudentVisit ? 'PENDING' : 'INSIDE';
+    const studentApprovalStatus = isStudentVisit ? 'PENDING' : 'NA';
 
     const newVisitor = await VisitorLog.create({
       name: String(name).trim(),
@@ -683,11 +718,14 @@ router.post('/webhook', async (req, res) => {
       vehicleNumber,
       purpose: sanitizedPurpose,
       purposeDetails: purposeDetails ? String(purposeDetails).trim() : '',
-      studentName: studentName ? String(studentName).trim() : '',
-      studentHostel: studentHostel ? String(studentHostel).trim() : '',
-      studentRoomNo: studentRoomNo ? String(studentRoomNo).trim() : '',
-      status: 'INSIDE',
-      entryTime: now,
+      student_id: resolvedStudentId,
+      studentName: resolvedStudentName,
+      studentRollNo: resolvedRollNo,
+      studentHostel: resolvedStudentHostel,
+      studentRoomNo: resolvedStudentRoom,
+      studentApprovalStatus,
+      status,
+      entryTime: isStudentVisit ? null : now,
       exitTime: null,
       date,
       entryGate: entryGate ? String(entryGate).trim() : 'Google Form Gate',
@@ -701,6 +739,9 @@ router.post('/webhook', async (req, res) => {
       visitorId: newVisitor._id,
       passNumber,
       purpose: sanitizedPurpose,
+      status,
+      studentApprovalStatus,
+      isStudentVisit,
       visitorCount,
       hasVehicle,
       maskedPhone: maskPhone(normalizedPhone),
@@ -709,21 +750,30 @@ router.post('/webhook', async (req, res) => {
 
     const io = getIO();
     if (io) {
-      io.of('/dashboard').emit('visitor:new', {
-        action: 'entry',
-        visitor: newVisitor,
-        timestamp: now.toISOString(),
-      });
-      io.of('/scanner').emit('visitor:new', {
-        action: 'entry',
-        visitor: newVisitor,
-        timestamp: now.toISOString(),
-      });
+      if (isStudentVisit) {
+        // Push real-time approval popup to the student's portal
+        broadcastVisitorRequest(newVisitor, resolvedStudentId);
+      } else {
+        io.of('/dashboard').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+        io.of('/scanner').emit('visitor:new', {
+          action: 'entry',
+          visitor: newVisitor,
+          timestamp: now.toISOString(),
+        });
+      }
     }
+
+    invalidateDashboardCache().catch(() => {});
 
     res.status(201).json({
       success: true,
-      message: 'Visitor pass created from Google Form webhook.',
+      message: isStudentVisit
+        ? 'Visitor request submitted — awaiting student approval in the portal.'
+        : 'Visitor pass created from Google Form.',
       passNumber,
       visitorId: newVisitor._id,
     });
