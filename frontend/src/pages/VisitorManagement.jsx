@@ -35,6 +35,31 @@ import io from 'socket.io-client';
 
 const HOSTELS = HOSTEL_OPTIONS;
 
+// Synthesized Web Audio chime to immediately alert gate security
+const playVisitorApprovalChime = () => {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    // Pleasant ascending chord: C5 (523Hz) -> E5 (659Hz) -> G5 (784Hz) -> C6 (1046Hz)
+    [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+      gain.gain.setValueAtTime(0.22, now + idx * 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.38);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + idx * 0.1);
+      osc.stop(now + idx * 0.1 + 0.4);
+    });
+  } catch (_) {
+    // Audio unsupported or blocked by autoplay
+  }
+};
+
 export default function VisitorManagement() {
   const { user } = useAuth();
   const [visitors, setVisitors] = useState([]);
@@ -49,6 +74,10 @@ export default function VisitorManagement() {
     totalToday: 0,
     totalTodayHeadcount: 0,
   });
+
+  // Student Approval Real-Time Notification Modal State
+  const [studentApprovalAlert, setStudentApprovalAlert] = useState(null);
+  const [grantingEntryId, setGrantingEntryId] = useState(null);
 
   // Filters
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'pending' | 'inside' | 'exited'
@@ -230,17 +259,19 @@ export default function VisitorManagement() {
       });
 
       socket.on('visitor:student_response', (data) => {
-        const sName = data?.studentName || 'Student';
+        const sName = data?.studentName || data?.visitor?.studentName || 'Student';
         const vName = data?.visitor?.name || 'Visitor';
         if (data?.action === 'APPROVE') {
-          toast.success(`🟢 ${sName} APPROVED ${vName}'s pass! Entry permitted.`, {
+          playVisitorApprovalChime();
+          setStudentApprovalAlert(data);
+          toast.success(`🟢 ${sName} APPROVED ${vName}'s pass! Security can now grant entry.`, {
             id: `vis-resp-${data?.visitor?._id}`,
-            duration: 5500,
+            duration: 7000,
           });
         } else {
           toast.error(`🔴 ${sName} REJECTED ${vName}'s pass.`, {
             id: `vis-resp-${data?.visitor?._id}`,
-            duration: 5500,
+            duration: 6000,
           });
         }
         fetchVisitors(false);
@@ -286,6 +317,23 @@ export default function VisitorManagement() {
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Staff action failed');
+    }
+  };
+
+  // Handle Security Gate Access Grant for student-confirmed visitor pass
+  const handleGrantEntry = async (visitorId, visitorName) => {
+    setGrantingEntryId(visitorId);
+    try {
+      const res = await api.post(`/visitors/${visitorId}/staff-action`, { action: 'APPROVE' });
+      if (res.data?.success) {
+        toast.success(`🚪 Entry granted! ${visitorName || 'Visitor'} is now admitted inside campus.`);
+        setStudentApprovalAlert(null);
+        fetchVisitors(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to grant visitor entry');
+    } finally {
+      setGrantingEntryId(null);
     }
   };
 
@@ -751,7 +799,11 @@ export default function VisitorManagement() {
                               log.status === 'INSIDE'
                                 ? 'badge-in'
                                 : log.status === 'PENDING'
-                                  ? 'badge-pending'
+                                  ? log.studentApprovalStatus === 'APPROVED'
+                                    ? 'badge-in'
+                                    : log.studentApprovalStatus === 'REJECTED'
+                                      ? 'badge-rejected'
+                                      : 'badge-pending'
                                   : log.status === 'REJECTED'
                                     ? 'badge-rejected'
                                     : 'badge-out'
@@ -759,7 +811,13 @@ export default function VisitorManagement() {
                               {log.status === 'INSIDE'
                                 ? '● INSIDE'
                                 : log.status === 'PENDING'
-                                  ? '⏳ PENDING'
+                                  ? log.studentApprovalStatus === 'APPROVED'
+                                    ? '🟢 APPROVED'
+                                    : log.studentApprovalStatus === 'REJECTED'
+                                      ? '✕ DECLINED'
+                                      : (log.purpose === PURPOSE_STUDENT_REQUIRED || log.student_id)
+                                        ? '⏳ AWAITING STUDENT'
+                                        : '⏳ PENDING'
                                   : log.status === 'REJECTED'
                                     ? '✕ REJECTED'
                                     : '🚶 EXITED'}
@@ -857,40 +915,91 @@ export default function VisitorManagement() {
                           {/* Actions */}
                           <td style={{ textAlign: 'right' }}>
                             {log.status === 'PENDING' ? (
-                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                              log.studentApprovalStatus === 'APPROVED' ? (
                                 <button
                                   type="button"
                                   className="btn btn-sm"
                                   style={{
-                                    background: '#10b981',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                     color: '#fff',
                                     border: 'none',
-                                    padding: '4px 8px',
-                                    fontSize: 12,
+                                    padding: '6px 14px',
+                                    fontSize: 12.5,
                                     fontWeight: 700,
                                     borderRadius: 6,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                                    cursor: 'pointer',
                                   }}
-                                  onClick={() => handleStaffAction(log._id, 'APPROVE', log.name)}
-                                  title="Staff Override: Admit Visitor"
+                                  onClick={() => handleGrantEntry(log._id, log.name)}
+                                  title="Host student accepted! Click to grant gate access to visitor"
+                                  disabled={grantingEntryId === log._id}
                                 >
-                                  Admit
+                                  <MdCheckCircle size={15} />
+                                  <span>{grantingEntryId === log._id ? 'Admitting…' : 'Grant Entry'}</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-ghost"
+                              ) : log.studentApprovalStatus === 'REJECTED' ? (
+                                <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 600 }}>
+                                  Declined by Student
+                                </span>
+                              ) : (log.purpose === PURPOSE_STUDENT_REQUIRED || log.student_id) ? (
+                                <div
                                   style={{
-                                    color: '#ef4444',
-                                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                                    padding: '4px 8px',
-                                    fontSize: 12,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    padding: '5px 10px',
                                     borderRadius: 6,
+                                    background: 'rgba(245, 158, 11, 0.12)',
+                                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                                    color: '#d97706',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
                                   }}
-                                  onClick={() => handleStaffAction(log._id, 'REJECT', log.name)}
-                                  title="Staff Override: Reject Visitor"
+                                  title="Student must approve from their portal first. Gate security cannot admit yet."
                                 >
-                                  Deny
-                                </button>
-                              </div>
+                                  <MdAccessTime size={13} />
+                                  <span>Waiting for Student</span>
+                                </div>
+                              ) : (
+                                /* Non-student visits (Delivery, Maintenance) where guard can directly admit */
+                                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm"
+                                    style={{
+                                      background: '#10b981',
+                                      color: '#fff',
+                                      border: 'none',
+                                      padding: '4px 8px',
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      borderRadius: 6,
+                                    }}
+                                    onClick={() => handleStaffAction(log._id, 'APPROVE', log.name)}
+                                    title="Admit Visitor"
+                                  >
+                                    Admit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-ghost"
+                                    style={{
+                                      color: '#ef4444',
+                                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                                      padding: '4px 8px',
+                                      fontSize: 12,
+                                      borderRadius: 6,
+                                    }}
+                                    onClick={() => handleStaffAction(log._id, 'REJECT', log.name)}
+                                    title="Reject Visitor"
+                                  >
+                                    Deny
+                                  </button>
+                                </div>
+                              )
                             ) : isInside ? (
                               <button
                                 type="button"
@@ -1436,6 +1545,174 @@ export default function VisitorManagement() {
                     <span>Copy Link</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Real-Time Popup Modal: Host Student Approved Visitor Pass ── */}
+        {studentApprovalAlert && (
+          <div
+            className="modal-overlay"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15, 23, 42, 0.78)',
+              backdropFilter: 'blur(6px)',
+              zIndex: 99999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+              animation: 'fadeIn 0.2s ease-out',
+            }}
+          >
+            <div
+              className="modal-card"
+              style={{
+                width: '100%',
+                maxWidth: 560,
+                background: 'var(--bg-surface, #ffffff)',
+                border: '2px solid #10b981',
+                borderRadius: 20,
+                padding: '26px 28px',
+                boxShadow: '0 25px 60px -15px rgba(16, 185, 129, 0.45)',
+                position: 'relative',
+                textAlign: 'center',
+              }}
+            >
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setStudentApprovalAlert(null)}
+                style={{
+                  position: 'absolute',
+                  top: 16,
+                  right: 16,
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 4,
+                  borderRadius: 6,
+                }}
+                title="Dismiss"
+              >
+                <MdClose size={22} />
+              </button>
+
+              {/* Pulsating Badge */}
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                padding: '5px 14px',
+                borderRadius: 20,
+                color: '#059669',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                marginBottom: 14,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
+                <span>Host Student Accepted Request</span>
+              </div>
+
+              <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
+                🎉 Student Accepted Visitor!
+              </h2>
+              <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', margin: '0 0 20px', lineHeight: 1.5 }}>
+                Host student <strong>{studentApprovalAlert.studentName || studentApprovalAlert.visitor?.studentName}</strong> has confirmed and allowed this visit from their portal. Security can now grant entry pass at gate.
+              </p>
+
+              {/* Information Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, textAlign: 'left', marginBottom: 22 }}>
+                {/* Visitor Card */}
+                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    👤 Visitor Details
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {studentApprovalAlert.visitor?.name}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                    <MdPhone size={13} /> {studentApprovalAlert.visitor?.phone}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                      👥 {studentApprovalAlert.visitor?.visitorCount || 1} Person(s)
+                    </span>
+                    {studentApprovalAlert.visitor?.hasVehicle && studentApprovalAlert.visitor?.vehicleNumber && (
+                      <span style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#b45309', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                        🚗 {studentApprovalAlert.visitor?.vehicleNumber}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Host Student Card */}
+                <div style={{ background: 'var(--bg-base, #f8fafc)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    🎓 Host Student
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {studentApprovalAlert.studentName || studentApprovalAlert.visitor?.studentName}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                    <MdApartment size={13} />
+                    <span>{getHostelLabel(studentApprovalAlert.studentHostel || studentApprovalAlert.visitor?.studentHostel)} · Rm {studentApprovalAlert.studentRoomNo || studentApprovalAlert.visitor?.studentRoomNo || 'N/A'}</span>
+                  </div>
+                  {(studentApprovalAlert.studentRollNo || studentApprovalAlert.visitor?.studentRollNo) && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      MIS: {studentApprovalAlert.studentRollNo || studentApprovalAlert.visitor?.studentRollNo}
+                    </div>
+                  )}
+                  {studentApprovalAlert.remarks && (
+                    <div style={{ fontSize: 11.5, fontStyle: 'italic', color: '#059669', marginTop: 4 }}>
+                      "{studentApprovalAlert.remarks}"
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setStudentApprovalAlert(null)}
+                  style={{ flex: 1, padding: '12px', fontSize: 13, fontWeight: 600, borderRadius: 10 }}
+                >
+                  Review in Table
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => handleGrantEntry(studentApprovalAlert.visitor?._id, studentApprovalAlert.visitor?.name)}
+                  disabled={grantingEntryId === studentApprovalAlert.visitor?._id}
+                  style={{
+                    flex: 1.4,
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '12px 18px',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <MdCheckCircle size={18} />
+                  <span>{grantingEntryId === studentApprovalAlert.visitor?._id ? 'Admitting…' : '🚪 Grant Gate Entry Now'}</span>
+                </button>
               </div>
             </div>
           </div>

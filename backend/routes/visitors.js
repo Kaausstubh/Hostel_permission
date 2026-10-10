@@ -604,8 +604,8 @@ router.post('/:id/student-response', protect, authorize('student', 'admin'), asy
     const now = new Date();
     if (action === 'APPROVE') {
       visitor.studentApprovalStatus = 'APPROVED';
-      visitor.status = 'INSIDE';
-      visitor.entryTime = now;
+      // Student approved from portal; visitor remains PENDING physical gate check-in by security
+      visitor.status = 'PENDING';
       visitor.studentApprovalTime = now;
       visitor.studentApprovalRemarks = String(remarks || '').trim();
     } else {
@@ -629,7 +629,9 @@ router.post('/:id/student-response', protect, authorize('student', 'admin'), asy
 
     res.json({
       success: true,
-      message: `Visitor request ${action === 'APPROVE' ? 'approved' : 'rejected'} successfully.`,
+      message: action === 'APPROVE'
+        ? 'Visitor pass confirmed! Gate security has been notified to grant entry.'
+        : 'Visitor request declined.',
       visitor,
     });
   } catch (err) {
@@ -639,7 +641,7 @@ router.post('/:id/student-response', protect, authorize('student', 'admin'), asy
 });
 
 // ─── POST /api/visitors/:id/staff-action ──────────────────────────────────────
-// Guard or Warden manual override to approve/reject or force admission
+// Guard or Warden physical admission or override at gate
 router.post('/:id/staff-action', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
   try {
     const { action, remarks } = req.body;
@@ -653,18 +655,32 @@ router.post('/:id/staff-action', protect, authorize('warden', 'hostel_staff', 'a
     }
 
     const now = new Date();
-    const staffName = req.user?.name || 'Staff';
+    const staffName = req.user?.name || 'Gate Security';
     if (action === 'APPROVE') {
-      visitor.studentApprovalStatus = 'APPROVED';
+      const isStudentVisit = visitor.purpose === PURPOSE_STUDENT_REQUIRED || Boolean(visitor.student_id);
+      if (isStudentVisit && visitor.studentApprovalStatus === 'PENDING') {
+        if (req.user?.role !== 'admin' && req.user?.role !== 'warden') {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot admit visitor: Host student must confirm and approve the visit first.',
+          });
+        }
+      }
+
       visitor.status = 'INSIDE';
       visitor.entryTime = now;
-      visitor.studentApprovalTime = now;
-      visitor.studentApprovalRemarks = `Staff override (${staffName}): ${remarks ? String(remarks).trim() : 'Approved at gate'}`;
+      visitor.loggedBy = req.user?._id;
+      visitor.logged_by_name = staffName;
+      if (visitor.studentApprovalStatus !== 'APPROVED') {
+        visitor.studentApprovalStatus = 'APPROVED';
+        visitor.studentApprovalTime = now;
+        visitor.studentApprovalRemarks = `Staff override (${staffName}): ${remarks ? String(remarks).trim() : 'Approved at gate'}`;
+      }
     } else {
       visitor.studentApprovalStatus = 'REJECTED';
       visitor.status = 'REJECTED';
       visitor.studentApprovalTime = now;
-      visitor.studentApprovalRemarks = `Staff override (${staffName}): ${remarks ? String(remarks).trim() : 'Rejected at gate'}`;
+      visitor.studentApprovalRemarks = `Denied at gate (${staffName}): ${remarks ? String(remarks).trim() : 'Rejected by security'}`;
     }
 
     await visitor.save();

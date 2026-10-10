@@ -329,6 +329,10 @@ const broadcastVisitorResponse = (visitor, action, studentName = '') => {
     visitor,
     action, // 'APPROVE' or 'REJECT'
     studentName: studentName || visitor.studentName || 'Student',
+    studentHostel: visitor.studentHostel || '',
+    studentRoomNo: visitor.studentRoomNo || '',
+    studentRollNo: visitor.studentRollNo || '',
+    remarks: visitor.studentApprovalRemarks || '',
     timestamp: new Date().toISOString(),
   };
 

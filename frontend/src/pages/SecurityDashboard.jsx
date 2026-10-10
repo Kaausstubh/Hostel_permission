@@ -192,14 +192,60 @@ export default function SecurityDashboard() {
       });
 
       socket.on('visitor:student_response', (data) => {
-        const sName = data?.studentName || 'Student';
+        const sName = data?.studentName || data?.visitor?.studentName || 'Student';
         const vName = data?.visitor?.name || 'Visitor';
         if (data?.action === 'APPROVE') {
           playTone('success');
-          toast.success(`🟢 ${sName} APPROVED ${vName}'s visitor pass! Entry permitted.`, {
-            id: `sec-vis-${data?.visitor?._id}`,
-            duration: 6500,
-          });
+          toast((t) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 260 }}>
+              <div style={{ fontWeight: 700, color: '#059669', fontSize: 13.5 }}>
+                🟢 {sName} ACCEPTED {vName}'s Visitor Request!
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary, #475569)' }}>
+                Student verified request from portal. Security can now grant gate entry.
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  style={{
+                    background: '#10b981',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  onClick={async () => {
+                    toast.dismiss(t.id);
+                    try {
+                      await api.post(`/visitors/${data.visitor?._id}/staff-action`, { action: 'APPROVE' });
+                      toast.success(`🚪 Entry granted! ${vName} admitted inside campus.`);
+                    } catch (err) {
+                      toast.error('Failed to grant gate entry');
+                    }
+                  }}
+                >
+                  🚪 Grant Entry Now
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => toast.dismiss(t.id)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ), { id: `sec-vis-${data?.visitor?._id}`, duration: 10000 });
         } else {
           playTone('error');
           toast.error(`🔴 ${sName} REJECTED ${vName}'s visitor pass. Do NOT allow entry.`, {
