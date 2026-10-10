@@ -69,13 +69,6 @@ export default function VisitorPassRequest() {
   const [studentResults, setStudentResults] = useState([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [manualStudentMode, setManualStudentMode] = useState(false);
-  const [manualStudent, setManualStudent] = useState({
-    name: '',
-    rollNo: '',
-    hostel: 'BH1',
-    roomNo: '',
-  });
 
   // ── Active Card Tracking (Google Form style active border) ─────────────────
   const [activeCard, setActiveCard] = useState('purpose');
@@ -111,7 +104,7 @@ export default function VisitorPassRequest() {
 
   // ── 2. Real-time Student Autocomplete & Recommendations ────────────────────
   useEffect(() => {
-    if (manualStudentMode || selectedStudent) return;
+    if (selectedStudent) return;
 
     const timer = setTimeout(async () => {
       setSearchingStudents(true);
@@ -133,7 +126,7 @@ export default function VisitorPassRequest() {
     }, 180);
 
     return () => clearTimeout(timer);
-  }, [studentQuery, hostelFilter, manualStudentMode, selectedStudent]);
+  }, [studentQuery, hostelFilter, selectedStudent]);
 
   // ── 3. Elapsed Time Counter for Pending Pass ───────────────────────────────
   useEffect(() => {
@@ -224,7 +217,6 @@ export default function VisitorPassRequest() {
   const handleClearStudent = () => {
     setSelectedStudent(null);
     setStudentQuery('');
-    setManualStudentMode(false);
   };
 
   const handleClearForm = () => {
@@ -239,8 +231,6 @@ export default function VisitorPassRequest() {
       setEntryGate('Main Gate');
       setSelectedStudent(null);
       setStudentQuery('');
-      setManualStudentMode(false);
-      setManualStudent({ name: '', rollNo: '', hostel: 'BH1', roomNo: '' });
       toast.success('Form cleared');
     }
   };
@@ -262,13 +252,9 @@ export default function VisitorPassRequest() {
 
     const isStudentVisit = purpose === 'Meeting a student';
     if (isStudentVisit) {
-      if (!manualStudentMode && !selectedStudent) {
+      if (!selectedStudent) {
         setActiveCard('student');
-        return toast.error('Please select a student from the MongoDB directory or switch to manual entry');
-      }
-      if (manualStudentMode && (!manualStudent.name.trim() || !manualStudent.roomNo.trim())) {
-        setActiveCard('student');
-        return toast.error('Please provide student name, hostel, and room number');
+        return toast.error('Please select a student from the MongoDB directory to notify');
       }
     }
 
@@ -295,19 +281,12 @@ export default function VisitorPassRequest() {
         entryGate,
       };
 
-      if (isStudentVisit) {
-        if (selectedStudent) {
-          payload.student_id = selectedStudent._id;
-          payload.studentName = selectedStudent.name;
-          payload.studentRollNo = selectedStudent.rollNo || '';
-          payload.studentHostel = selectedStudent.hostel || '';
-          payload.studentRoomNo = selectedStudent.roomNo || '';
-        } else {
-          payload.studentName = manualStudent.name.trim();
-          payload.studentRollNo = manualStudent.rollNo.trim();
-          payload.studentHostel = manualStudent.hostel;
-          payload.studentRoomNo = manualStudent.roomNo.trim();
-        }
+      if (isStudentVisit && selectedStudent) {
+        payload.student_id = selectedStudent._id;
+        payload.studentName = selectedStudent.name;
+        payload.studentRollNo = selectedStudent.rollNo || '';
+        payload.studentHostel = selectedStudent.hostel || '';
+        payload.studentRoomNo = selectedStudent.roomNo || '';
       }
 
       const res = await api.post('/visitors/public/register', payload);
@@ -769,60 +748,13 @@ export default function VisitorPassRequest() {
               onClick={() => setActiveCard('student')}
               style={getCardStyle('student')}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain }}>
-                  Host Student Information <span style={{ color: colors.errorText }}>*</span>
-                </div>
-
-                {/* Search Mode Toggle Tabs */}
-                <div style={{ display: 'flex', background: colors.inputBg, borderRadius: 6, padding: 2, border: `1px solid ${colors.inputBorder}` }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualStudentMode(false);
-                    }}
-                    style={{
-                      background: !manualStudentMode ? colors.primaryPurple : 'transparent',
-                      color: !manualStudentMode ? '#fff' : colors.textSub,
-                      border: 'none',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🔍 Database Search
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualStudentMode(true);
-                      setSelectedStudent(null);
-                    }}
-                    style={{
-                      background: manualStudentMode ? colors.primaryPurple : 'transparent',
-                      color: manualStudentMode ? '#fff' : colors.textSub,
-                      border: 'none',
-                      borderRadius: 4,
-                      padding: '4px 10px',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✍️ Manual Entry
-                  </button>
-                </div>
+              <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+                Host Student Information <span style={{ color: colors.errorText }}>*</span>
               </div>
 
               <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 16 }}>
-                Search by Student Name or MIS (Roll Number) from MongoDB. Live notification will be routed to their portal.
+                Search and select the host student by Name or MIS (Roll Number) from the enrolled student directory. Live notification will be routed directly to their student portal.
               </div>
-
-              {/* ── A. Database Search & Rich Structured Recommendations ── */}
-              {!manualStudentMode ? (
-                <>
                   {/* Selected Student Confirmation Card */}
                   {selectedStudent ? (
                     <div
@@ -1017,25 +949,9 @@ export default function VisitorPassRequest() {
                           </div>
                         ) : studentResults.length === 0 ? (
                           <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-                            <div style={{ fontSize: 13, color: colors.textSub, marginBottom: 8 }}>
-                              No enrolled student matched your search.
+                            <div style={{ fontSize: 13, color: colors.textSub }}>
+                              No enrolled student matched your search. Please verify spelling or MIS (Roll Number).
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setManualStudentMode(true)}
-                              style={{
-                                background: 'none',
-                                border: `1px solid ${colors.primaryPurple}`,
-                                color: colors.primaryPurple,
-                                padding: '6px 14px',
-                                borderRadius: 4,
-                                fontSize: 12,
-                                fontWeight: 500,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Switch to Manual Entry
-                            </button>
                           </div>
                         ) : (
                           studentResults.map((st) => (
@@ -1129,105 +1045,6 @@ export default function VisitorPassRequest() {
                       </div>
                     </div>
                   )}
-                </>
-              ) : (
-                /* ── B. Manual Student Entry Form ── */
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
-                      Student Full Name <span style={{ color: colors.errorText }}>*</span>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. Aarav Sharma"
-                      value={manualStudent.name}
-                      onChange={(e) => setManualStudent({ ...manualStudent, name: e.target.value })}
-                      required
-                      style={{
-                        width: '100%',
-                        background: colors.inputBg,
-                        border: `1px solid ${colors.inputBorder}`,
-                        borderRadius: 4,
-                        padding: '10px 12px',
-                        fontSize: 13.5,
-                        color: colors.textMain,
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
-                      MIS / Roll Number
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. 202301042"
-                      value={manualStudent.rollNo}
-                      onChange={(e) => setManualStudent({ ...manualStudent, rollNo: e.target.value })}
-                      style={{
-                        width: '100%',
-                        background: colors.inputBg,
-                        border: `1px solid ${colors.inputBorder}`,
-                        borderRadius: 4,
-                        padding: '10px 12px',
-                        fontSize: 13.5,
-                        color: colors.textMain,
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
-                      Hostel <span style={{ color: colors.errorText }}>*</span>
-                    </div>
-                    <select
-                      value={manualStudent.hostel}
-                      onChange={(e) => setManualStudent({ ...manualStudent, hostel: e.target.value })}
-                      style={{
-                        width: '100%',
-                        background: colors.inputBg,
-                        border: `1px solid ${colors.inputBorder}`,
-                        borderRadius: 4,
-                        padding: '10px 12px',
-                        fontSize: 13.5,
-                        color: colors.textMain,
-                        outline: 'none',
-                      }}
-                    >
-                      {HOSTEL_OPTIONS.map((h) => (
-                        <option key={h.value} value={h.value}>
-                          {h.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
-                      Room Number <span style={{ color: colors.errorText }}>*</span>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. B-204"
-                      value={manualStudent.roomNo}
-                      onChange={(e) => setManualStudent({ ...manualStudent, roomNo: e.target.value })}
-                      required
-                      style={{
-                        width: '100%',
-                        background: colors.inputBg,
-                        border: `1px solid ${colors.inputBorder}`,
-                        borderRadius: 4,
-                        padding: '10px 12px',
-                        fontSize: 13.5,
-                        color: colors.textMain,
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
