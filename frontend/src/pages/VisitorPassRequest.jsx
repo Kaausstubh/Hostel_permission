@@ -46,13 +46,6 @@ const VISITOR_PURPOSES = [
   { value: 'Other', label: 'Other' },
 ];
 
-const ENTRY_GATES = [
-  'Main Gate (Primary Entrance)',
-  'North Gate',
-  'Hostel Gate',
-  'Vendor / Service Gate',
-];
-
 export default function VisitorPassRequest() {
   const { theme, toggleTheme } = useTheme();
 
@@ -68,7 +61,7 @@ export default function VisitorPassRequest() {
   const [visitorCount, setVisitorCount] = useState(1);
   const [hasVehicle, setHasVehicle] = useState(false);
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [entryGate, setEntryGate] = useState('Main Gate (Primary Entrance)');
+  const [entryGate, setEntryGate] = useState('Main Gate');
 
   // ── Student Search & Recommendation State ──────────────────────────────────
   const [studentQuery, setStudentQuery] = useState('');
@@ -243,7 +236,7 @@ export default function VisitorPassRequest() {
       setVisitorCount(1);
       setHasVehicle(false);
       setVehicleNumber('');
-      setEntryGate('Main Gate (Primary Entrance)');
+      setEntryGate('Main Gate');
       setSelectedStudent(null);
       setStudentQuery('');
       setManualStudentMode(false);
@@ -1435,60 +1428,7 @@ export default function VisitorPassRequest() {
             )}
           </div>
 
-          {/* ── 9. QUESTION CARD: CAMPUS ENTRY GATE ── */}
-          <div
-            onClick={() => setActiveCard('gate')}
-            style={getCardStyle('gate')}
-          >
-            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 14 }}>
-              Campus Entry Gate <span style={{ color: colors.errorText }}>*</span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {ENTRY_GATES.map((gate) => {
-                const isSelected = entryGate === gate;
-                return (
-                  <label
-                    key={gate}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      cursor: 'pointer',
-                      fontSize: 14,
-                      color: colors.textMain,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: '50%',
-                        border: `2px solid ${isSelected ? colors.primaryPurple : colors.textSub}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {isSelected && <div style={{ width: 10, height: 10, borderRadius: '50%', background: colors.primaryPurple }} />}
-                    </div>
-                    <input
-                      type="radio"
-                      name="entryGate"
-                      value={gate}
-                      checked={isSelected}
-                      onChange={() => setEntryGate(gate)}
-                      style={{ display: 'none' }}
-                    />
-                    <span>{gate}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── 10. GOOGLE FORMS ACTION ROW (Submit & Clear Form) ── */}
+          {/* ── GOOGLE FORMS ACTION ROW (Submit & Clear Form) ── */}
           <div
             style={{
               display: 'flex',
