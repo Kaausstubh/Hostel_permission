@@ -1,16 +1,17 @@
 /**
- * Visitor Pass Self Check-In Page — Public Kiosk & Gate Webpage
+ * Visitor Pass Self Check-In Page — Authentic Google Forms UI
  *
- * Replaces the static Google Form with an integrated real-time self-service webpage:
- *  - Connects directly to MongoDB to retrieve and search enrolled students by Name & MIS (Roll No)
- *  - Recommends matching students with live hostel & room details
- *  - Dispatches instant real-time approval notifications directly to the student portal
- *  - Automatically updates the visitor's screen when the student Approves or Declines
- *  - Fully standalone and public (does NOT appear as a link on the student portal)
+ * Designed to faithfully replicate the Google Forms experience:
+ *  - Signature lavender canvas background & top purple accent card
+ *  - Individual floating question cards with active card highlight
+ *  - Radio button groups with authentic circular selection
+ *  - Well-structured student recommendation cards with Hostel quick-filters,
+ *    MIS badges, avatar initials, and real-time MongoDB search
+ *  - Verified Student Host confirmation card
+ *  - Live Google Form response status screen with real-time student approval radar
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { resolveBackendOrigin } from '../services/backendUrl';
 import { getHostelLabel, HOSTEL_OPTIONS } from '../utils/hostel';
@@ -18,39 +19,41 @@ import { useTheme } from '../context/ThemeContext';
 import io from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
-  MdSecurity,
-  MdPerson,
-  MdPhone,
-  MdDirectionsCar,
   MdCheckCircle,
   MdCancel,
   MdAccessTime,
   MdSearch,
   MdClear,
-  MdMeetingRoom,
-  MdGroup,
-  MdBadge,
-  MdApartment,
   MdLightMode,
   MdDarkMode,
-  MdQrCodeScanner,
-  MdArrowBack,
-  MdSend,
-  MdInfoOutline,
-  MdLocationOn,
+  MdApartment,
+  MdMeetingRoom,
+  MdDirectionsCar,
+  MdPerson,
+  MdPhone,
+  MdGroup,
+  MdVerified,
+  MdArrowForward,
+  MdRefresh,
 } from 'react-icons/md';
 
 const VISITOR_PURPOSES = [
-  'Meeting a student',
-  'Delivery / Courier',
-  'Official / Campus Visit',
-  'Guest House / Visiting Faculty',
-  'Maintenance / Vendor',
-  'Other',
+  { value: 'Meeting a student', label: 'Meeting a student (Requires host student approval)' },
+  { value: 'Delivery / Courier', label: 'Delivery / Courier (Amazon, Swiggy, Zomato, etc.)' },
+  { value: 'Official / Campus Visit', label: 'Official / Campus Visit (Faculty, Administration, Interview)' },
+  { value: 'Guest House / Visiting Faculty', label: 'Guest House / Visiting Faculty accommodation' },
+  { value: 'Maintenance / Vendor', label: 'Maintenance / Vendor / Utility services' },
+  { value: 'Other', label: 'Other' },
+];
+
+const ENTRY_GATES = [
+  'Main Gate (Primary Entrance)',
+  'North Gate',
+  'Hostel Gate',
+  'Vendor / Service Gate',
 ];
 
 export default function VisitorPassRequest() {
-  const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
   // ── Database & Student Stats ───────────────────────────────────────────────
@@ -65,13 +68,13 @@ export default function VisitorPassRequest() {
   const [visitorCount, setVisitorCount] = useState(1);
   const [hasVehicle, setHasVehicle] = useState(false);
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [entryGate, setEntryGate] = useState('Main Gate');
+  const [entryGate, setEntryGate] = useState('Main Gate (Primary Entrance)');
 
   // ── Student Search & Recommendation State ──────────────────────────────────
   const [studentQuery, setStudentQuery] = useState('');
+  const [hostelFilter, setHostelFilter] = useState('ALL');
   const [studentResults, setStudentResults] = useState([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [manualStudentMode, setManualStudentMode] = useState(false);
   const [manualStudent, setManualStudent] = useState({
@@ -81,6 +84,9 @@ export default function VisitorPassRequest() {
     roomNo: '',
   });
 
+  // ── Active Card Tracking (Google Form style active border) ─────────────────
+  const [activeCard, setActiveCard] = useState('purpose');
+
   // ── Submission & Real-time Pass Tracking ───────────────────────────────────
   const [submitting, setSubmitting] = useState(false);
   const [createdPass, setCreatedPass] = useState(null);
@@ -88,7 +94,6 @@ export default function VisitorPassRequest() {
   const [statusRemarks, setStatusRemarks] = useState('');
   const [timeElapsed, setTimeElapsed] = useState(0);
 
-  const searchBoxRef = useRef(null);
   const socketRef = useRef(null);
 
   // ── 1. Fetch Student Database Stats ─────────────────────────────────────────
@@ -119,7 +124,8 @@ export default function VisitorPassRequest() {
       setSearchingStudents(true);
       try {
         const q = studentQuery.trim();
-        const res = await api.get(`/visitors/public/students-search?q=${encodeURIComponent(q)}`);
+        const hostelParam = hostelFilter !== 'ALL' ? `&hostel=${encodeURIComponent(hostelFilter)}` : '';
+        const res = await api.get(`/visitors/public/students-search?q=${encodeURIComponent(q)}${hostelParam}`);
         if (res.data?.success) {
           setStudentResults(res.data.students || []);
           if (res.data.totalStudents) {
@@ -131,21 +137,10 @@ export default function VisitorPassRequest() {
       } finally {
         setSearchingStudents(false);
       }
-    }, 220);
+    }, 180);
 
     return () => clearTimeout(timer);
-  }, [studentQuery, manualStudentMode, selectedStudent]);
-
-  // Click outside search results to close dropdown
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
-        setIsSearchFocused(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [studentQuery, hostelFilter, manualStudentMode, selectedStudent]);
 
   // ── 3. Elapsed Time Counter for Pending Pass ───────────────────────────────
   useEffect(() => {
@@ -165,7 +160,7 @@ export default function VisitorPassRequest() {
     const passId = createdPass._id;
     const backendOrigin = resolveBackendOrigin();
 
-    // Secondary Polling Fallback (every 3 seconds)
+    // Polling Fallback (every 3 seconds)
     const pollInterval = setInterval(async () => {
       try {
         const res = await api.get(`/visitors/public/pass-status/${passId}`);
@@ -182,7 +177,7 @@ export default function VisitorPassRequest() {
       } catch (_) {}
     }, 3000);
 
-    // Primary Socket.IO Real-time Connection
+    // Socket.IO Real-time Connection
     try {
       const socket = io(backendOrigin, {
         transports: ['websocket', 'polling'],
@@ -216,7 +211,7 @@ export default function VisitorPassRequest() {
         }
       });
     } catch (err) {
-      console.warn('[Visitor Web] Socket connection warning:', err);
+      console.warn('[Visitor Web] Socket warning:', err);
     }
 
     return () => {
@@ -231,8 +226,6 @@ export default function VisitorPassRequest() {
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
     setStudentQuery('');
-    setStudentResults([]);
-    setIsSearchFocused(false);
   };
 
   const handleClearStudent = () => {
@@ -241,35 +234,59 @@ export default function VisitorPassRequest() {
     setManualStudentMode(false);
   };
 
+  const handleClearForm = () => {
+    if (window.confirm('Are you sure you want to clear this form?')) {
+      setPurpose('Meeting a student');
+      setPurposeDetails('');
+      setVisitorName('');
+      setVisitorPhone('');
+      setVisitorCount(1);
+      setHasVehicle(false);
+      setVehicleNumber('');
+      setEntryGate('Main Gate (Primary Entrance)');
+      setSelectedStudent(null);
+      setStudentQuery('');
+      setManualStudentMode(false);
+      setManualStudent({ name: '', rollNo: '', hostel: 'BH1', roomNo: '' });
+      toast.success('Form cleared');
+    }
+  };
+
   // ── Form Submit ────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!visitorName.trim()) {
+      setActiveCard('name');
       return toast.error('Please enter your full name');
     }
 
     const cleanPhone = visitorPhone.trim().replace(/\D/g, '');
     if (cleanPhone.length < 10) {
+      setActiveCard('phone');
       return toast.error('Please enter a valid 10-digit mobile number');
     }
 
     const isStudentVisit = purpose === 'Meeting a student';
     if (isStudentVisit) {
       if (!manualStudentMode && !selectedStudent) {
+        setActiveCard('student');
         return toast.error('Please select a student from the MongoDB directory or switch to manual entry');
       }
       if (manualStudentMode && (!manualStudent.name.trim() || !manualStudent.roomNo.trim())) {
+        setActiveCard('student');
         return toast.error('Please provide student name, hostel, and room number');
       }
     }
 
     if (purpose === 'Other' && !purposeDetails.trim()) {
-      return toast.error('Please describe the specific reason for your visit');
+      setActiveCard('details');
+      return toast.error('Please specify the exact reason for your visit');
     }
 
     if (hasVehicle && !vehicleNumber.trim()) {
-      return toast.error('Please provide your vehicle registration number');
+      setActiveCard('vehicle');
+      return toast.error('Please enter your vehicle registration number');
     }
 
     setSubmitting(true);
@@ -308,15 +325,15 @@ export default function VisitorPassRequest() {
         setLiveStatus(v.status || (isStudentVisit ? 'PENDING' : 'INSIDE'));
         toast.success(
           isStudentVisit
-            ? 'Request sent! We have alerted the student portal for approval.'
-            : 'Visitor pass issued successfully!'
+            ? 'Response submitted! Live notification sent to student portal for approval.'
+            : 'Response submitted! Visitor pass issued.'
         );
       } else {
         toast.error(res.data?.message || 'Failed to submit visitor pass request');
       }
     } catch (err) {
       console.error('[Visitor Web] Submit error:', err);
-      toast.error(err.response?.data?.message || 'Failed to submit visitor pass request. Please check inputs.');
+      toast.error(err.response?.data?.message || 'Failed to submit visitor pass request.');
     } finally {
       setSubmitting(false);
     }
@@ -328,8 +345,44 @@ export default function VisitorPassRequest() {
     return `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
   };
 
+  // Google Forms Theme Colors
+  const isDark = theme === 'dark';
+  const colors = {
+    canvasBg: isDark ? '#191526' : '#f0ebf8',
+    cardBg: isDark ? '#231e34' : '#ffffff',
+    cardBorder: isDark ? '#383050' : '#dadce0',
+    primaryPurple: isDark ? '#a855f7' : '#673ab7',
+    primaryPurpleLight: isDark ? 'rgba(168, 85, 247, 0.15)' : '#ede7f6',
+    textMain: isDark ? '#f3f4f6' : '#202124',
+    textSub: isDark ? '#9ca3af' : '#70757a',
+    inputBg: isDark ? '#2a243d' : '#f8f9fa',
+    inputBorder: isDark ? '#4a4165' : '#dadce0',
+    activeGlow: isDark ? '#c084fc' : '#673ab7',
+    tagBg: isDark ? 'rgba(168, 85, 247, 0.2)' : 'rgba(103, 58, 183, 0.08)',
+    tagText: isDark ? '#d8b4fe' : '#673ab7',
+    successBg: isDark ? 'rgba(16, 185, 129, 0.15)' : '#e6f4ea',
+    successText: isDark ? '#34d399' : '#137333',
+    successBorder: isDark ? '#059669' : '#ceead6',
+    errorText: '#d93025',
+  };
+
+  // Helper card style generator
+  const getCardStyle = (cardId) => {
+    const isActive = activeCard === cardId;
+    return {
+      background: colors.cardBg,
+      border: `1px solid ${isActive ? colors.primaryPurple : colors.cardBorder}`,
+      borderLeft: isActive ? `6px solid ${colors.primaryPurple}` : `1px solid ${colors.cardBorder}`,
+      borderRadius: 8,
+      padding: '24px 26px',
+      marginBottom: 12,
+      boxShadow: isActive ? '0 2px 10px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.04)',
+      transition: 'border 0.2s ease, box-shadow 0.2s ease',
+    };
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
-  // VIEW: Pass Created / Real-Time Tracking
+  // VIEW: POST-SUBMISSION / RESPONSE RECORDED SCREEN (Google Forms Style)
   // ─────────────────────────────────────────────────────────────────────────
   if (createdPass) {
     const isStudentVisit = createdPass.purpose === 'Meeting a student';
@@ -338,1204 +391,1162 @@ export default function VisitorPassRequest() {
     const isPending = liveStatus === 'PENDING';
 
     return (
-      <div style={containerStyle}>
-        {/* Header Bar */}
-        <header style={headerBarStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 24 }}>🏛️</span>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-                HEIMDALL SMART CAMPUS
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>IIIT Pune Campus Digital Gate Pass</div>
-            </div>
-          </div>
-          <button
-            onClick={toggleTheme}
-            style={themeToggleStyle}
-            aria-label="Toggle theme"
-            title="Toggle light/dark theme"
-          >
-            {theme === 'dark' ? <MdLightMode size={18} color="#f59e0b" /> : <MdDarkMode size={18} color="#6366f1" />}
-          </button>
-        </header>
-
-        <main style={{ maxWidth: 560, margin: '24px auto', padding: '0 16px' }}>
-          {/* Status Card */}
+      <div style={{ minHeight: '100vh', background: colors.canvasBg, padding: '36px 16px', fontFamily: 'Roboto, Inter, Arial, sans-serif' }}>
+        <div style={{ maxWidth: 640, margin: '0 auto' }}>
+          {/* Header Card with Google Form Top Accent Bar */}
           <div
             style={{
-              background: isApproved
-                ? 'linear-gradient(145deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.05))'
-                : isRejected
-                ? 'linear-gradient(145deg, rgba(239, 68, 68, 0.12), rgba(185, 28, 28, 0.05))'
-                : 'linear-gradient(145deg, rgba(99, 102, 241, 0.12), rgba(79, 70, 229, 0.05))',
-              border: `2px solid ${
-                isApproved ? '#10b981' : isRejected ? '#ef4444' : '#6366f1'
-              }`,
-              borderRadius: 20,
-              padding: '24px 20px',
-              textAlign: 'center',
-              boxShadow: isApproved
-                ? '0 12px 36px rgba(16, 185, 129, 0.2)'
-                : isRejected
-                ? '0 12px 36px rgba(239, 68, 68, 0.2)'
-                : '0 12px 36px rgba(99, 102, 241, 0.2)',
-              position: 'relative',
-              overflow: 'hidden',
+              background: colors.cardBg,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 8,
+              borderTop: `10px solid ${colors.primaryPurple}`,
+              padding: '28px 26px',
+              marginBottom: 14,
+              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
             }}
           >
-            {/* Status Icon & Indicator */}
-            {isPending && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={pulsingRadarRingStyle} />
-                <div
-                  style={{
-                    width: 60,
-                    height: 60,
-                    margin: '0 auto',
-                    borderRadius: '50%',
-                    background: 'rgba(99, 102, 241, 0.2)',
-                    color: '#6366f1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <MdAccessTime size={32} />
-                </div>
-              </div>
-            )}
-
-            {isApproved && (
-              <div style={{ marginBottom: 14 }}>
-                <div
-                  style={{
-                    width: 60,
-                    height: 60,
-                    margin: '0 auto',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)',
-                  }}
-                >
-                  <MdCheckCircle size={36} />
-                </div>
-              </div>
-            )}
-
-            {isRejected && (
-              <div style={{ marginBottom: 14 }}>
-                <div
-                  style={{
-                    width: 60,
-                    height: 60,
-                    margin: '0 auto',
-                    borderRadius: '50%',
-                    background: '#ef4444',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 6px 20px rgba(239, 68, 68, 0.4)',
-                  }}
-                >
-                  <MdCancel size={36} />
-                </div>
-              </div>
-            )}
-
-            {/* Status Heading */}
-            <h2
-              style={{
-                fontSize: 22,
-                fontWeight: 800,
-                color: isApproved ? '#10b981' : isRejected ? '#ef4444' : 'var(--text-primary)',
-                marginBottom: 6,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {isApproved
-                ? 'Entry Pass Approved!'
-                : isRejected
-                ? 'Request Declined by Student'
-                : 'Awaiting Student Approval'}
-            </h2>
-
-            {/* Pass Number Pill */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 14px',
-                borderRadius: 999,
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid var(--border)',
-                fontSize: 13,
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                marginBottom: 16,
-              }}
-            >
-              <span>Pass #</span>
-              <span style={{ fontFamily: 'monospace', color: '#6366f1' }}>{createdPass.passNumber}</span>
-            </div>
-
-            {/* Status Subtitle Instructions */}
-            <p
-              style={{
-                fontSize: 13.5,
-                color: 'var(--text-secondary)',
-                lineHeight: 1.5,
-                maxWidth: 440,
-                margin: '0 auto 16px',
-              }}
-            >
-              {isApproved &&
-                'Your entry pass is active. Please present this screen to the security guard at the gate for admission.'}
-              {isPending &&
-                `We have sent an instant notification to ${createdPass.studentName}'s student portal. As soon as the student taps Approve, this screen will update automatically.`}
-              {isRejected &&
-                (statusRemarks
-                  ? `Student remarks: "${statusRemarks}"`
-                  : 'The student has declined this visit request. Please contact campus security for assistance.')}
+            <h1 style={{ fontSize: 28, fontWeight: 500, color: colors.textMain, margin: '0 0 10px 0', letterSpacing: '-0.01em' }}>
+              IIIT Pune Campus Visitor Entry Pass
+            </h1>
+            <p style={{ fontSize: 14, color: colors.textSub, margin: '0 0 18px 0', lineHeight: 1.6 }}>
+              Your check-in response has been recorded.
             </p>
 
-            {/* Live Timer if pending */}
-            {isPending && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: 'var(--text-muted)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1' }} />
-                <span>Waiting for response: {formatSeconds(timeElapsed)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Pass Details Card */}
-          <div
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: 16,
-              padding: 20,
-              marginTop: 18,
-            }}
-          >
+            {/* Real-time Status Card Inside Response */}
             <div
               style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: 'var(--text-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                marginBottom: 14,
+                background: isApproved ? colors.successBg : isRejected ? 'rgba(239, 68, 68, 0.1)' : colors.primaryPurpleLight,
+                border: `1.5px solid ${isApproved ? colors.successBorder : isRejected ? '#ef4444' : colors.primaryPurple}`,
+                borderRadius: 8,
+                padding: '20px 22px',
+                textAlign: 'center',
+                marginTop: 10,
               }}
             >
-              Pass Information
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Visitor Name</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {createdPass.name}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Party Headcount</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {createdPass.visitorCount} {createdPass.visitorCount === 1 ? 'person' : 'people'}
-                </div>
-              </div>
-
-              {isStudentVisit && (
-                <>
-                  <div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Host Student</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                      {createdPass.studentName}
-                    </div>
-                    {createdPass.studentRollNo && (
-                      <div style={{ fontSize: 11.5, color: '#6366f1', marginTop: 1 }}>
-                        MIS: {createdPass.studentRollNo}
-                      </div>
-                    )}
+              {isPending && (
+                <div>
+                  <div style={{ width: 48, height: 48, margin: '0 auto 12px', borderRadius: '50%', background: colors.primaryPurple, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <MdAccessTime size={28} />
                   </div>
-
-                  <div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Host Location</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                      {getHostelLabel(createdPass.studentHostel)}, Rm {createdPass.studentRoomNo}
-                    </div>
+                  <h3 style={{ fontSize: 18, fontWeight: 600, color: colors.textMain, margin: '0 0 6px 0' }}>
+                    Awaiting Student Host Approval
+                  </h3>
+                  <div style={{ fontSize: 13.5, color: colors.textSub, maxWidth: 480, margin: '0 auto 12px', lineHeight: 1.5 }}>
+                    An instant approval alert has been dispatched to <strong>{createdPass.studentName}</strong>'s student portal. As soon as the student taps <em>Approve</em>, this pass will validate automatically.
                   </div>
-                </>
+                  <div style={{ fontSize: 12, color: colors.primaryPurple, fontWeight: 600 }}>
+                    ⏱️ Waiting for host response: {formatSeconds(timeElapsed)}
+                  </div>
+                </div>
               )}
 
-              <div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Purpose of Visit</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {createdPass.purpose}
+              {isApproved && (
+                <div>
+                  <div style={{ width: 48, height: 48, margin: '0 auto 12px', borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <MdCheckCircle size={32} />
+                  </div>
+                  <h3 style={{ fontSize: 20, fontWeight: 600, color: colors.successText, margin: '0 0 6px 0' }}>
+                    ✓ Entry Pass Approved!
+                  </h3>
+                  <div style={{ fontSize: 13.5, color: colors.textSub, margin: '0 0 12px 0' }}>
+                    {isStudentVisit ? `Approved by host student ${createdPass.studentName}.` : 'Visitor entry recorded.'}
+                    <br />Please present this pass number to the security guard at <strong>{createdPass.entryGate}</strong>.
+                  </div>
+                  <div style={{ display: 'inline-block', background: colors.cardBg, border: `2px dashed ${colors.primaryPurple}`, padding: '10px 24px', borderRadius: 6, fontWeight: 700, fontSize: 18, letterSpacing: '0.05em', color: colors.primaryPurple }}>
+                    {createdPass.passNumber}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Entry Gate</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {createdPass.entryGate}
-                </div>
-              </div>
-
-              {createdPass.hasVehicle && (
-                <div style={{ gridColumn: 'span 2' }}>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Vehicle Registered</div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      color: 'var(--text-primary)',
-                      fontFamily: 'monospace',
-                      marginTop: 2,
-                    }}
-                  >
-                    🚗 {createdPass.vehicleNumber}
+              {isRejected && (
+                <div>
+                  <div style={{ width: 48, height: 48, margin: '0 auto 12px', borderRadius: '50%', background: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <MdCancel size={32} />
+                  </div>
+                  <h3 style={{ fontSize: 18, fontWeight: 600, color: '#ef4444', margin: '0 0 6px 0' }}>
+                    Request Declined by Student
+                  </h3>
+                  <div style={{ fontSize: 13.5, color: colors.textSub, margin: '0 0 6px 0' }}>
+                    {statusRemarks ? `Remarks: "${statusRemarks}"` : 'The host student is currently unable to accept visitors.'}
                   </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-            {isRejected ? (
+            {/* Pass Summary Details */}
+            <div style={{ marginTop: 22, borderTop: `1px solid ${colors.cardBorder}`, paddingTop: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: colors.textSub, marginBottom: 12 }}>
+                Response Summary
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13.5 }}>
+                <div>
+                  <span style={{ color: colors.textSub }}>Visitor:</span> <strong style={{ color: colors.textMain }}>{createdPass.name}</strong>
+                </div>
+                <div>
+                  <span style={{ color: colors.textSub }}>Party Headcount:</span> <strong style={{ color: colors.textMain }}>{createdPass.visitorCount} {createdPass.visitorCount === 1 ? 'Person' : 'People'}</strong>
+                </div>
+                {isStudentVisit && (
+                  <>
+                    <div>
+                      <span style={{ color: colors.textSub }}>Host Student:</span> <strong style={{ color: colors.textMain }}>{createdPass.studentName}</strong> {createdPass.studentRollNo ? `(${createdPass.studentRollNo})` : ''}
+                    </div>
+                    <div>
+                      <span style={{ color: colors.textSub }}>Host Room:</span> <strong style={{ color: colors.textMain }}>{getHostelLabel(createdPass.studentHostel)}, Rm {createdPass.studentRoomNo}</strong>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <span style={{ color: colors.textSub }}>Purpose:</span> <strong style={{ color: colors.textMain }}>{createdPass.purpose}</strong>
+                </div>
+                <div>
+                  <span style={{ color: colors.textSub }}>Entry Gate:</span> <strong style={{ color: colors.textMain }}>{createdPass.entryGate}</strong>
+                </div>
+                {createdPass.hasVehicle && (
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <span style={{ color: colors.textSub }}>Vehicle:</span> <strong style={{ color: colors.textMain, fontFamily: 'monospace' }}>🚗 {createdPass.vehicleNumber}</strong>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action Links */}
+            <div style={{ marginTop: 24, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="btn btn-primary"
                 onClick={() => {
                   setCreatedPass(null);
                   setSelectedStudent(null);
                   setLiveStatus('PENDING');
                 }}
-                style={{ flex: 1, padding: '14px', borderRadius: 12, fontWeight: 700 }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: colors.primaryPurple,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
               >
-                Submit New Request
+                Submit another response
               </button>
-            ) : (
+
               <button
                 type="button"
-                className="btn btn-secondary"
                 onClick={() => window.print()}
-                style={{ flex: 1, padding: '14px', borderRadius: 12, fontWeight: 700 }}
+                style={{
+                  background: colors.primaryPurple,
+                  color: '#fff',
+                  border: 'none',
+                  padding: '8px 18px',
+                  borderRadius: 4,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  marginLeft: 'auto',
+                }}
               >
                 Print / Save Pass
               </button>
-            )}
+            </div>
           </div>
-        </main>
+
+          <div style={{ textAlign: 'center', fontSize: 12, color: colors.textSub, marginTop: 16 }}>
+            Never submit passwords through Google Forms.
+          </div>
+        </div>
       </div>
     );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // VIEW: Visitor Registration Form
+  // VIEW: AUTHENTIC GOOGLE FORMS QUESTIONNAIRE
   // ─────────────────────────────────────────────────────────────────────────
   const isStudentVisit = purpose === 'Meeting a student';
 
   return (
-    <div style={containerStyle}>
-      {/* Header Bar */}
-      <header style={headerBarStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
+    <div style={{ minHeight: '100vh', background: colors.canvasBg, padding: '24px 16px 60px', fontFamily: 'Roboto, Inter, Arial, sans-serif' }}>
+      <div style={{ maxWidth: 640, margin: '0 auto' }}>
+
+        {/* ── Google Forms Utility Bar (Theme Toggle) ── */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={toggleTheme}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 20,
-              boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+              gap: 6,
+              background: colors.cardBg,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 20,
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: 500,
+              color: colors.textMain,
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             }}
           >
-            🏛️
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-              HEIMDALL SMART CAMPUS
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Visitor Self Check-In & Gate Pass</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={toggleTheme}
-            style={themeToggleStyle}
-            aria-label="Toggle theme"
-            title="Toggle light/dark theme"
-          >
-            {theme === 'dark' ? <MdLightMode size={18} color="#f59e0b" /> : <MdDarkMode size={18} color="#6366f1" />}
+            {isDark ? <MdLightMode size={16} color="#f59e0b" /> : <MdDarkMode size={16} color="#673ab7" />}
+            <span>{isDark ? 'Light Theme' : 'Dark Theme'}</span>
           </button>
         </div>
-      </header>
 
-      <main style={{ maxWidth: 640, margin: '20px auto', padding: '0 16px 40px' }}>
-        {/* MongoDB Student Directory Live Connectivity Strip */}
+        {/* ── 1. FORM HEADER CARD (Top Purple Accent Bar) ── */}
         <div
+          onClick={() => setActiveCard('header')}
           style={{
-            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(16, 185, 129, 0.08))',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
-            borderRadius: 14,
-            padding: '12px 16px',
-            marginBottom: 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 10,
+            background: colors.cardBg,
+            border: `1px solid ${activeCard === 'header' ? colors.primaryPurple : colors.cardBorder}`,
+            borderTop: `10px solid ${colors.primaryPurple}`,
+            borderRadius: 8,
+            padding: '24px 26px',
+            marginBottom: 12,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                background: '#10b981',
-                boxShadow: '0 0 10px #10b981',
-              }}
-            />
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                MongoDB Student Directory Connected
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {loadingStats ? (
-                  'Synchronizing student records…'
-                ) : (
-                  <span>
-                    <strong>{totalStudents}</strong> registered students accessible for instant approval
-                  </span>
-                )}
-              </div>
+          <h1
+            style={{
+              fontSize: 32,
+              fontWeight: 400,
+              color: colors.textMain,
+              margin: '0 0 10px 0',
+              lineHeight: 1.25,
+              letterSpacing: '-0.01em',
+            }}
+          >
+            IIIT Pune Campus Visitor Entry Pass
+          </h1>
+          <p
+            style={{
+              fontSize: 14,
+              color: colors.textSub,
+              margin: '0 0 18px 0',
+              lineHeight: 1.6,
+            }}
+          >
+            Welcome to Indian Institute of Information Technology Pune. Please complete this self check-in pass request before entering the campus.
+            For visits to hostel residents, an instant approval alert will be dispatched to the host student portal.
+          </p>
+
+          {/* Connected MongoDB Student Directory Banner (Google Forms Account Style) */}
+          <div
+            style={{
+              borderTop: `1px solid ${colors.cardBorder}`,
+              paddingTop: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 12.5,
+              color: colors.textSub,
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+              <span>
+                Connected to <strong>MongoDB Student Directory</strong> ({loadingStats ? 'Loading...' : `${totalStudents} registered students`})
+              </span>
+            </div>
+            <div style={{ color: colors.primaryPurple, fontWeight: 500 }}>
+              Live Gate Notification
             </div>
           </div>
 
-          <div
-            style={{
-              padding: '4px 10px',
-              borderRadius: 20,
-              background: 'rgba(99, 102, 241, 0.15)',
-              fontSize: 11,
-              fontWeight: 700,
-              color: '#6366f1',
-            }}
-          >
-            Instant Notification
+          <div style={{ borderTop: `1px solid ${colors.cardBorder}`, marginTop: 14, paddingTop: 10, fontSize: 13, color: colors.errorText }}>
+            * Indicates required question
           </div>
         </div>
 
-        {/* Check-In Card Form */}
-        <div
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: 20,
-            padding: '24px 22px',
-            boxShadow: 'var(--shadow-card, 0 8px 30px rgba(0, 0, 0, 0.12))',
-          }}
-        >
-          <div style={{ marginBottom: 20 }}>
-            <h1
-              style={{
-                fontSize: 22,
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                color: 'var(--text-primary)',
-                marginBottom: 4,
-              }}
-            >
-              Issue Campus Visitor Pass
-            </h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-              Fill in your visit details below. For student visits, an instant approval alert will be sent directly to the
-              student portal.
-            </p>
+        <form onSubmit={handleSubmit}>
+
+          {/* ── 2. QUESTION CARD: PURPOSE OF VISIT ── */}
+          <div
+            onClick={() => setActiveCard('purpose')}
+            style={getCardStyle('purpose')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 14 }}>
+              Purpose of Visit <span style={{ color: colors.errorText }}>*</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {VISITOR_PURPOSES.map((item) => {
+                const isSelected = purpose === item.value;
+                return (
+                  <label
+                    key={item.value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      color: colors.textMain,
+                      lineHeight: 1.4,
+                      userSelect: 'none',
+                    }}
+                  >
+                    {/* Google Form Circular Radio Button */}
+                    <div
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        border: `2px solid ${isSelected ? colors.primaryPurple : colors.textSub}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: 1,
+                        transition: 'border 0.15s ease',
+                      }}
+                    >
+                      {isSelected && (
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: colors.primaryPurple,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <input
+                      type="radio"
+                      name="purpose"
+                      value={item.value}
+                      checked={isSelected}
+                      onChange={() => {
+                        setPurpose(item.value);
+                        if (item.value !== 'Meeting a student') {
+                          setSelectedStudent(null);
+                        }
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit}>
-            {/* 1. Purpose of Visit */}
-            <div className="form-group" style={{ marginBottom: 18 }}>
-              <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                Purpose of Visit *
-              </label>
-              <select
-                className="form-select"
-                value={purpose}
-                onChange={(e) => {
-                  setPurpose(e.target.value);
-                  if (e.target.value !== 'Meeting a student') {
-                    setSelectedStudent(null);
-                  }
-                }}
+          {/* ── 3. QUESTION CARD: OTHER SPECIFIC REASON (Conditional) ── */}
+          {purpose === 'Other' && (
+            <div
+              onClick={() => setActiveCard('details')}
+              style={getCardStyle('details')}
+            >
+              <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+                Specific Reason / Details <span style={{ color: colors.errorText }}>*</span>
+              </div>
+              <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 16 }}>
+                Please provide the specific reason for entering IIIT Pune campus.
+              </div>
+
+              <input
+                type="text"
+                placeholder="Your answer"
+                value={purposeDetails}
+                onChange={(e) => setPurposeDetails(e.target.value)}
                 required
                 style={{
                   width: '100%',
-                  padding: '12px 14px',
-                  borderRadius: 12,
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: `1px solid ${colors.inputBorder}`,
+                  padding: '8px 0',
                   fontSize: 14,
+                  color: colors.textMain,
+                  outline: 'none',
+                  borderBottomColor: activeCard === 'details' ? colors.primaryPurple : colors.inputBorder,
+                  transition: 'border-bottom-color 0.2s',
                 }}
-              >
-                {VISITOR_PURPOSES.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
+          )}
 
-            {/* 2. Specific Visit Reason (If "Other") */}
-            {purpose === 'Other' && (
-              <div className="form-group" style={{ marginBottom: 18 }}>
-                <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                  Specific Reason / Details *
-                </label>
-                <textarea
-                  className="form-control"
-                  rows={2}
-                  placeholder="Please specify your detailed reason for campus entry..."
-                  value={purposeDetails}
-                  onChange={(e) => setPurposeDetails(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: 12,
-                    fontSize: 13.5,
-                  }}
-                />
-              </div>
-            )}
+          {/* ── 4. QUESTION CARD: HOST STUDENT RECOMMENDATION & SEARCH (Well-Structured) ── */}
+          {isStudentVisit && (
+            <div
+              onClick={() => setActiveCard('student')}
+              style={getCardStyle('student')}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain }}>
+                  Host Student Information <span style={{ color: colors.errorText }}>*</span>
+                </div>
 
-            {/* 3. Student Search & Recommendation Section (Shown for "Meeting a student") */}
-            {isStudentVisit && (
-              <div
-                style={{
-                  background: 'rgba(99, 102, 241, 0.04)',
-                  border: '1.5px solid rgba(99, 102, 241, 0.28)',
-                  borderRadius: 16,
-                  padding: 16,
-                  marginBottom: 20,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 12,
-                    flexWrap: 'wrap',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13.5 }}>
-                    <MdApartment size={18} color="#6366f1" />
-                    <span>Host Student Details (MongoDB Directory)</span>
-                  </div>
-
+                {/* Search Mode Toggle Tabs */}
+                <div style={{ display: 'flex', background: colors.inputBg, borderRadius: 6, padding: 2, border: `1px solid ${colors.inputBorder}` }}>
                   <button
                     type="button"
                     onClick={() => {
-                      setManualStudentMode(!manualStudentMode);
-                      if (!manualStudentMode) setSelectedStudent(null);
+                      setManualStudentMode(false);
                     }}
                     style={{
-                      background: 'none',
+                      background: !manualStudentMode ? colors.primaryPurple : 'transparent',
+                      color: !manualStudentMode ? '#fff' : colors.textSub,
                       border: 'none',
-                      color: '#6366f1',
+                      borderRadius: 4,
+                      padding: '4px 10px',
                       fontSize: 12,
-                      fontWeight: 600,
+                      fontWeight: 500,
                       cursor: 'pointer',
-                      textDecoration: 'underline',
                     }}
                   >
-                    {manualStudentMode ? 'Switch to Database Search' : "Can't find student? Enter manually"}
+                    🔍 Database Search
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualStudentMode(true);
+                      setSelectedStudent(null);
+                    }}
+                    style={{
+                      background: manualStudentMode ? colors.primaryPurple : 'transparent',
+                      color: manualStudentMode ? '#fff' : colors.textSub,
+                      border: 'none',
+                      borderRadius: 4,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✍️ Manual Entry
                   </button>
                 </div>
+              </div>
 
-                {!manualStudentMode ? (
-                  <>
-                    {/* Selected Student Card */}
-                    {selectedStudent ? (
+              <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 16 }}>
+                Search by Student Name or MIS (Roll Number) from MongoDB. Live notification will be routed to their portal.
+              </div>
+
+              {/* ── A. Database Search & Rich Structured Recommendations ── */}
+              {!manualStudentMode ? (
+                <>
+                  {/* Selected Student Confirmation Card */}
+                  {selectedStudent ? (
+                    <div
+                      style={{
+                        background: colors.successBg,
+                        border: `1.5px solid ${colors.successBorder}`,
+                        borderRadius: 8,
+                        padding: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 14,
+                        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.1)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 18,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {selectedStudent.name?.charAt(0).toUpperCase()}
+                        </div>
+
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: colors.textMain }}>
+                              {selectedStudent.name}
+                            </span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.2)', color: colors.successText, fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 4 }}>
+                              <MdVerified size={13} /> Verified Host
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: 12.5, color: colors.textSub, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {selectedStudent.rollNo && (
+                              <span style={{ fontWeight: 600, color: colors.primaryPurple, background: colors.tagBg, padding: '2px 6px', borderRadius: 4 }}>
+                                MIS: {selectedStudent.rollNo}
+                              </span>
+                            )}
+                            <span>🏢 {getHostelLabel(selectedStudent.hostel)}</span>
+                            <span>🚪 Room {selectedStudent.roomNo || 'N/A'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleClearStudent}
+                        style={{
+                          background: colors.cardBg,
+                          border: `1px solid ${colors.cardBorder}`,
+                          borderRadius: 4,
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: colors.textMain,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Search Bar with Search Icon */}
                       <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 12,
-                          padding: '12px 16px',
-                          borderRadius: 12,
-                          background: 'rgba(16, 185, 129, 0.12)',
-                          border: '1.5px solid rgba(16, 185, 129, 0.35)',
+                          background: colors.inputBg,
+                          border: `1px solid ${colors.inputBorder}`,
+                          borderRadius: 6,
+                          padding: '6px 12px',
+                          marginBottom: 12,
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
-                          <div
-                            style={{
-                              width: 40,
-                              height: 40,
-                              minWidth: 40,
-                              borderRadius: '50%',
-                              background: '#10b981',
-                              color: '#fff',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 800,
-                              fontSize: 16,
-                            }}
+                        <MdSearch size={20} color={colors.textSub} style={{ marginRight: 8, flexShrink: 0 }} />
+                        <input
+                          type="text"
+                          placeholder="Search student by Name or MIS (e.g. 202301042)..."
+                          value={studentQuery}
+                          onChange={(e) => setStudentQuery(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: 13.5,
+                            color: colors.textMain,
+                          }}
+                        />
+                        {studentQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setStudentQuery('')}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.textSub, padding: 2 }}
                           >
-                            {selectedStudent.name?.charAt(0).toUpperCase()}
-                          </div>
-                          <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                fontSize: 14,
-                                color: 'var(--text-primary)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {selectedStudent.name}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: 'var(--text-muted)',
-                                marginTop: 2,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {selectedStudent.rollNo && (
-                                <span
-                                  style={{
-                                    fontWeight: 700,
-                                    color: '#10b981',
-                                    marginRight: 6,
-                                  }}
-                                >
-                                  MIS: {selectedStudent.rollNo}
-                                </span>
-                              )}
-                              • {getHostelLabel(selectedStudent.hostel)}, Rm {selectedStudent.roomNo || 'N/A'}
-                            </div>
-                          </div>
-                        </div>
+                            <MdClear size={16} />
+                          </button>
+                        )}
+                      </div>
 
+                      {/* Hostel Quick-Filter Chips */}
+                      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 12 }}>
                         <button
                           type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={handleClearStudent}
+                          onClick={() => setHostelFilter('ALL')}
                           style={{
-                            fontSize: 12,
-                            padding: '6px 12px',
-                            borderRadius: 8,
-                            flexShrink: 0,
-                            border: '1px solid var(--border)',
+                            padding: '4px 10px',
+                            borderRadius: 14,
+                            fontSize: 11.5,
+                            fontWeight: 500,
+                            border: `1px solid ${hostelFilter === 'ALL' ? colors.primaryPurple : colors.inputBorder}`,
+                            background: hostelFilter === 'ALL' ? colors.primaryPurpleLight : 'transparent',
+                            color: hostelFilter === 'ALL' ? colors.primaryPurple : colors.textSub,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
                           }}
                         >
-                          Change
+                          All Hostels
                         </button>
+                        {HOSTEL_OPTIONS.map((h) => {
+                          const isSelected = hostelFilter === h.value;
+                          return (
+                            <button
+                              key={h.value}
+                              type="button"
+                              onClick={() => setHostelFilter(h.value)}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 14,
+                                fontSize: 11.5,
+                                fontWeight: 500,
+                                border: `1px solid ${isSelected ? colors.primaryPurple : colors.inputBorder}`,
+                                background: isSelected ? colors.primaryPurpleLight : 'transparent',
+                                color: isSelected ? colors.primaryPurple : colors.textSub,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {h.value}
+                            </button>
+                          );
+                        })}
                       </div>
-                    ) : (
-                      /* Live Autocomplete Search Input */
-                      <div ref={searchBoxRef} style={{ position: 'relative' }}>
-                        <div style={{ position: 'relative' }}>
-                          <MdSearch
-                            size={18}
-                            style={{
-                              position: 'absolute',
-                              left: 12,
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              color: 'var(--text-muted)',
-                              pointerEvents: 'none',
-                            }}
-                          />
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Type Student Name or MIS (e.g., 202301042)..."
-                            value={studentQuery}
-                            onChange={(e) => {
-                              setStudentQuery(e.target.value);
-                              setIsSearchFocused(true);
-                            }}
-                            onFocus={() => setIsSearchFocused(true)}
-                            style={{
-                              width: '100%',
-                              padding: '12px 14px 12px 38px',
-                              borderRadius: 12,
-                              fontSize: 13.5,
-                            }}
-                          />
-                          {studentQuery && (
+
+                      {/* ── Structured Student Recommendation Cards List ── */}
+                      <div
+                        style={{
+                          border: `1px solid ${colors.inputBorder}`,
+                          borderRadius: 6,
+                          maxHeight: 280,
+                          overflowY: 'auto',
+                          background: colors.cardBg,
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: '8px 12px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: colors.textSub,
+                            borderBottom: `1px solid ${colors.inputBorder}`,
+                            background: colors.inputBg,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          <span>
+                            {studentQuery ? `Search Results (${studentResults.length})` : 'Recommended Enrolled Students'}
+                          </span>
+                          <span>{totalStudents} in MongoDB</span>
+                        </div>
+
+                        {searchingStudents ? (
+                          <div style={{ padding: '24px', textAlign: 'center', fontSize: 13, color: colors.textSub }}>
+                            Searching student database…
+                          </div>
+                        ) : studentResults.length === 0 ? (
+                          <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 13, color: colors.textSub, marginBottom: 8 }}>
+                              No enrolled student matched your search.
+                            </div>
                             <button
                               type="button"
-                              onClick={() => {
-                                setStudentQuery('');
-                                setStudentResults([]);
-                              }}
+                              onClick={() => setManualStudentMode(true)}
                               style={{
-                                position: 'absolute',
-                                right: 12,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
                                 background: 'none',
-                                border: 'none',
-                                color: 'var(--text-muted)',
+                                border: `1px solid ${colors.primaryPurple}`,
+                                color: colors.primaryPurple,
+                                padding: '6px 14px',
+                                borderRadius: 4,
+                                fontSize: 12,
+                                fontWeight: 500,
                                 cursor: 'pointer',
                               }}
                             >
-                              <MdClear size={16} />
+                              Switch to Manual Entry
                             </button>
-                          )}
-                        </div>
-
-                        {/* Dropdown Recommendations */}
-                        {isSearchFocused && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 'calc(100% + 6px)',
-                              left: 0,
-                              right: 0,
-                              background: 'var(--bg-card)',
-                              border: '1.5px solid var(--border)',
-                              borderRadius: 14,
-                              boxShadow: '0 12px 30px rgba(0, 0, 0, 0.25)',
-                              maxHeight: 280,
-                              overflowY: 'auto',
-                              zIndex: 100,
-                            }}
-                          >
+                          </div>
+                        ) : (
+                          studentResults.map((st) => (
                             <div
+                              key={st._id}
+                              onClick={() => handleSelectStudent(st)}
                               style={{
-                                padding: '8px 12px',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: 'var(--text-muted)',
-                                borderBottom: '1px solid var(--border)',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
+                                padding: '12px 14px',
+                                borderBottom: `1px solid ${colors.inputBorder}`,
                                 display: 'flex',
+                                alignItems: 'center',
                                 justifyContent: 'space-between',
+                                gap: 12,
+                                cursor: 'pointer',
+                                transition: 'background 0.15s',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = colors.primaryPurpleLight;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
                               }}
                             >
-                              <span>
-                                {studentQuery ? `Matching Results (${studentResults.length})` : 'Recommended Students'}
-                              </span>
-                              <span>{totalStudents} Enrolled</span>
-                            </div>
-
-                            {searchingStudents ? (
-                              <div
-                                style={{
-                                  padding: '18px',
-                                  textAlign: 'center',
-                                  fontSize: 12.5,
-                                  color: 'var(--text-muted)',
-                                }}
-                              >
-                                Searching student database…
-                              </div>
-                            ) : studentResults.length === 0 ? (
-                              <div style={{ padding: '16px', textAlign: 'center' }}>
-                                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No student matched "{studentQuery}"</div>
-                                <button
-                                  type="button"
-                                  onClick={() => setManualStudentMode(true)}
-                                  style={{
-                                    marginTop: 6,
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#6366f1',
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Enter details manually →
-                                </button>
-                              </div>
-                            ) : (
-                              studentResults.map((st) => (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
                                 <div
-                                  key={st._id}
-                                  onClick={() => handleSelectStudent(st)}
                                   style={{
-                                    padding: '10px 14px',
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: '50%',
+                                    background: colors.primaryPurple,
+                                    color: '#fff',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: 12,
-                                    cursor: 'pointer',
-                                    borderBottom: '1px solid var(--border)',
-                                    transition: 'background 0.15s ease',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'transparent';
+                                    justifyContent: 'center',
+                                    fontWeight: 700,
+                                    fontSize: 14,
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  <div
-                                    style={{
-                                      width: 32,
-                                      height: 32,
-                                      borderRadius: '50%',
-                                      background: '#6366f1',
-                                      color: '#fff',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {st.name?.charAt(0).toUpperCase()}
+                                  {st.name?.charAt(0).toUpperCase()}
+                                </div>
+
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 600, color: colors.textMain, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {st.name}
                                   </div>
-                                  <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div
-                                      style={{
-                                        fontWeight: 700,
-                                        fontSize: 13.5,
-                                        color: 'var(--text-primary)',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {st.name}
-                                    </div>
-                                    <div
-                                      style={{
-                                        fontSize: 11.5,
-                                        color: 'var(--text-muted)',
-                                        marginTop: 1,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                      }}
-                                    >
-                                      {st.rollNo && (
-                                        <span
-                                          style={{
-                                            fontWeight: 700,
-                                            color: '#6366f1',
-                                            background: 'rgba(99, 102, 241, 0.12)',
-                                            padding: '1px 6px',
-                                            borderRadius: 4,
-                                          }}
-                                        >
-                                          MIS: {st.rollNo}
-                                        </span>
-                                      )}
-                                      <span>
-                                        {getHostelLabel(st.hostel)}, Rm {st.roomNo || 'N/A'}
+                                  <div style={{ fontSize: 12, color: colors.textSub, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    {st.rollNo && (
+                                      <span
+                                        style={{
+                                          fontWeight: 700,
+                                          color: colors.primaryPurple,
+                                          background: colors.tagBg,
+                                          padding: '1px 5px',
+                                          borderRadius: 3,
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        MIS: {st.rollNo}
                                       </span>
-                                    </div>
+                                    )}
+                                    <span>• {getHostelLabel(st.hostel)}</span>
+                                    <span>• Rm {st.roomNo || 'N/A'}</span>
                                   </div>
                                 </div>
-                              ))
-                            )}
-                          </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                style={{
+                                  background: colors.primaryPurple,
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '5px 12px',
+                                  borderRadius: 4,
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span>Select</span>
+                                <MdArrowForward size={14} />
+                              </button>
+                            </div>
+                          ))
                         )}
                       </div>
-                    )}
-                  </>
-                ) : (
-                  /* Manual Student Entry Inputs */
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div style={{ gridColumn: 'span 2' }}>
-                      <label className="form-label" style={{ fontSize: 12 }}>
-                        Student Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Aarav Sharma"
-                        value={manualStudent.name}
-                        onChange={(e) => setManualStudent({ ...manualStudent, name: e.target.value })}
-                        required
-                        style={{ padding: '10px 12px', borderRadius: 10, fontSize: 13 }}
-                      />
                     </div>
-
-                    <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>
-                        MIS / Roll Number
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. 202301042"
-                        value={manualStudent.rollNo}
-                        onChange={(e) => setManualStudent({ ...manualStudent, rollNo: e.target.value })}
-                        style={{ padding: '10px 12px', borderRadius: 10, fontSize: 13 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>
-                        Hostel *
-                      </label>
-                      <select
-                        className="form-select"
-                        value={manualStudent.hostel}
-                        onChange={(e) => setManualStudent({ ...manualStudent, hostel: e.target.value })}
-                        style={{ padding: '10px 12px', borderRadius: 10, fontSize: 13 }}
-                      >
-                        {HOSTEL_OPTIONS.map((h) => (
-                          <option key={h.value} value={h.value}>
-                            {h.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div style={{ gridColumn: 'span 2' }}>
-                      <label className="form-label" style={{ fontSize: 12 }}>
-                        Room Number *
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. B-204"
-                        value={manualStudent.roomNo}
-                        onChange={(e) => setManualStudent({ ...manualStudent, roomNo: e.target.value })}
-                        required
-                        style={{ padding: '10px 12px', borderRadius: 10, fontSize: 13 }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 4. Visitor Personal Information */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
-              <div style={{ gridColumn: 'span 2' }}>
-                <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                  Your Full Name *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <MdPerson
-                    size={18}
-                    style={{
-                      position: 'absolute',
-                      left: 12,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: 'var(--text-muted)',
-                      pointerEvents: 'none',
-                    }}
-                  />
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="e.g. Rajesh Kumar"
-                    value={visitorName}
-                    onChange={(e) => setVisitorName(e.target.value)}
-                    required
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px 12px 38px',
-                      borderRadius: 12,
-                      fontSize: 13.5,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                  Mobile Phone *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <MdPhone
-                    size={18}
-                    style={{
-                      position: 'absolute',
-                      left: 12,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: 'var(--text-muted)',
-                      pointerEvents: 'none',
-                    }}
-                  />
-                  <input
-                    type="tel"
-                    className="form-control"
-                    placeholder="10-digit mobile"
-                    value={visitorPhone}
-                    onChange={(e) => setVisitorPhone(e.target.value)}
-                    required
-                    maxLength={10}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px 12px 38px',
-                      borderRadius: 12,
-                      fontSize: 13.5,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                  Total Visitors *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <MdGroup
-                    size={18}
-                    style={{
-                      position: 'absolute',
-                      left: 12,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: 'var(--text-muted)',
-                      pointerEvents: 'none',
-                    }}
-                  />
-                  <select
-                    className="form-select"
-                    value={visitorCount}
-                    onChange={(e) => setVisitorCount(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px 12px 38px',
-                      borderRadius: 12,
-                      fontSize: 13.5,
-                    }}
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20].map((n) => (
-                      <option key={n} value={n}>
-                        {n} {n === 1 ? 'Person' : 'People'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* 5. Vehicle Information */}
-            <div
-              style={{
-                background: 'var(--bg-base)',
-                borderRadius: 14,
-                padding: '14px 16px',
-                marginBottom: 18,
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: hasVehicle ? 12 : 0,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <MdDirectionsCar size={18} color="#f59e0b" />
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                    Are you bringing a vehicle?
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => setHasVehicle(false)}
-                    style={{
-                      padding: '5px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: !hasVehicle ? 'var(--primary)' : 'transparent',
-                      color: !hasVehicle ? '#fff' : 'var(--text-muted)',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    No
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHasVehicle(true)}
-                    style={{
-                      padding: '5px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: hasVehicle ? 'var(--primary)' : 'transparent',
-                      color: hasVehicle ? '#fff' : 'var(--text-muted)',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Yes
-                  </button>
-                </div>
-              </div>
-
-              {hasVehicle && (
-                <div>
-                  <label className="form-label" style={{ fontSize: 12 }}>
-                    Vehicle Registration Number *
-                  </label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="e.g. MH12AB1234"
-                    value={vehicleNumber}
-                    onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
-                    required={hasVehicle}
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: 10,
-                      fontSize: 13.5,
-                      fontFamily: 'monospace',
-                      fontWeight: 700,
-                      letterSpacing: '0.05em',
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* 6. Gate Selection */}
-            <div className="form-group" style={{ marginBottom: 24 }}>
-              <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
-                Campus Entry Gate
-              </label>
-              <select
-                className="form-select"
-                value={entryGate}
-                onChange={(e) => setEntryGate(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  borderRadius: 12,
-                  fontSize: 13.5,
-                }}
-              >
-                <option value="Main Gate">Main Gate (Primary Entrance)</option>
-                <option value="North Gate">Campus North Gate</option>
-                <option value="Hostel Gate">Hostel Gate</option>
-                <option value="Vendor Gate">Vendor / Service Gate</option>
-              </select>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={submitting}
-              style={{
-                width: '100%',
-                padding: '16px',
-                borderRadius: 14,
-                fontSize: 15,
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                boxShadow: '0 8px 24px rgba(99, 102, 241, 0.35)',
-              }}
-            >
-              {submitting ? (
-                <>
-                  <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2 }} />
-                  Processing Check-In…
+                  )}
                 </>
               ) : (
-                <>
-                  <MdSend size={18} />
-                  {isStudentVisit ? 'Request Pass & Send Student Notification' : 'Issue Campus Gate Pass'}
-                </>
+                /* ── B. Manual Student Entry Form ── */
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
+                      Student Full Name <span style={{ color: colors.errorText }}>*</span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. Aarav Sharma"
+                      value={manualStudent.name}
+                      onChange={(e) => setManualStudent({ ...manualStudent, name: e.target.value })}
+                      required
+                      style={{
+                        width: '100%',
+                        background: colors.inputBg,
+                        border: `1px solid ${colors.inputBorder}`,
+                        borderRadius: 4,
+                        padding: '10px 12px',
+                        fontSize: 13.5,
+                        color: colors.textMain,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
+                      MIS / Roll Number
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. 202301042"
+                      value={manualStudent.rollNo}
+                      onChange={(e) => setManualStudent({ ...manualStudent, rollNo: e.target.value })}
+                      style={{
+                        width: '100%',
+                        background: colors.inputBg,
+                        border: `1px solid ${colors.inputBorder}`,
+                        borderRadius: 4,
+                        padding: '10px 12px',
+                        fontSize: 13.5,
+                        color: colors.textMain,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
+                      Hostel <span style={{ color: colors.errorText }}>*</span>
+                    </div>
+                    <select
+                      value={manualStudent.hostel}
+                      onChange={(e) => setManualStudent({ ...manualStudent, hostel: e.target.value })}
+                      style={{
+                        width: '100%',
+                        background: colors.inputBg,
+                        border: `1px solid ${colors.inputBorder}`,
+                        borderRadius: 4,
+                        padding: '10px 12px',
+                        fontSize: 13.5,
+                        color: colors.textMain,
+                        outline: 'none',
+                      }}
+                    >
+                      {HOSTEL_OPTIONS.map((h) => (
+                        <option key={h.value} value={h.value}>
+                          {h.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <div style={{ fontSize: 13, color: colors.textMain, marginBottom: 4 }}>
+                      Room Number <span style={{ color: colors.errorText }}>*</span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. B-204"
+                      value={manualStudent.roomNo}
+                      onChange={(e) => setManualStudent({ ...manualStudent, roomNo: e.target.value })}
+                      required
+                      style={{
+                        width: '100%',
+                        background: colors.inputBg,
+                        border: `1px solid ${colors.inputBorder}`,
+                        borderRadius: 4,
+                        padding: '10px 12px',
+                        fontSize: 13.5,
+                        color: colors.textMain,
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
               )}
+            </div>
+          )}
+
+          {/* ── 5. QUESTION CARD: VISITOR FULL NAME ── */}
+          <div
+            onClick={() => setActiveCard('name')}
+            style={getCardStyle('name')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+              Visitor Full Name <span style={{ color: colors.errorText }}>*</span>
+            </div>
+            <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 16 }}>
+              Please enter your full name as on your government ID.
+            </div>
+
+            <input
+              type="text"
+              placeholder="Your answer"
+              value={visitorName}
+              onChange={(e) => setVisitorName(e.target.value)}
+              required
+              style={{
+                width: '100%',
+                maxWidth: 360,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1px solid ${activeCard === 'name' ? colors.primaryPurple : colors.inputBorder}`,
+                padding: '8px 0',
+                fontSize: 14,
+                color: colors.textMain,
+                outline: 'none',
+                transition: 'border-bottom-color 0.2s',
+              }}
+            />
+          </div>
+
+          {/* ── 6. QUESTION CARD: VISITOR MOBILE NUMBER ── */}
+          <div
+            onClick={() => setActiveCard('phone')}
+            style={getCardStyle('phone')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+              Visitor Mobile Number <span style={{ color: colors.errorText }}>*</span>
+            </div>
+            <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 16 }}>
+              10-digit Indian phone number for entry log verification.
+            </div>
+
+            <input
+              type="tel"
+              placeholder="Your answer"
+              value={visitorPhone}
+              onChange={(e) => setVisitorPhone(e.target.value)}
+              required
+              maxLength={10}
+              style={{
+                width: '100%',
+                maxWidth: 360,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1px solid ${activeCard === 'phone' ? colors.primaryPurple : colors.inputBorder}`,
+                padding: '8px 0',
+                fontSize: 14,
+                color: colors.textMain,
+                outline: 'none',
+                transition: 'border-bottom-color 0.2s',
+              }}
+            />
+          </div>
+
+          {/* ── 7. QUESTION CARD: VISITOR COUNT (HEADCOUNT) ── */}
+          <div
+            onClick={() => setActiveCard('count')}
+            style={getCardStyle('count')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+              Number of Visitors (Total Party Size) <span style={{ color: colors.errorText }}>*</span>
+            </div>
+            <div style={{ fontSize: 12, color: colors.textSub, marginBottom: 14 }}>
+              Including yourself, how many persons are entering the campus together?
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => {
+                const isSelected = visitorCount === n;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setVisitorCount(n)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 20,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      border: `1px solid ${isSelected ? colors.primaryPurple : colors.inputBorder}`,
+                      background: isSelected ? colors.primaryPurpleLight : 'transparent',
+                      color: isSelected ? colors.primaryPurple : colors.textMain,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {n} {n === 1 ? 'Person' : 'People'}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── 8. QUESTION CARD: VEHICLE DETAILS ── */}
+          <div
+            onClick={() => setActiveCard('vehicle')}
+            style={getCardStyle('vehicle')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+              Are you bringing a vehicle inside the campus? <span style={{ color: colors.errorText }}>*</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, marginBottom: hasVehicle ? 16 : 0 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', fontSize: 14, color: colors.textMain }}>
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    border: `2px solid ${!hasVehicle ? colors.primaryPurple : colors.textSub}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {!hasVehicle && <div style={{ width: 10, height: 10, borderRadius: '50%', background: colors.primaryPurple }} />}
+                </div>
+                <input
+                  type="radio"
+                  name="hasVehicle"
+                  checked={!hasVehicle}
+                  onChange={() => setHasVehicle(false)}
+                  style={{ display: 'none' }}
+                />
+                <span>No, entering on foot or dropped off</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', fontSize: 14, color: colors.textMain }}>
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    border: `2px solid ${hasVehicle ? colors.primaryPurple : colors.textSub}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {hasVehicle && <div style={{ width: 10, height: 10, borderRadius: '50%', background: colors.primaryPurple }} />}
+                </div>
+                <input
+                  type="radio"
+                  name="hasVehicle"
+                  checked={hasVehicle}
+                  onChange={() => setHasVehicle(true)}
+                  style={{ display: 'none' }}
+                />
+                <span>Yes, bringing a two-wheeler or four-wheeler</span>
+              </label>
+            </div>
+
+            {hasVehicle && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.inputBorder}` }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: colors.textMain, marginBottom: 6 }}>
+                  Vehicle Registration Number <span style={{ color: colors.errorText }}>*</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. MH12AB1234"
+                  value={vehicleNumber}
+                  onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
+                  required={hasVehicle}
+                  style={{
+                    width: '100%',
+                    maxWidth: 360,
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: `1px solid ${colors.primaryPurple}`,
+                    padding: '8px 0',
+                    fontSize: 14,
+                    color: colors.textMain,
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    letterSpacing: '0.05em',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ── 9. QUESTION CARD: CAMPUS ENTRY GATE ── */}
+          <div
+            onClick={() => setActiveCard('gate')}
+            style={getCardStyle('gate')}
+          >
+            <div style={{ fontSize: 16, fontWeight: 500, color: colors.textMain, marginBottom: 14 }}>
+              Campus Entry Gate <span style={{ color: colors.errorText }}>*</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {ENTRY_GATES.map((gate) => {
+                const isSelected = entryGate === gate;
+                return (
+                  <label
+                    key={gate}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      color: colors.textMain,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        border: `2px solid ${isSelected ? colors.primaryPurple : colors.textSub}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {isSelected && <div style={{ width: 10, height: 10, borderRadius: '50%', background: colors.primaryPurple }} />}
+                    </div>
+                    <input
+                      type="radio"
+                      name="entryGate"
+                      value={gate}
+                      checked={isSelected}
+                      onChange={() => setEntryGate(gate)}
+                      style={{ display: 'none' }}
+                    />
+                    <span>{gate}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── 10. GOOGLE FORMS ACTION ROW (Submit & Clear Form) ── */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: 18,
+              padding: '0 4px',
+            }}
+          >
+            <button
+              type="submit"
+              disabled={submitting}
+              style={{
+                background: colors.primaryPurple,
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '10px 28px',
+                fontSize: 14,
+                fontWeight: 500,
+                letterSpacing: '0.25px',
+                cursor: submitting ? 'wait' : 'pointer',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              {submitting ? 'Submitting…' : 'Submit'}
             </button>
-          </form>
-        </div>
-      </main>
+
+            <button
+              type="button"
+              onClick={handleClearForm}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: colors.primaryPurple,
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+                padding: '8px 12px',
+              }}
+            >
+              Clear form
+            </button>
+          </div>
+
+          {/* ── 11. GOOGLE FORMS FOOTER ── */}
+          <div style={{ textAlign: 'center', marginTop: 24, fontSize: 12, color: colors.textSub, lineHeight: 1.6 }}>
+            Never submit passwords through Google Forms.
+            <div style={{ marginTop: 4 }}>
+              This content is neither created nor endorsed by Google. - IIIT Pune Campus Gate Pass
+            </div>
+          </div>
+
+        </form>
+      </div>
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────────────────────────────────────
-const containerStyle = {
-  minHeight: '100vh',
-  background: 'var(--bg-base)',
-  color: 'var(--text-primary)',
-  fontFamily: 'Inter, -apple-system, sans-serif',
-};
-
-const headerBarStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '14px 20px',
-  background: 'var(--bg-card)',
-  borderBottom: '1px solid var(--border)',
-};
-
-const themeToggleStyle = {
-  width: 36,
-  height: 36,
-  borderRadius: 10,
-  border: '1px solid var(--border)',
-  background: 'var(--bg-base)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  cursor: 'pointer',
-};
-
-const pulsingRadarRingStyle = {
-  position: 'absolute',
-  top: '50px',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: '140px',
-  height: '140px',
-  borderRadius: '50%',
-  border: '2px solid rgba(99, 102, 241, 0.4)',
-  animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-  pointerEvents: 'none',
-};

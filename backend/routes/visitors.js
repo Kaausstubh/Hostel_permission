@@ -67,14 +67,20 @@ router.get('/public/stats', async (req, res) => {
 router.get('/public/students-search', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
+    const hostel = String(req.query.hostel || '').trim();
     const totalStudents = await User.countDocuments({ role: 'student', isActive: true });
 
+    const filter = { role: 'student', isActive: true };
+    if (hostel && hostel !== 'ALL') {
+      filter.hostel = hostel;
+    }
+
     if (!q || q.length < 1) {
-      // Return a small list of sample/recommended students when search box is opened
-      const recommended = await User.find({ role: 'student', isActive: true })
+      // Return list of recommended/enrolled students
+      const recommended = await User.find(filter)
         .select('_id name rollNo hostel roomNo')
         .sort({ name: 1 })
-        .limit(8)
+        .limit(20)
         .lean();
       return res.json({ success: true, students: recommended, totalStudents });
     }
@@ -82,17 +88,16 @@ router.get('/public/students-search', async (req, res) => {
     const escapedTerm = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const searchRegex = new RegExp(escapedTerm, 'i');
 
-    const students = await User.find({
-      role: 'student',
-      isActive: true,
-      $or: [
-        { name: searchRegex },
-        { rollNo: searchRegex },
-        { roomNo: searchRegex },
-      ],
-    })
+    filter.$or = [
+      { name: searchRegex },
+      { rollNo: searchRegex },
+      { roomNo: searchRegex },
+    ];
+
+    const students = await User.find(filter)
       .select('_id name rollNo hostel roomNo')
-      .limit(15)
+      .sort({ name: 1 })
+      .limit(20)
       .lean();
 
     res.json({ success: true, students, totalStudents });
