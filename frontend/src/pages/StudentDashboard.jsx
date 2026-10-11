@@ -2757,21 +2757,8 @@ export default function StudentDashboard() {
         {/* Nav */}
         <nav style={{ padding: '12px 0', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {[
-            { icon: <MdDashboard />, label: 'My Chatbot', active: true, onClick: () => {} },
-            { icon: <MdCalendarMonth />, label: 'Attendance History', active: false, onClick: () => setAttendanceHistoryOpen(true) },
-          ].map((item) => (
-            <div key={item.label}
-              onClick={item.onClick}
-              style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '10px 20px', fontSize: 13.5, fontWeight: 600,
-              background: item.active ? 'rgba(99,102,241,0.15)' : 'transparent',
-              color: item.active ? 'var(--primary-light)' : 'var(--text-muted)',
-              borderLeft: item.active ? '3px solid var(--primary)' : '3px solid transparent',
-              cursor: 'pointer',
-            }}>
-              {item.icon} {item.label}
             { icon: <MdDashboard size={18} />, label: 'My Chatbot', active: true, onClick: () => {} },
+            { icon: <MdCalendarMonth size={18} />, label: 'Attendance History', active: false, onClick: () => setAttendanceHistoryOpen(true) },
             {
               icon: <span style={{ fontSize: 16 }}>👨‍👩‍👦</span>,
               label: pendingVisitorRequests.length > 0 ? `Parent Visit (${pendingVisitorRequests.length})` : 'Parent Visit Request',

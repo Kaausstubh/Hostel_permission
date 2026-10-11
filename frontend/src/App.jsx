@@ -227,6 +227,8 @@ function AppRoutes() {
         <Route path="/attendance/summary" element={
           <ProtectedRoute allowedRoles={['warden', 'admin']}>
             <AppLayout><AttendanceSummary /></AppLayout>
+          </ProtectedRoute>
+        } />
         <Route path="/rooms-3d" element={
           <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'admin']}>
             <AppLayout><HostelRooms3D /></AppLayout>

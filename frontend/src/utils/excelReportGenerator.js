@@ -487,6 +487,7 @@ export const exportAllocationsToExcel = async ({
   XLSX.writeFile(wb, fileName);
 };
 
+/**
  * Generate and download an Excel spreadsheet (.xlsx or .csv) for Visitor Entry/Exit logs
  * Includes Total Visitor Headcount in the summary and tabular records.
  */
