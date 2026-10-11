@@ -47,7 +47,7 @@ const HOSTEL_STAFF_ALLOWED_EMAILS = [
 ];
 
 // Loaded from env (comma-separated), falling back to HOSTEL_STAFF_ALLOWED_EMAILS.
-const envWardenEmails = (process.env.WARDEN_ALLOWED_EMAILS || '')
+const envWardenEmails = (process.env.HOSTEL_STAFF_ALLOWED_EMAILS || process.env.WARDEN_ALLOWED_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
@@ -124,7 +124,7 @@ const validateSecurityEmail = (email) => {
 
 /**
  * Validate access for a given portal based on the authenticated email.
- * @param {string} portal  — 'student' | 'warden' | 'security'
+ * @param {string} portal  — 'student' | 'warden' | 'hostel_staff' | 'security'
  * @param {string} email
  * @returns {{ allowed: boolean, reason: string }}
  */
@@ -139,7 +139,8 @@ const validatePortalAccess = (portal, email) => {
           : `Student Portal is restricted to ${STUDENT_ALLOWED_DOMAINS.map((d) => `@${d}`).join(', ')} email addresses. Your account (${email}) is not permitted.`,
       };
     }
-    case 'warden': {
+    case 'warden':
+    case 'hostel_staff': {
       const allowed = validateWardenEmail(email);
       return {
         allowed,
@@ -164,19 +165,26 @@ const validatePortalAccess = (portal, email) => {
 /**
  * Map portal name to user role stored in DB.
  * @param {string} portal
- * @returns {'student' | 'warden' | 'security'}
+ * @returns {'student' | 'hostel_staff' | 'security'}
  */
 const portalToRole = (portal) => {
-  const map = { student: 'student', warden: 'warden', security: 'security' };
+  const map = {
+    student: 'student',
+    warden: 'hostel_staff',
+    hostel_staff: 'hostel_staff',
+    security: 'security',
+  };
   return map[portal] || null;
 };
 
 module.exports = {
   STUDENT_ALLOWED_DOMAINS,
   WARDEN_ALLOWED_EMAILS,
+  HOSTEL_STAFF_ALLOWED_EMAILS: WARDEN_ALLOWED_EMAILS,
   SECURITY_ALLOWED_EMAILS,
   validateStudentEmail,
   validateWardenEmail,
+  validateHostelStaffEmail: validateWardenEmail,
   validateSecurityEmail,
   validatePortalAccess,
   portalToRole,

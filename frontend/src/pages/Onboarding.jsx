@@ -62,7 +62,7 @@ export default function Onboarding() {
   const [phone, setPhone] = useState(user?.phone || '');
   const [parentPhone, setParentPhone] = useState(user?.parentPhone || '');
   const [parentPhone2, setParentPhone2] = useState(user?.parentPhone2 || '');
-  const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH
+  const [hostel, setHostel] = useState(user?.hostel || ''); // BH1 | BH2 | GH1 | GH2
   const [roomNo, setRoomNo] = useState(user?.roomNo || '');
 
   // Face photo states: compulsory and human face only
@@ -791,7 +791,8 @@ export default function Onboarding() {
                   <option value="" disabled style={{ background: 'var(--bg-card, #13192c)' }}>Choose Hostel</option>
                   <option value="BH1" style={{ background: 'var(--bg-card, #13192c)' }}>Brahmaputra (BH1)</option>
                   <option value="BH2" style={{ background: 'var(--bg-card, #13192c)' }}>Krishna (BH2)</option>
-                  <option value="GH" style={{ background: 'var(--bg-card, #13192c)' }}>Indrayani (GH)</option>
+                  <option value="GH1" style={{ background: 'var(--bg-card, #13192c)' }}>Indrayani (GH1)</option>
+                  <option value="GH2" style={{ background: 'var(--bg-card, #13192c)' }}>Sindhu (GH2)</option>
                 </select>
                 <div style={{
                   position: 'absolute',

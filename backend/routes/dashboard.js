@@ -10,6 +10,7 @@ const User = require('../models/User');
 const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
+const VisitorLog = require('../models/VisitorLog');
 const { protect, authorize } = require('../middleware/auth');
 const { getDashboardCache, setDashboardCache } = require('../services/dashboardCache');
 const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
@@ -46,7 +47,7 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
 
     const today = todayStr();
 
-    // All 7 queries run in parallel — total time ≈ slowest single query (~25ms)
+    // All queries run in parallel — total time ≈ slowest single query (~25ms)
     const [
       totalStudents,
       studentsOut,
@@ -55,6 +56,8 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
       pendingComplaints,
       totalComplaints,
       homeScanRecords,
+      pendingVisitors,
+      activeVisitors,
     ] = await Promise.all([
       User.countDocuments({ role: 'student' }).maxTimeMS(5000),
       InOutLog.countDocuments({ status: 'OUT', returned: false, date: today }).maxTimeMS(5000),
@@ -69,6 +72,8 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
           { overall_status: 'completed' },
         ],
       }).maxTimeMS(5000),
+      VisitorLog.countDocuments({ studentApprovalStatus: 'PENDING' }).maxTimeMS(5000),
+      VisitorLog.countDocuments({ status: 'INSIDE', exitTime: null }).maxTimeMS(5000),
     ]);
 
     const summary = {
@@ -79,6 +84,8 @@ router.get('/summary', protect, authorize('warden', 'security'), async (req, res
       pendingComplaints,
       totalComplaints,
       homeScanRecords,
+      pendingVisitors,
+      activeVisitors,
       date: today,
     };
 
@@ -107,7 +114,11 @@ router.get('/students', protect, authorize('warden', 'security'), async (req, re
 
     // Optional filters
     const filter = { role: 'student' };
-    if (hostel) filter.hostel = hostel;
+    if (hostel === 'GH1' || hostel === 'GH') {
+      filter.hostel = { $in: ['GH1', 'GH'] };
+    } else if (hostel) {
+      filter.hostel = hostel;
+    }
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },

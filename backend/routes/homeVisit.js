@@ -208,7 +208,7 @@ router.post('/parent-approve', async (req, res) => {
         const studentName = student?.name || visit.name || 'Student';
         const studentRoll = student?.rollNo || visit.rollNo || 'N/A';
         const studentHostel = student?.hostel || 'N/A';
-        const wardenUser = await User.findOne({ role: 'warden' });
+        const wardenUser = await User.findOne({ role: { $in: ['warden', 'hostel_staff'] } });
         if (wardenUser && wardenUser.phone) {
           await enqueueWhatsAppMessage({
             to: wardenUser.phone,

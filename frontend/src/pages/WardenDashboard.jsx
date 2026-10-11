@@ -9,8 +9,10 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdPeople, MdExitToApp, MdWarning, MdHome,
-  MdReport, MdRefresh, MdHistory
+  MdReport, MdRefresh, MdHistory, MdAssignmentInd
 } from 'react-icons/md';
+import { resolveBackendOrigin } from '../services/backendUrl';
+import io from 'socket.io-client';
 
 const StatCard = ({ icon, value, label, variant = '', onClick }) => (
   <div className={`stat-card ${variant} fade-in`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
@@ -80,6 +82,55 @@ export default function WardenDashboard() {
     fetchSummary();
     const interval = setInterval(fetchSummary, 30000); // Refresh every 30s
     return () => clearInterval(interval);
+  }, []);
+
+  // Real-time visitor notifications and updates for hostel staff
+  useEffect(() => {
+    let socket;
+    try {
+      const backendOrigin = resolveBackendOrigin();
+      socket = io(`${backendOrigin}/dashboard`, {
+        transports: ['websocket', 'polling'],
+        auth: { token: localStorage.getItem('token') },
+      });
+
+      socket.on('visitor:new', (data) => {
+        if (data?.action === 'request') {
+          toast(`🔔 Visitor pass requested for ${data?.visitor?.name || 'Visitor'} — awaiting student approval`, {
+            id: 'vis-new-req',
+            duration: 4000,
+          });
+        }
+        fetchSummary();
+      });
+
+      socket.on('visitor:student_response', (data) => {
+        const sName = data?.studentName || 'Student';
+        const vName = data?.visitor?.name || 'Visitor';
+        if (data?.action === 'APPROVE') {
+          toast.success(`🟢 ${sName} APPROVED ${vName}'s visitor pass! Entry permitted.`, {
+            id: `vis-resp-${data?.visitor?._id}`,
+            duration: 5500,
+          });
+        } else {
+          toast.error(`🔴 ${sName} REJECTED ${vName}'s visitor pass.`, {
+            id: `vis-resp-${data?.visitor?._id}`,
+            duration: 5500,
+          });
+        }
+        fetchSummary();
+      });
+
+      socket.on('visitor:update', () => {
+        fetchSummary();
+      });
+    } catch (e) {
+      console.warn('[Socket] Could not connect to dashboard namespace:', e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, []);
 
   // Show friendly hint if backend cold start takes > 3.5s
@@ -221,6 +272,13 @@ export default function WardenDashboard() {
               variant="warning"
               onClick={() => navigate('/complaints')}
             />
+            <StatCard
+              icon={<MdAssignmentInd size={22} color="#8b5cf6" />}
+              value={summary?.pendingVisitors ? `${summary.pendingVisitors} Pending` : (summary?.activeVisitors ? `${summary.activeVisitors} Inside` : 0)}
+              label={summary?.pendingVisitors ? `Visitors (${summary.pendingVisitors} Awaiting Approval)` : "Visitors Inside Campus"}
+              variant={summary?.pendingVisitors > 0 ? "warning" : ""}
+              onClick={() => navigate('/visitors')}
+            />
           </div>
           </>
         )}
@@ -236,6 +294,9 @@ export default function WardenDashboard() {
             </button>
             <button type="button" className="btn btn-primary" onClick={() => navigate('/home-visits')}>
               <MdHome /> Review Home Visits
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate('/visitors')}>
+              <MdAssignmentInd /> Visitor Logs {summary?.pendingVisitors > 0 ? `(${summary.pendingVisitors} Pending)` : ''}
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => navigate('/complaints')}>
               <MdReport /> Manage Complaints

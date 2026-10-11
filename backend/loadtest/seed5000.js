@@ -33,7 +33,7 @@ const LAST_NAMES = [
   'Rao', 'Reddy', 'Sharma', 'Shinde', 'Singh', 'Verma', 'Yadav'
 ];
 
-const HOSTELS = ['BH1', 'BH2', 'GH'];
+const HOSTELS = ['BH1', 'BH2', 'GH1', 'GH2'];
 const DEPARTMENTS = ['CSE', 'ECE', 'DSAI', 'IT'];
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];

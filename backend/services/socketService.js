@@ -96,6 +96,12 @@ const initSocketIO = (httpServer) => {
       }
     });
 
+    socket.on('join_roll', (rollNo) => {
+      if (rollNo) {
+        socket.join(`rollno:${String(rollNo).trim().toUpperCase()}`);
+      }
+    });
+
     socket.on('disconnect', () => {
       logger.info('[Socket] Global client disconnected', { userId: socket.userId, id: socket.id });
     });
@@ -120,8 +126,14 @@ const initSocketIO = (httpServer) => {
       }
     });
 
+    socket.on('join_roll', (rollNo) => {
+      if (rollNo) {
+        socket.join(`rollno:${String(rollNo).trim().toUpperCase()}`);
+      }
+    });
+
     socket.on('subscribe_hostel', (hostel) => {
-      if (typeof hostel === 'string' && ['BH1', 'BH2', 'GH', 'ALL'].includes(hostel.toUpperCase())) {
+      if (typeof hostel === 'string' && ['BH1', 'BH2', 'GH', 'GH1', 'GH2', 'ALL'].includes(hostel.toUpperCase())) {
         socket.join(`hostel:${hostel.toUpperCase()}`);
         logger.debug('[Socket] Client subscribed to hostel room', { hostel, socketId: socket.id });
       }
@@ -305,6 +317,101 @@ const getConnectedClientCount = async () => {
   return dashboard.size + scanner.size;
 };
 
+/**
+ * Send SSE event for visitor pass approval request to a student
+ */
+const sendSseVisitorEvent = (studentId, payload) => {
+  const idStr = String(studentId);
+  const clientSet = sseClients.get(idStr);
+  if (!clientSet || clientSet.size === 0) return;
+
+  const data = `event: visitor_request\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of clientSet) {
+    try {
+      res.write(data);
+    } catch (_) {
+      clientSet.delete(res);
+    }
+  }
+};
+
+/**
+ * Broadcast visitor pass request to target student and staff/scanner dashboards
+ */
+const broadcastVisitorRequest = (visitor, studentId = null) => {
+  const sId = studentId ? String(studentId) : (visitor?.student_id ? String(visitor.student_id) : null);
+  const payload = {
+    visitor,
+    timestamp: new Date().toISOString(),
+  };
+
+  // 1. Direct delivery to student rooms across namespaces
+  if (sId) {
+    if (_io) {
+      _io.to(`user:${sId}`).emit('visitor:request', payload);
+      _io.to(`student:${sId}`).emit('visitor:request', payload);
+      _io.of('/dashboard').to(`user:${sId}`).emit('visitor:request', payload);
+      _io.of('/dashboard').to(`student:${sId}`).emit('visitor:request', payload);
+      _io.of('/scanner').to(`user:${sId}`).emit('visitor:request', payload);
+    }
+    sendSseVisitorEvent(sId, payload);
+  }
+
+  // Also broadcast to student's roll room if available
+  if (visitor?.studentRollNo && _io) {
+    const rollRoom = `rollno:${String(visitor.studentRollNo).trim().toUpperCase()}`;
+    _io.to(rollRoom).emit('visitor:request', payload);
+    _io.of('/dashboard').to(rollRoom).emit('visitor:request', payload);
+  }
+
+  // 2. Dashboards (Security & Hostel Staff)
+  if (_io) {
+    _io.of('/dashboard').emit('visitor:new', {
+      action: 'request',
+      visitor,
+      timestamp: payload.timestamp,
+    });
+    _io.of('/scanner').emit('visitor:new', {
+      action: 'request',
+      visitor,
+      timestamp: payload.timestamp,
+    });
+  }
+};
+
+/**
+ * Broadcast student's approval or rejection response to Security & Hostel Staff dashboards
+ */
+const broadcastVisitorResponse = (visitor, action, studentName = '') => {
+  if (!visitor) return;
+  const payload = {
+    visitor,
+    action, // 'APPROVE' or 'REJECT'
+    studentName: studentName || visitor.studentName || 'Student',
+    studentHostel: visitor.studentHostel || '',
+    studentRoomNo: visitor.studentRoomNo || '',
+    studentRollNo: visitor.studentRollNo || '',
+    remarks: visitor.studentApprovalRemarks || '',
+    timestamp: new Date().toISOString(),
+  };
+
+  // Dashboards (Hostel Staff & Security)
+  if (_io) {
+    _io.of('/dashboard').emit('visitor:student_response', payload);
+    _io.of('/scanner').emit('visitor:student_response', payload);
+    _io.of('/dashboard').emit('visitor:update', payload);
+    _io.of('/scanner').emit('visitor:update', payload);
+
+    // Also notify student rooms (to sync across multiple tabs or close dialogs)
+    const sId = visitor.student_id ? String(visitor.student_id) : null;
+    if (sId) {
+      _io.to(`user:${sId}`).emit('visitor:resolved', payload);
+      _io.to(`student:${sId}`).emit('visitor:resolved', payload);
+      _io.of('/dashboard').to(`user:${sId}`).emit('visitor:resolved', payload);
+    }
+  }
+};
+
 module.exports = {
   initSocketIO,
   getIO,
@@ -318,4 +425,7 @@ module.exports = {
   addSseClient,
   removeSseClient,
   sendSseScanEvent,
+  sendSseVisitorEvent,
+  broadcastVisitorRequest,
+  broadcastVisitorResponse,
 };

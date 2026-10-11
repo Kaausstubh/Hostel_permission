@@ -396,9 +396,15 @@ router.get('/export-data', authorize('warden', 'security', 'admin'), async (req,
       homeFilter.leave_date = { $gte: startDate, $lte: endDate };
     }
 
-    if (hostel && ['BH1', 'BH2', 'GH'].includes(hostel.toUpperCase())) {
-      inOutFilter.hostel = hostel.toUpperCase();
-      homeFilter.hostel = hostel.toUpperCase();
+    if (hostel && ['BH1', 'BH2', 'GH', 'GH1', 'GH2'].includes(hostel.toUpperCase())) {
+      const hUpper = hostel.toUpperCase();
+      if (hUpper === 'GH1' || hUpper === 'GH') {
+        inOutFilter.hostel = { $in: ['GH1', 'GH'] };
+        homeFilter.hostel = { $in: ['GH1', 'GH'] };
+      } else {
+        inOutFilter.hostel = hUpper;
+        homeFilter.hostel = hUpper;
+      }
     }
 
     const promises = [];

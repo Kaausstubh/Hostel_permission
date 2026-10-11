@@ -59,6 +59,8 @@ const gateScanRoutes  = require('./routes/gateScan');
 const archiveRoutes   = require('./routes/archive');
 const attendanceRoutes = require('./routes/attendance');
 const allocationRoutes = require('./routes/allocations');
+const visitorRoutes   = require('./routes/visitors');
+const roomRoutes      = require('./routes/rooms');
 
 // ── App & HTTP server (shared with Socket.IO) ─────────────────────────────────
 const app = express();
@@ -276,6 +278,8 @@ app.use('/api/gatescan',   gateScanRoutes);
 app.use('/api/archive',    archiveRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/allocations', allocationRoutes);
+app.use('/api/visitors',   visitorRoutes);
+app.use('/api/rooms',      roomRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 const handleHealth = (req, res) => {
@@ -456,4 +460,5 @@ process.on('unhandledRejection', (reason) => {
   logger.error('[Server] Unhandled promise rejection', { reason: String(reason) });
 });
 
+// HEIMDALL Server Export
 module.exports = app;

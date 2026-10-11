@@ -22,7 +22,7 @@ const complaintSchema = new mongoose.Schema(
     // ── Complaint details ─────────────────────────────────────────────────────
     hostel: {
       type: String,
-      enum: ['BH1', 'BH2', 'GH'],
+      enum: ['BH1', 'BH2', 'GH', 'GH1', 'GH2'],
       required: true,
     },
     complaint_type: {

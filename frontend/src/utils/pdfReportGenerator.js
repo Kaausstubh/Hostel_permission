@@ -142,7 +142,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'bold');
   doc.text('Hostel Scope / Filter:', 44, startY + 35);
   doc.setFont('helvetica', 'normal');
-  doc.text(String(metadata.hostelFilter || 'All Hostels (Brahmaputra BH1, Krishna BH2, Indrayani GH)'), 136, startY + 35);
+  doc.text(String(metadata.hostelFilter || 'All Hostels (Brahmaputra BH1, Krishna BH2, Indrayani GH1, Sindhu GH2)'), 136, startY + 35);
 
   // Center column (Issuing Authority)
   doc.setFont('helvetica', 'bold');
@@ -377,7 +377,7 @@ export const downloadGateRecordsPDF = async (reportData, customFileName) => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(100, 116, 139);
-  doc.text('Hostel Staff Administration (Brahmaputra / Krishna / Indrayani), IIIT Pune', 310, lineY + 19);
+  doc.text('Hostel Staff Administration (Brahmaputra / Krishna / Indrayani / Sindhu), IIIT Pune', 310, lineY + 19);
 
   // Box 3: Hostel Administration
   doc.line(600, lineY, 780, lineY);
@@ -552,6 +552,14 @@ export const downloadAttendanceReportPDF = async ({
   if (!records || records.length === 0) {
     throw new Error('No attendance records available to export.');
   }
+ * Generate and download an official HEIMDALL Visitor Entry/Exit & Vehicle PDF Report
+ * Formatted with formal IIIT Pune institutional letterhead, headcount KPIs, and vehicle status.
+ *
+ * @param {Object} reportData - { metadata, summary, records }
+ * @param {string} customFileName - Optional custom file name
+ */
+export const downloadVisitorRecordsPDF = async (reportData, customFileName) => {
+  const { metadata = {}, summary = {}, records = [] } = reportData || {};
 
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -571,6 +579,13 @@ export const downloadAttendanceReportPDF = async ({
   doc.rect(0, 4, pageWidth, 2, 'F');
 
   // 2. Official Institute Letterhead
+  // ── Top Stripes ──
+  doc.setFillColor(30, 58, 138); // Deep Navy
+  doc.rect(0, 0, pageWidth, 4, 'F');
+  doc.setFillColor(217, 119, 6); // Academic Gold
+  doc.rect(0, 4, pageWidth, 2, 'F');
+
+  // ── Letterhead Emblem ──
   if (logoImg) {
     try {
       doc.addImage(logoImg, 'PNG', 32, 14, 46, 46);
@@ -606,6 +621,7 @@ export const downloadAttendanceReportPDF = async ({
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.text('OFFICE OF HOSTEL ADMINISTRATION & RESIDENCE LIFE', headerTextX, 47);
+  doc.text('OFFICE OF CAMPUS SECURITY & HOSTEL ADMINISTRATION', headerTextX, 47);
 
   doc.setTextColor(67, 56, 202);
   doc.setFont('helvetica', 'bold');
@@ -614,6 +630,10 @@ export const downloadAttendanceReportPDF = async ({
 
   // 3. Document Tracking Badge (Right corner)
   const badgeWidth = 210;
+  doc.text('CAMPUS VISITOR ENTRY / EXIT & VEHICLE MOVEMENT AUDIT REPORT', headerTextX, 60);
+
+  // ── Document Tracking Badge ──
+  const badgeWidth = 205;
   const badgeX = pageWidth - 32 - badgeWidth;
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
@@ -626,6 +646,9 @@ export const downloadAttendanceReportPDF = async ({
 
   const cleanPeriod = (startDate || 'ALL').replace(/[^0-9]/g, '') || new Date().getFullYear();
   const docRef = `Ref: IIITP/HA/ATTN/${cleanPeriod}/${String(records.length * 7 + 101).padStart(4, '0')}`;
+  doc.text('OFFICIAL & CONFIDENTIAL AUDIT', badgeX + 10, 24);
+
+  const docRef = `Ref: IIITP/SEC/VIS/${new Date().getFullYear()}/${String(records.length * 7 + 101).padStart(4, '0')}`;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(30, 41, 59);
@@ -1068,6 +1091,80 @@ export const downloadAllocationReportPDF = async ({
       'Allocated On',
     ]],
     body: tableRows,
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated: ${metadata.generatedAt || new Date().toLocaleString('en-IN')}`, badgeX + 10, 47);
+  doc.text(`By: ${metadata.generatedBy || 'Security Staff'}`, badgeX + 10, 57);
+
+  // Divider
+  doc.setDrawColor(226, 232, 240);
+  doc.line(32, 68, pageWidth - 32, 68);
+
+  // Summary KPI Cards
+  const totalEntries = summary.totalEntries ?? records.length;
+  const totalHeadcount = summary.totalHeadcount ?? records.reduce((acc, r) => acc + (Number(r.visitorCount) || 1), 0);
+  const insideCount = summary.insideCount ?? records.filter((r) => r.status === 'INSIDE').length;
+  const insideHeadcount = summary.insideHeadcount ?? records.filter((r) => r.status === 'INSIDE').reduce((acc, r) => acc + (Number(r.visitorCount) || 1), 0);
+  const vehiclesCount = summary.vehiclesCount ?? records.filter((r) => r.hasVehicle).length;
+
+  const cardWidth = (pageWidth - 64 - 36) / 4;
+  const cardY = 74;
+  const cardH = 34;
+
+  const kpis = [
+    { title: 'TOTAL PASSES', value: String(totalEntries), color: [30, 58, 138] },
+    { title: 'TOTAL HEADCOUNT', value: `${totalHeadcount} People`, color: [16, 185, 129] },
+    { title: 'CURRENTLY INSIDE', value: `${insideCount} Passes (${insideHeadcount} People)`, color: [217, 119, 6] },
+    { title: 'VEHICLES ON CAMPUS', value: `${vehiclesCount} Vehicles`, color: [99, 102, 241] },
+  ];
+
+  kpis.forEach((kpi, i) => {
+    const cx = 32 + i * (cardWidth + 12);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(cx, cardY, cardWidth, cardH, 3, 3, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(kpi.title, cx + 8, cardY + 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...kpi.color);
+    doc.text(kpi.value, cx + 8, cardY + 26);
+  });
+
+  // AutoTable data with formula injection neutralization and neat columns
+  const tableData = records.map((r, idx) => {
+    const entryStr = r.entryTime ? new Date(r.entryTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+    const exitStr = r.exitTime ? new Date(r.exitTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }) : (r.status === 'INSIDE' ? 'Inside' : '—');
+
+    let hostInfo = '—';
+    if (r.purpose === 'Meeting a student') {
+      hostInfo = [r.studentName, getHostelLabel(r.studentHostel), r.studentRoomNo].filter(Boolean).join(' | ');
+    } else if (r.purposeDetails) {
+      hostInfo = r.purposeDetails;
+    }
+
+    return [
+      idx + 1,
+      r.name || 'Unknown',
+      r.phone || '—',
+      `${r.visitorCount || 1}`,
+      r.hasVehicle && r.vehicleNumber ? r.vehicleNumber : '—',
+      r.purpose || 'General',
+      hostInfo,
+      entryStr,
+      exitStr,
+      r.status || 'INSIDE',
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 114,
+    head: [['S.No', 'Visitor Name', 'Phone', 'Visitors', 'Vehicle No', 'Purpose', 'Host / Details', 'In Time', 'Out Time', 'Status']],
+    body: tableData,
     theme: 'grid',
     headStyles: {
       fillColor: [30, 58, 138],
@@ -1194,5 +1291,41 @@ export const downloadAllocationReportPDF = async ({
     `IIITP_Room_Allocations_${hostel?.code || 'Hostel'}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
   doc.save(filename);
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    bodyStyles: {
+      fontSize: 7,
+      textColor: [30, 41, 59],
+      cellPadding: 4,
+    },
+    columnStyles: {
+      0: { cellWidth: 28, halign: 'center' },
+      1: { cellWidth: 85 },
+      2: { cellWidth: 70 },
+      3: { cellWidth: 45, halign: 'center', fontStyle: 'bold' },
+      4: { cellWidth: 65, halign: 'center' },
+      5: { cellWidth: 80 },
+      6: { cellWidth: 100 },
+      7: { cellWidth: 50, halign: 'center' },
+      8: { cellWidth: 50, halign: 'center' },
+      9: { cellWidth: 50, halign: 'center' },
+    },
+    margin: { left: 32, right: 32, bottom: 40 },
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Page ${i} of ${pageCount} — HEIMDALL Visitor Access Control System — IIIT Pune`, 32, pageHeight - 16);
+    doc.text(`Printed on: ${new Date().toLocaleString('en-IN')}`, pageWidth - 160, pageHeight - 16);
+  }
+
+  const fileName = customFileName || `IIITP_HEIMDALL_Visitor_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(fileName);
 };
 

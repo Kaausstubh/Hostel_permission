@@ -165,10 +165,11 @@ const processMessage = async (from, body) => {
       let hostelUpper = text.trim().toUpperCase();
       if (hostelUpper.includes('BRAHMAPUTRA')) hostelUpper = 'BH1';
       else if (hostelUpper.includes('KRISHNA')) hostelUpper = 'BH2';
-      else if (hostelUpper.includes('INDRAYANI')) hostelUpper = 'GH';
+      else if (hostelUpper.includes('INDRAYANI') || hostelUpper === 'GH') hostelUpper = 'GH1';
+      else if (hostelUpper.includes('SINDHU')) hostelUpper = 'GH2';
 
-      if (!['BH1', 'BH2', 'GH'].includes(hostelUpper)) {
-        return await sendWhatsAppMessage(phone, '❌ Invalid hostel. Please reply with *BH1* (Brahmaputra), *BH2* (Krishna), or *GH* (Indrayani)');
+      if (!['BH1', 'BH2', 'GH1', 'GH2'].includes(hostelUpper)) {
+        return await sendWhatsAppMessage(phone, '❌ Invalid hostel. Please reply with *BH1* (Brahmaputra), *BH2* (Krishna), *GH1* (Indrayani), or *GH2* (Sindhu)');
       }
       await updateSession(phone, 'COMPLAINT_TEXT', { hostel: hostelUpper });
       return await sendWhatsAppMessage(phone, `📝 Please describe your complaint in detail:`);
@@ -218,7 +219,7 @@ const handleMenuChoice = async (phone, choice, user) => {
       await updateSession(phone, 'COMPLAINT_HOSTEL', {});
       return await sendWhatsAppMessage(
         phone,
-        `🧾 *File a Complaint*\n\nWhich hostel is your complaint for?\nReply with: *BH1* (Brahmaputra), *BH2* (Krishna), or *GH* (Indrayani)`
+        `🧾 *File a Complaint*\n\nWhich hostel is your complaint for?\nReply with: *BH1* (Brahmaputra), *BH2* (Krishna), *GH1* (Indrayani), or *GH2* (Sindhu)`
       );
 
     case '4':
@@ -407,8 +408,8 @@ const handleParentReply = async (phone, visitId, action) => {
       );
     }
 
-    // Notify warden
-    const warden = await User.findOne({ role: 'warden' });
+    // Notify hostel staff / warden
+    const warden = await User.findOne({ role: { $in: ['warden', 'hostel_staff'] } });
     if (warden && warden.phone) {
       await sendWhatsAppMessage(
         warden.phone,

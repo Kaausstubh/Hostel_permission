@@ -139,18 +139,25 @@ const protect = async (req, res, next) => {
 // ── authorize factory ─────────────────────────────────────────────────────────
 // Role-based access control. Always use after protect.
 const authorize = (...roles) => {
+  const allowedSet = new Set(roles);
+  if (allowedSet.has('warden') || allowedSet.has('hostel_staff')) {
+    allowedSet.add('warden');
+    allowedSet.add('hostel_staff');
+  }
+
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    const userRole = req.user?.role;
+    if (!allowedSet.has(userRole)) {
       logger.warn('[Auth] Unauthorized role access attempt', {
         userId: req.user._id,
-        role: req.user.role,
+        role: userRole,
         required: roles,
         path: req.originalUrl,
         requestId: req.requestId,
       });
       return res.status(403).json({
         success: false,
-        message: `Role '${req.user.role}' is not authorized for this route`,
+        message: `Role '${userRole}' is not authorized for this route`,
       });
     }
     next();
