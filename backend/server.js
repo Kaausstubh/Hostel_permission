@@ -57,6 +57,8 @@ const whatsappRoutes  = require('./routes/whatsapp');
 const studentRoutes   = require('./routes/student');
 const gateScanRoutes  = require('./routes/gateScan');
 const archiveRoutes   = require('./routes/archive');
+const attendanceRoutes = require('./routes/attendance');
+const allocationRoutes = require('./routes/allocations');
 const visitorRoutes   = require('./routes/visitors');
 const roomRoutes      = require('./routes/rooms');
 
@@ -183,7 +185,8 @@ app.use((req, res, next) => {
   }
   
   getRedis().then((redis) => {
-    const store = redis ? new (require('connect-redis').default)({ client: redis }) : undefined;
+    const { RedisStore } = require('connect-redis');
+    const store = redis ? new RedisStore({ client: redis, prefix: 'heimdall:sess:' }) : undefined;
     sessionConfig.store = store;
     sessionMiddleware = session(sessionConfig);
     if (redis) {
@@ -273,6 +276,8 @@ app.use('/api/whatsapp',   whatsappRoutes);
 app.use('/api/student',    studentRoutes);
 app.use('/api/gatescan',   gateScanRoutes);
 app.use('/api/archive',    archiveRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/allocations', allocationRoutes);
 app.use('/api/visitors',   visitorRoutes);
 app.use('/api/rooms',      roomRoutes);
 
@@ -393,6 +398,31 @@ server.listen(PORT, async () => {
   scheduleArchiveJob();
   startWhatsAppWorker();
   startArchiveWorker();
+
+  // Clear mock students on startup if configured
+  if (process.env.CLEAR_MOCK_STUDENTS === 'true') {
+    try {
+      const User = require('./models/User');
+      const RoomAllocation = require('./models/RoomAllocation');
+      const HostelRoom = require('./models/HostelRoom');
+      const StudentDevice = require('./models/StudentDevice');
+      const InOutLog = require('./models/InOutLog');
+      const AttendanceRecord = require('./models/AttendanceRecord');
+
+      const delStudents = await User.deleteMany({ role: 'student' });
+      await RoomAllocation.deleteMany({});
+      const rooms = await HostelRoom.find({});
+      for (const r of rooms) {
+        await HostelRoom.updateOne({ _id: r._id }, { $set: { occupantsCount: 0, vacantBeds: r.capacity || 2 } });
+      }
+      await StudentDevice.deleteMany({});
+      await AttendanceRecord.deleteMany({});
+      await InOutLog.deleteMany({ role: 'student' });
+      logger.info(`[Startup] 🗑️ Cleaned ${delStudents.deletedCount} existing students from directory and reset room allocations.`);
+    } catch (err) {
+      logger.error('[Startup] Failed to clear mock students', { error: err.message });
+    }
+  }
 
   // Campus config validation report
   await logCampusStartup();

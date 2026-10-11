@@ -85,6 +85,26 @@ export default function WardenStudents() {
     }
   };
 
+  const handleClearAllStudents = async () => {
+    if (!window.confirm('⚠️ Are you sure you want to remove ALL students from the directory? This will clear existing test/pre-seeded student records so incoming students can self-register via Google Gmail. Warden and staff accounts remain safe.')) {
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await api.delete('/dashboard/students');
+      toast.success(res.data.message || 'All student accounts cleared.');
+      sessionStorage.removeItem('heimdall_warden_students');
+      sessionStorage.removeItem('heimdall_warden_students_count');
+      setStudents([]);
+      setTotalCount(0);
+      fetchStudents();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to clear students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchStudents();
   }, []);
@@ -154,6 +174,16 @@ export default function WardenStudents() {
             >
               <MdRefresh size={16} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
               {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleClearAllStudents}
+              disabled={loading || totalRegistered === 0}
+              title="Remove existing mock/test students to allow fresh Google Gmail registration"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+            >
+              <MdDeleteOutline size={16} />
+              Clear Students
             </button>
             <div style={{
               display: 'inline-flex',

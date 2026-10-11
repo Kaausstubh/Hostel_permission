@@ -266,6 +266,46 @@ const broadcastQrPendingUpdate = (count) => {
 };
 
 /**
+ * Real-time event dispatch for room attendance requests to students
+ */
+const broadcastAttendanceRequest = (roomRequest, studentIds = []) => {
+  if (!_io) return;
+  const payload = {
+    requestId: roomRequest._id,
+    hostel: roomRequest.hostel,
+    roomNo: roomRequest.roomNo,
+    expires_at: roomRequest.expires_at,
+    timestamp: new Date().toISOString(),
+  };
+
+  studentIds.forEach((sId) => {
+    const idStr = String(sId);
+    _io.to(`user:${idStr}`).emit('attendance_requested', payload);
+    _io.to(`student:${idStr}`).emit('attendance_requested', payload);
+    _io.of('/dashboard').to(`user:${idStr}`).emit('attendance_requested', payload);
+  });
+
+  _io.of('/dashboard').emit('attendance_room_requested', payload);
+};
+
+/**
+ * Real-time event dispatch when a student verifies attendance or status changes
+ */
+const broadcastAttendanceResponse = (payload) => {
+  if (!_io) return;
+  _io.of('/dashboard').emit('room_attendance_updated', payload);
+  _io.emit('room_attendance_updated', payload);
+};
+
+/**
+ * Real-time event dispatch when a round status updates or completes
+ */
+const broadcastRoundUpdated = (payload) => {
+  if (!_io) return;
+  _io.of('/dashboard').emit('round_updated', payload);
+};
+
+/**
  * Get count of connected clients across all namespaces.
  */
 const getConnectedClientCount = async () => {
@@ -378,6 +418,9 @@ module.exports = {
   broadcastScanResult,
   broadcastOccupancyUpdate,
   broadcastQrPendingUpdate,
+  broadcastAttendanceRequest,
+  broadcastAttendanceResponse,
+  broadcastRoundUpdated,
   getConnectedClientCount,
   addSseClient,
   removeSseClient,

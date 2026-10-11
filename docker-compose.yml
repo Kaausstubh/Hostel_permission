@@ -1,5 +1,3 @@
-version: '3.9'
-
 # ─── HEIMDALL Smart Campus — Full Stack Docker Compose ───────────────────────
 # Usage:
 #   Development:  docker-compose up

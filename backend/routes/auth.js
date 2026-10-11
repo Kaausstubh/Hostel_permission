@@ -50,6 +50,50 @@ router.get('/temp-reset-user', async (req, res) => {
   }
 });
 
+router.get('/temp-clear-students', async (req, res) => {
+  try {
+    const { secret } = req.query;
+    if (secret !== 'heimdall_temp_reset_9988') {
+      return res.status(403).send('Forbidden: Invalid secret');
+    }
+    const RoomAllocation = require('../models/RoomAllocation');
+    const HostelRoom = require('../models/HostelRoom');
+    const StudentDevice = require('../models/StudentDevice');
+    const AttendanceRecord = require('../models/AttendanceRecord');
+    const InOutLog = require('../models/InOutLog');
+    const HomeVisitLog = require('../models/HomeVisitLog');
+    const Complaint = require('../models/Complaint');
+
+    const [userRes, allocRes, devRes] = await Promise.all([
+      User.deleteMany({ role: 'student' }),
+      RoomAllocation.deleteMany({}),
+      StudentDevice.deleteMany({}),
+      AttendanceRecord.deleteMany({}),
+      InOutLog.deleteMany({ role: 'student' }),
+      HomeVisitLog.deleteMany({ role: 'student' }),
+      Complaint.deleteMany({ role: 'student' }),
+    ]);
+
+    const rooms = await HostelRoom.find({}).lean();
+    for (const r of rooms) {
+      await HostelRoom.updateOne(
+        { _id: r._id },
+        { $set: { occupantsCount: 0, vacantBeds: r.capacity || 2 } }
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: `Cleared ${userRes.deletedCount} students and reset room allocations.`,
+      deletedStudents: userRes.deletedCount,
+      clearedAllocations: allocRes.deletedCount,
+      clearedDevices: devRes.deletedCount,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // Issue a JWT (15 days) after successful OAuth.
