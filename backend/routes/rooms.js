@@ -123,6 +123,41 @@ async function syncPdfDataHelper() {
   return { studentsSynced, totalRooms: roomSet.size };
 }
 
+/**
+ * Helper: Ensure standard campus rooms exist for BH1, GH1, or GH2 if not yet configured
+ */
+async function ensureDefaultRoomsForHostel(hostelCode) {
+  try {
+    const isBoysHostel = hostelCode.startsWith('BH');
+    const floors = [
+      { name: 'Ground Floor', prefix: '', start: 1, end: isBoysHostel ? 20 : 15, pad: 2 },
+      { name: '1st Floor', prefix: '1', start: 1, end: isBoysHostel ? 30 : 25, pad: 2 },
+      { name: '2nd Floor', prefix: '2', start: 1, end: isBoysHostel ? 30 : 25, pad: 2 },
+      { name: '3rd Floor', prefix: '3', start: 1, end: isBoysHostel ? 25 : 20, pad: 2 },
+    ];
+
+    const roomDefs = [];
+    for (const fl of floors) {
+      for (let i = fl.start; i <= fl.end; i++) {
+        const rNum = fl.prefix ? `${fl.prefix}${String(i).padStart(fl.pad, '0')}` : String(i);
+        roomDefs.push({
+          hostelCode,
+          roomNumber: rNum,
+          floor: fl.name,
+          capacity: 4,
+          isActive: true,
+        });
+      }
+    }
+
+    if (roomDefs.length > 0) {
+      await Room.insertMany(roomDefs, { ordered: false }).catch(() => {});
+    }
+  } catch (err) {
+    logger.warn(`[Rooms API] ensureDefaultRoomsForHostel warning for ${hostelCode}: ${err.message}`);
+  }
+}
+
 // ─── POST /api/rooms/sync-pdf ─────────────────────────────────────────────────
 // Warden/Admin endpoint to import/sync all PDF data into BH-2
 router.post('/sync-pdf', protect, authorize('warden', 'admin'), async (req, res) => {
@@ -157,6 +192,11 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
         } catch (e) {
           logger.warn('[Rooms API] Auto-sync initial data warning: ' + e.message);
         }
+      }
+    } else if (['BH1', 'GH1', 'GH2'].includes(hostel)) {
+      const existingRoomsCount = await Room.countDocuments({ hostelCode: hostel });
+      if (existingRoomsCount === 0) {
+        await ensureDefaultRoomsForHostel(hostel);
       }
     }
 
@@ -310,14 +350,9 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       );
     }
 
-    const availableFloors = [
-      'All',
-      'Basement',
-      'Ground Floor',
-      '1st Floor',
-      '2nd Floor',
-      '3rd Floor',
-    ];
+    const uniqueFloors = Array.from(new Set(roomList.map((r) => r.floor)))
+      .sort((a, b) => (FLOOR_ORDER[a] ?? 99) - (FLOOR_ORDER[b] ?? 99));
+    const availableFloors = ['All', ...(uniqueFloors.length > 0 ? uniqueFloors : ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'])];
 
     res.json({
       success: true,

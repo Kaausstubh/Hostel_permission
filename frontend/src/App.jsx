@@ -51,9 +51,6 @@ const AttendanceRoundSetup = lazyWithRetry(() => import('./pages/AttendanceRound
 const AttendanceFloorRound = lazyWithRetry(() => import('./pages/AttendanceFloorRound'));
 const AttendanceReports    = lazyWithRetry(() => import('./pages/AttendanceReports'));
 const AttendanceSummary    = lazyWithRetry(() => import('./pages/AttendanceSummary'));
-const RoomAllocations          = lazyWithRetry(() => import('./pages/RoomAllocations'));
-const SecurityRoomLookup       = lazyWithRetry(() => import('./pages/SecurityRoomLookup'));
-const AllocationImportPreview  = lazyWithRetry(() => import('./pages/AllocationImportPreview'));
 const VisitorManagement   = lazyWithRetry(() => import('./pages/VisitorManagement'));
 const VisitorPassRequest   = lazyWithRetry(() => import('./pages/VisitorPassRequest'));
 const HostelRooms3D        = lazyWithRetry(() => import('./pages/HostelRooms3D'));
@@ -194,21 +191,8 @@ function AppRoutes() {
             <AppLayout><WardenDashboard /></AppLayout>
           </ProtectedRoute>
         } />
-        <Route path="/allocations" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
-            <AppLayout><RoomAllocations /></AppLayout>
-          </ProtectedRoute>
-        } />
-        <Route path="/allocations/import" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
-            <AppLayout><AllocationImportPreview /></AppLayout>
-          </ProtectedRoute>
-        } />
-        <Route path="/allocations/security" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
-            <AppLayout><SecurityRoomLookup /></AppLayout>
-          </ProtectedRoute>
-        } />
+        <Route path="/allocations" element={<Navigate to="/rooms-3d" replace />} />
+        <Route path="/allocations/*" element={<Navigate to="/rooms-3d" replace />} />
         <Route path="/attendance" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><AttendanceRoundSetup /></AppLayout>

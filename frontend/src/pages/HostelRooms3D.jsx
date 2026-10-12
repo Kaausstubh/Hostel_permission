@@ -22,6 +22,14 @@ import {
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import StudentAvatar from '../components/StudentAvatar';
+import { getHostelLabel } from '../utils/hostel';
+
+export const HOSTEL_OPTIONS_CONFIG = [
+  { id: 'BH1', name: 'Brahmaputra', code: 'BH-1', type: "Boys' Hostel 1", icon: '🏢', color: '#3b82f6', subtitle: 'Brahmaputra Residence' },
+  { id: 'BH2', name: 'Krishna',     code: 'BH-2', type: "Boys' Hostel 2", icon: '🏢', color: '#6366f1', subtitle: 'Krishna Residence (394 Students)' },
+  { id: 'GH1', name: 'Indrayani',   code: 'GH-1', type: "Girls' Hostel 1", icon: '🌸', color: '#ec4899', subtitle: 'Indrayani Residence' },
+  { id: 'GH2', name: 'Sindhu',      code: 'GH-2', type: "Girls' Hostel 2", icon: '🌸', color: '#f43f5e', subtitle: 'Sindhu Residence' },
+];
 
 export default function HostelRooms3D({ embedded = false }) {
   const { theme } = useTheme();
@@ -30,6 +38,11 @@ export default function HostelRooms3D({ embedded = false }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingPdf, setSyncingPdf] = useState(false);
+
+  const currentHostel = useMemo(
+    () => HOSTEL_OPTIONS_CONFIG.find((h) => h.id === hostel) || HOSTEL_OPTIONS_CONFIG[1],
+    [hostel]
+  );
 
   // Filters
   const [selectedFloor, setSelectedFloor] = useState('All');
@@ -80,6 +93,9 @@ export default function HostelRooms3D({ embedded = false }) {
   }, [hostel, activeRoom]);
 
   useEffect(() => {
+    setSelectedFloor('All');
+    setSearchTerm('');
+    setActiveRoom(null);
     fetchRooms();
   }, [hostel]);
 
@@ -224,11 +240,174 @@ export default function HostelRooms3D({ embedded = false }) {
     unassignedCount: 0,
   };
 
+  // Dynamic Floor Options
+  const floorOptions = useMemo(() => {
+    if (hostel === 'BH2') {
+      return [
+        { label: 'All Floors', value: 'All', icon: '🏢' },
+        { label: 'Basement (B01-B13)', value: 'Basement', icon: '🔻' },
+        { label: 'Ground Floor (2-30)', value: 'Ground Floor', icon: '🚪' },
+        { label: '1st Floor (101-132)', value: '1st Floor', icon: '1️⃣' },
+        { label: '2nd Floor (201-234)', value: '2nd Floor', icon: '2️⃣' },
+        { label: '3rd Floor (301-321)', value: '3rd Floor', icon: '3️⃣' },
+      ];
+    }
+
+    if (!data?.rooms || data.rooms.length === 0) {
+      return [
+        { label: 'All Floors', value: 'All', icon: '🏢' },
+        { label: 'Ground Floor', value: 'Ground Floor', icon: '🚪' },
+        { label: '1st Floor', value: '1st Floor', icon: '1️⃣' },
+        { label: '2nd Floor', value: '2nd Floor', icon: '2️⃣' },
+        { label: '3rd Floor', value: '3rd Floor', icon: '3️⃣' },
+      ];
+    }
+
+    const floorCounts = {};
+    data.rooms.forEach((r) => {
+      floorCounts[r.floor] = (floorCounts[r.floor] || 0) + 1;
+    });
+
+    const order = { 'Basement': 0, 'Ground Floor': 1, '1st Floor': 2, '2nd Floor': 3, '3rd Floor': 4, '4th Floor': 5 };
+    const icons = { 'Basement': '🔻', 'Ground Floor': '🚪', '1st Floor': '1️⃣', '2nd Floor': '2️⃣', '3rd Floor': '3️⃣', '4th Floor': '4️⃣' };
+    const sortedFloors = Object.keys(floorCounts).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
+
+    return [
+      { label: `All Floors (${data.rooms.length})`, value: 'All', icon: '🏢' },
+      ...sortedFloors.map((fl) => ({
+        label: `${fl} (${floorCounts[fl]})`,
+        value: fl,
+        icon: icons[fl] || '🏢',
+      })),
+    ];
+  }, [hostel, data?.rooms]);
+
   return (
     <div className={`hostel-rooms-3d-page ${embedded ? 'embedded' : ''}`}>
-      {!embedded && <Navbar title="Hostel BH-2 • 3D Room Allocation Matrix" />}
+      {!embedded && (
+        <Navbar
+          title={`Hostel ${currentHostel.code} (${currentHostel.name}) • 3D Room Allocation Matrix`}
+        />
+      )}
 
       <div className="page-area" style={{ padding: embedded ? '0' : '20px 28px 40px' }}>
+        {/* ── Hostel Selection Switcher (BH-1, BH-2, GH-1, GH-2) ── */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 12,
+            marginBottom: 20,
+          }}
+        >
+          {HOSTEL_OPTIONS_CONFIG.map((h) => {
+            const isSelected = hostel === h.id;
+            return (
+              <div
+                key={h.id}
+                onClick={() => {
+                  if (hostel !== h.id) {
+                    setHostel(h.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                style={{
+                  padding: '16px 20px',
+                  borderRadius: 18,
+                  cursor: 'pointer',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  border: isSelected
+                    ? `2px solid ${h.color}`
+                    : (theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.1)'),
+                  background: isSelected
+                    ? (theme === 'light' ? '#ffffff' : 'rgba(30, 41, 59, 0.95)')
+                    : (theme === 'light' ? '#f8fafc' : 'rgba(15, 23, 42, 0.5)'),
+                  boxShadow: isSelected
+                    ? `0 10px 28px ${h.color}35`
+                    : '0 2px 8px rgba(0,0,0,0.03)',
+                  transition: 'all 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+                  transform: isSelected ? 'translateY(-2px)' : 'none',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: isSelected ? h.color : 'transparent',
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: isSelected ? `${h.color}20` : (theme === 'light' ? '#e2e8f0' : 'rgba(255,255,255,0.06)'),
+                        color: isSelected ? h.color : 'var(--text-muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 18,
+                        fontWeight: 900,
+                      }}
+                    >
+                      {h.icon}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 900,
+                          fontSize: 16,
+                          color: isSelected ? h.color : 'var(--text-primary)',
+                          letterSpacing: '-0.02em',
+                        }}
+                      >
+                        {h.code}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {h.name}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isSelected ? (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 900,
+                        background: `linear-gradient(135deg, ${h.color}, #4f46e5)`,
+                        color: '#fff',
+                        padding: '3px 9px',
+                        borderRadius: 99,
+                        letterSpacing: '0.05em',
+                        boxShadow: `0 2px 8px ${h.color}44`,
+                      }}
+                    >
+                      ACTIVE
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
+                      {h.type}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                  {h.subtitle}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* ── Top Header Bar ── */}
         <div
           style={{
@@ -257,7 +436,7 @@ export default function HostelRooms3D({ embedded = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span
                   style={{
-                    background: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                    background: `linear-gradient(135deg, ${currentHostel.color}, #4f46e5)`,
                     color: '#fff',
                     padding: '6px 12px',
                     borderRadius: 10,
@@ -266,7 +445,7 @@ export default function HostelRooms3D({ embedded = false }) {
                     letterSpacing: '0.05em',
                   }}
                 >
-                  HOSTEL BH-2 (KRISHNA)
+                  HOSTEL {currentHostel.code} ({currentHostel.name.toUpperCase()})
                 </span>
                 <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                   Standard Capacity: <strong>4 Students / Room</strong>
@@ -283,34 +462,36 @@ export default function HostelRooms3D({ embedded = false }) {
                   gap: 10,
                 }}
               >
-                <span>🏢 3D Room Occupancy & Vacancy Matrix</span>
+                <span>🏢 {currentHostel.name} ({currentHostel.code}) • 3D Room Occupancy & Vacancy Matrix</span>
               </h1>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={handleSyncPdf}
-                disabled={syncingPdf}
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: 12,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: syncingPdf ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-                }}
-                title="Sync / Upload all students from the official PDF list into BH-2"
-              >
-                <span>📥</span>
-                <span>{syncingPdf ? 'Syncing PDF...' : 'Sync All PDF Students (394)'}</span>
-              </button>
+              {hostel === 'BH2' && (
+                <button
+                  type="button"
+                  onClick={handleSyncPdf}
+                  disabled={syncingPdf}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: syncingPdf ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                  }}
+                  title="Sync / Upload all students from the official PDF list into BH-2"
+                >
+                  <span>📥</span>
+                  <span>{syncingPdf ? 'Syncing PDF...' : 'Sync All PDF Students (394)'}</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -403,14 +584,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* ── Floor Navigation Elevation Pills ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 16 }}>
-          {[
-            { label: 'All Floors', value: 'All', icon: '🏢' },
-            { label: 'Basement (B01-B13)', value: 'Basement', icon: '🔻' },
-            { label: 'Ground Floor (2-30)', value: 'Ground Floor', icon: '🚪' },
-            { label: '1st Floor (101-132)', value: '1st Floor', icon: '1️⃣' },
-            { label: '2nd Floor (201-234)', value: '2nd Floor', icon: '2️⃣' },
-            { label: '3rd Floor (301-321)', value: '3rd Floor', icon: '3️⃣' },
-          ].map((fl) => (
+          {floorOptions.map((fl) => (
             <button
               key={fl.value}
               type="button"
@@ -523,7 +697,9 @@ export default function HostelRooms3D({ embedded = false }) {
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
             <div className="loading-spinner" style={{ width: 44, height: 44, margin: '0 auto 16px' }} />
-            <div style={{ fontSize: 15, fontWeight: 700 }}>Rendering 3D BH-2 Room Matrix...</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>
+              Rendering 3D {currentHostel.code} ({currentHostel.name}) Room Matrix...
+            </div>
           </div>
         ) : filteredRooms.length === 0 ? (
           <div
@@ -874,7 +1050,7 @@ export default function HostelRooms3D({ embedded = false }) {
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: 'var(--text-primary)' }}>
-                    Hostel BH-2 • Room {activeRoom.roomNumber}
+                    Hostel {currentHostel.code} ({currentHostel.name}) • Room {activeRoom.roomNumber}
                   </h3>
                   <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
                     🏢 {activeRoom.floor} • Capacity: <strong>{activeRoom.capacity} Students</strong>
@@ -1181,7 +1357,7 @@ export default function HostelRooms3D({ embedded = false }) {
                   Add Student to Room {activeRoom.roomNumber}
                 </h3>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Hostel BH-2 • Available Vacancies: {activeRoom.vacancies}
+                  Hostel {currentHostel.code} ({currentHostel.name}) • Available Vacancies: {activeRoom.vacancies}
                 </div>
               </div>
               <button
@@ -1398,7 +1574,7 @@ export default function HostelRooms3D({ embedded = false }) {
             <form onSubmit={handleTransferSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 800, marginBottom: 6, color: 'var(--text-primary)' }}>
-                  Target Room Number in BH-2:
+                  Target Room Number in {currentHostel.code} ({currentHostel.name}):
                 </label>
                 <input
                   type="text"
