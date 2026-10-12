@@ -22,8 +22,16 @@ import {
   MdMyLocation,
 } from 'react-icons/md';
 
-export default function StudentAttendancePrompt({ user, socket, onVerified = () => {} }) {
+export default function StudentAttendancePrompt({
+  user,
+  socket,
+  onVerified = () => {},
+  onStatusChange = () => {},
+  externalOpenTrigger = 0,
+  onOpenHistory = () => {},
+}) {
   const [pendingRequest, setPendingRequest] = useState(null);
+  const [todayRecord, setTodayRecord] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
 
   // Verification state
@@ -32,6 +40,7 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
   const [gpsError, setGpsError] = useState(null);
   const [verificationResult, setVerificationResult] = useState(null); // { type: 'present'|'absent'|'error', message, distanceMeters, accuracy }
   const hasAutoTriggeredRef = useRef(false);
+  const lastExternalTriggerRef = useRef(externalOpenTrigger);
 
   const remainingSeconds = pendingRequest?.remainingSeconds ?? 0;
 
@@ -40,10 +49,23 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
     if (!user || user.role !== 'student') return;
     try {
       const res = await api.get('/attendance/pending');
-      if (res.data?.success && res.data.hasPending && !res.data.request?.alreadyApproved) {
-        setPendingRequest(res.data.request);
+      const reqData = res.data?.request;
+      const todayRec = res.data?.todayRecord || null;
+      const hasActive = Boolean(res.data?.success && res.data.hasPending && !reqData?.alreadyApproved);
+
+      if (hasActive) {
+        setPendingRequest(reqData);
       } else {
         setPendingRequest(null);
+      }
+      setTodayRecord(todayRec);
+
+      if (onStatusChange) {
+        onStatusChange({
+          hasPending: hasActive,
+          pendingRequest: hasActive ? reqData : null,
+          todayRecord: todayRec,
+        });
       }
     } catch {
       // silent fallback
@@ -70,6 +92,16 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
     socket.on('attendance_requested', handleReq);
     return () => socket.off('attendance_requested', handleReq);
   }, [socket]);
+
+  // Support external button click trigger from dashboard header
+  useEffect(() => {
+    if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
+      lastExternalTriggerRef.current = externalOpenTrigger;
+      setModalOpen(true);
+      setVerificationResult(null);
+      detectAndMarkAttendance();
+    }
+  }, [externalOpenTrigger]);
 
   // Automatically open popup modal & trigger GPS check as soon as an active request is detected
   useEffect(() => {
@@ -113,6 +145,14 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
             duration: 5000,
           });
 
+          // Update todayRecord
+          setTodayRecord((prev) => ({
+            ...prev,
+            status: 'present',
+            date: new Date().toISOString().slice(0, 10),
+            roomNo: targetReq.roomNo,
+          }));
+
           // Trigger browser notification if supported
           if ('Notification' in window && Notification.permission === 'granted') {
             try {
@@ -124,6 +164,7 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
           }
 
           onVerified();
+          checkPending();
           setTimeout(() => {
             setModalOpen(false);
             setPendingRequest(null);
@@ -140,6 +181,13 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
             duration: 6000,
           });
 
+          setTodayRecord((prev) => ({
+            ...prev,
+            status: 'absent',
+            date: new Date().toISOString().slice(0, 10),
+            roomNo: targetReq.roomNo,
+          }));
+
           if ('Notification' in window && Notification.permission === 'granted') {
             try {
               new Notification('Attendance Marked: ABSENT', {
@@ -150,6 +198,7 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
           }
 
           onVerified();
+          checkPending();
         }
       } catch (err) {
         const errData = err.response?.data;
@@ -509,6 +558,35 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
                 : verificationResult?.type === 'absent'
                 ? 'Re-check Geofence Location'
                 : 'Detect Location & Mark Attendance'}
+            </button>
+
+            {/* View Attendance Records Ledger Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setModalOpen(false);
+                onOpenHistory();
+              }}
+              style={{
+                width: '100%',
+                marginTop: 10,
+                padding: '10px 16px',
+                borderRadius: 12,
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                fontWeight: 700,
+                fontSize: 12.5,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span>📋</span>
+              <span>View My Attendance Records</span>
             </button>
           </div>
         </div>

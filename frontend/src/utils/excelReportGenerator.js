@@ -306,9 +306,9 @@ export const exportAttendanceToExcel = async ({
         ? 'ON LEAVE'
         : 'ABSENT';
     const methodLabel =
-      r.method === 'qr_geofence'
-        ? 'Biometric / QR Geofence'
-        : 'Manual Staff Check';
+      r.method === 'self_approved' || r.method === 'qr_geofence'
+        ? 'GPS Geofence'
+        : 'Staff Override';
 
     return {
       'S.No': index + 1,

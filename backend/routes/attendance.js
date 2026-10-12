@@ -511,6 +511,12 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
     const cleanHostel = req.user.hostel.toUpperCase();
     const cleanRoomNo = req.user.roomNo.trim().toUpperCase();
     const now = new Date();
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const todayRecord = await AttendanceRecord.findOne({
+      student_id: req.user._id,
+      date: todayDate,
+    }).populate('verified_by', 'name role').lean();
 
     const request = await RoomAttendanceRequest.findOne({
       hostel: cleanHostel,
@@ -522,7 +528,20 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
       .lean();
 
     if (!request) {
-      return res.json({ success: true, hasPending: false });
+      return res.json({
+        success: true,
+        hasPending: false,
+        todayRecord: todayRecord ? {
+          id: todayRecord._id,
+          status: todayRecord.status,
+          date: todayRecord.date,
+          session: todayRecord.session,
+          roomNo: todayRecord.roomNo,
+          method: todayRecord.method,
+          remark: todayRecord.remark,
+          verifiedBy: todayRecord.verified_by?.name || 'Self (GPS Geofence)',
+        } : null,
+      });
     }
 
     // Check student's response state for this request
@@ -539,6 +558,16 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
     res.json({
       success: true,
       hasPending: true,
+      todayRecord: todayRecord ? {
+        id: todayRecord._id,
+        status: todayRecord.status,
+        date: todayRecord.date,
+        session: todayRecord.session,
+        roomNo: todayRecord.roomNo,
+        method: todayRecord.method,
+        remark: todayRecord.remark,
+        verifiedBy: todayRecord.verified_by?.name || 'Self (GPS Geofence)',
+      } : null,
       request: {
         id: request._id,
         roomNo: request.roomNo,

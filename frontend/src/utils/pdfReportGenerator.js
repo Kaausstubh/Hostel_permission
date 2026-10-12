@@ -699,9 +699,9 @@ export const downloadAttendanceReportPDF = async ({
         ? 'ON LEAVE'
         : 'ABSENT';
     const methodText =
-      r.method === 'qr_geofence'
-        ? 'Biometric/QR'
-        : 'Manual Check';
+      r.method === 'self_approved' || r.method === 'qr_geofence'
+        ? 'GPS Geofence'
+        : 'Staff Override';
 
     return [
       index + 1,

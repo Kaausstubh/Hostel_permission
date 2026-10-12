@@ -302,7 +302,7 @@ export default function AttendanceRoundSetup() {
           lineHeight: 1.6,
         }}
       >
-        💡 <strong>How it works:</strong> Walk to each room on this floor. Tap <em>Request Attendance</em> when standing outside the room. Students verify from their phones with biometrics &amp; indoor hostel GPS. If a student is absent, on approved leave, or has a dead battery, record manual marks with mandatory remarks.
+        💡 <strong>How it works:</strong> Walk to each room on this floor. Tap <em>Request Attendance</em> when standing outside the room. Students open their student portal to verify location with hostel GPS geofencing. If a student is absent, on approved leave, or has a dead battery, record manual marks with mandatory remarks.
         </div>
       </div>
     </div>

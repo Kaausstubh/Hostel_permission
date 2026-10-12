@@ -144,7 +144,7 @@ export default function StudentAttendanceHistoryModal({ onClose = () => {} }) {
                     </div>
 
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                      Room {record.roomNo} · Method: {record.method === 'self_approved' ? 'Biometric Approval' : `Staff Verified (${record.verifiedBy})`}
+                      Room {record.roomNo} · Method: {record.method === 'self_approved' ? 'GPS Geofence Verified' : `Staff Verified (${record.verifiedBy})`}
                       {record.remark && <span> · "{record.remark}"</span>}
                     </div>
                   </div>

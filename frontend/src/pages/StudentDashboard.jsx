@@ -531,6 +531,12 @@ export default function StudentDashboard() {
   const [generatingPass, setGeneratingPass] = useState(false);
   const [resettingPass, setResettingPass] = useState(false);
   const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState({
+    hasPending: false,
+    pendingRequest: null,
+    todayRecord: null,
+  });
+  const [attendancePromptOpenTrigger, setAttendancePromptOpenTrigger] = useState(0);
   const [showRoomInfoModal, setShowRoomInfoModal] = useState(false);
   const [activeSocket, setActiveSocket] = useState(null);
   const [qrCountdown, setQrCountdown] = useState(15);
@@ -2873,7 +2879,13 @@ export default function StudentDashboard() {
 
       {/* ── Chat Area ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-        <StudentAttendancePrompt user={user} socket={activeSocket} />
+        <StudentAttendancePrompt
+          user={user}
+          socket={activeSocket}
+          onStatusChange={(status) => setAttendanceStatus(status)}
+          externalOpenTrigger={attendancePromptOpenTrigger}
+          onOpenHistory={() => setAttendanceHistoryOpen(true)}
+        />
 
         {/* Header */}
         {isMobile ? (
@@ -2928,6 +2940,72 @@ export default function StudentDashboard() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {/* Attendance Status & Geofence Verification Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (attendanceStatus?.hasPending) {
+                      setAttendancePromptOpenTrigger((prev) => prev + 1);
+                    } else {
+                      setAttendanceHistoryOpen(true);
+                    }
+                  }}
+                  style={{
+                    background: attendanceStatus?.hasPending
+                      ? 'linear-gradient(135deg, #4f46e5, #06b6d4)'
+                      : attendanceStatus?.todayRecord?.status === 'present'
+                      ? 'rgba(16, 185, 129, 0.14)'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? 'rgba(239, 68, 68, 0.14)'
+                      : (theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)'),
+                    color: attendanceStatus?.hasPending
+                      ? '#ffffff'
+                      : attendanceStatus?.todayRecord?.status === 'present'
+                      ? '#10b981'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? '#ef4444'
+                      : 'var(--text-primary)',
+                    border: attendanceStatus?.hasPending
+                      ? 'none'
+                      : attendanceStatus?.todayRecord?.status === 'present'
+                      ? '1px solid rgba(16, 185, 129, 0.4)'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? '1px solid rgba(239, 68, 68, 0.4)'
+                      : (theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)'),
+                    fontWeight: 700,
+                    padding: '5px 10px',
+                    fontSize: 11.5,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    cursor: 'pointer',
+                    boxShadow: attendanceStatus?.hasPending ? '0 0 14px rgba(79, 70, 229, 0.65)' : 'none',
+                    animation: attendanceStatus?.hasPending ? 'pulse 1.6s infinite' : 'none',
+                    flexShrink: 0,
+                  }}
+                  title="Hostel Night Attendance Status — Tap to Verify or View Records"
+                >
+                  <span>
+                    {attendanceStatus?.hasPending
+                      ? '📍'
+                      : attendanceStatus?.todayRecord?.status === 'present'
+                      ? '✅'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? '❌'
+                      : '📋'}
+                  </span>
+                  <span>
+                    {attendanceStatus?.hasPending
+                      ? 'Mark Attendance'
+                      : attendanceStatus?.todayRecord?.status === 'present'
+                      ? 'Present'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? 'Absent'
+                      : 'Attendance'}
+                  </span>
+                </button>
+
                 {/* Parent Visit Notification / Status Button */}
                 {pendingVisitorRequests.length > 0 ? (
                   <button
@@ -3129,6 +3207,72 @@ export default function StudentDashboard() {
               </div>
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+              {/* Attendance Status & Records Top Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (attendanceStatus?.hasPending) {
+                    setAttendancePromptOpenTrigger((prev) => prev + 1);
+                  } else {
+                    setAttendanceHistoryOpen(true);
+                  }
+                }}
+                style={{
+                  background: attendanceStatus?.hasPending
+                    ? 'linear-gradient(135deg, #4f46e5, #06b6d4)'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? 'rgba(16, 185, 129, 0.12)'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? 'rgba(239, 68, 68, 0.12)'
+                    : (theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.07)'),
+                  color: attendanceStatus?.hasPending
+                    ? '#ffffff'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? '#10b981'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '#ef4444'
+                    : 'var(--text-primary)',
+                  border: attendanceStatus?.hasPending
+                    ? 'none'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? '1.5px solid rgba(16, 185, 129, 0.35)'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '1.5px solid rgba(239, 68, 68, 0.35)'
+                    : (theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.16)'),
+                  fontWeight: 800,
+                  padding: '8px 14px',
+                  fontSize: 12.5,
+                  borderRadius: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                  boxShadow: attendanceStatus?.hasPending ? '0 0 16px rgba(79, 70, 229, 0.6)' : 'none',
+                  animation: attendanceStatus?.hasPending ? 'pulse 1.6s infinite' : 'none',
+                  transition: 'all 0.18s ease',
+                }}
+                title="Hostel Night Attendance Status — Tap to Verify or View Records"
+              >
+                <span>
+                  {attendanceStatus?.hasPending
+                    ? '📍'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? '✅'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '❌'
+                    : '📋'}
+                </span>
+                <span>
+                  {attendanceStatus?.hasPending
+                    ? 'Mark Attendance (Active)'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? 'Attendance: Present'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? 'Attendance: Absent'
+                    : 'Attendance Records'}
+                </span>
+              </button>
+
               {/* Parent Visit Request Top Button */}
               {pendingVisitorRequests.length > 0 ? (
                 <button

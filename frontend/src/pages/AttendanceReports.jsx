@@ -315,7 +315,7 @@ export default function AttendanceReports() {
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        {r.method === 'self_approved' ? 'Biometric + GPS' : 'Staff Override'}
+                        {r.method === 'self_approved' ? 'GPS Geofence' : 'Staff Override'}
                       </td>
                       <td style={{ padding: '12px 16px', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.remark || '-'}
