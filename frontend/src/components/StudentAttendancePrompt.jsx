@@ -304,7 +304,7 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
           }}
         >
           <div
-            className="card"
+            className="card student-attendance-modal-card"
             style={{
               width: '100%',
               maxWidth: 480,
@@ -513,6 +513,30 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
           </div>
         </div>
       )}
+
+      {/* Mobile Responsive Styles */}
+      <style>{`
+        @media (max-width: 640px) {
+          .student-attendance-banner {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            padding: 12px 14px !important;
+          }
+          .student-attendance-banner button {
+            width: 100% !important;
+            justify-content: center !important;
+            text-align: center !important;
+            padding: 9px 14px !important;
+            font-size: 13px !important;
+          }
+          .student-attendance-modal-card {
+            padding: 18px 16px !important;
+            border-radius: 18px !important;
+            margin: 0 4px !important;
+          }
+        }
+      `}</style>
     </>
   );
 }

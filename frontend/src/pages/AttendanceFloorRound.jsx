@@ -366,6 +366,7 @@ export default function AttendanceFloorRound() {
               return (
                 <div
                   key={room.roomNo}
+                  className="attendance-floor-room-card"
                   onClick={() => setSelectedRoomNo(room.roomNo)}
                   style={{
                     padding: '14px 16px',
@@ -430,7 +431,7 @@ export default function AttendanceFloorRound() {
                   </div>
 
                   {/* Right: Inline Action Buttons */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="attendance-room-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={(e) => e.stopPropagation()}>
                     {room.status === 'Skipped' ? (
                       <button
                         type="button"
@@ -728,6 +729,26 @@ export default function AttendanceFloorRound() {
           onRefresh={() => fetchRooms(true)}
         />
       )}
+
+      {/* Mobile Responsive Floor Round Styles */}
+      <style>{`
+        @media (max-width: 640px) {
+          .attendance-floor-room-card {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 12px !important;
+            padding: 12px 14px !important;
+          }
+          .attendance-room-actions {
+            width: 100% !important;
+            justify-content: flex-end !important;
+            gap: 8px !important;
+          }
+          .attendance-room-actions button {
+            flex: 1 !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

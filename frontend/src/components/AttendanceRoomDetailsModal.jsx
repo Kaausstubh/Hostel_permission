@@ -380,7 +380,7 @@ export default function AttendanceRoomDetailsModal({
 
                   {/* Manual Override Actions (if not already locked) */}
                   {!isLocked && (
-                    <div style={{ display: 'flex', gap: 6, paddingTop: 6, borderTop: '1px solid rgba(139,92,246,0.1)' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 6, borderTop: '1px solid rgba(139,92,246,0.1)' }}>
                       <button
                         type="button"
                         onClick={() => {

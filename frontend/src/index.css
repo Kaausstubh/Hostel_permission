@@ -3085,6 +3085,26 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   .filters-row {
     width: 100%;
   }
+
+  /* Universal mobile modal responsiveness */
+  .modal-dialog,
+  .modal-box {
+    padding: 16px;
+    max-height: 94vh;
+    border-radius: 18px;
+    width: 100%;
+    margin: 0 4px;
+  }
+
+  /* Safe inputs on mobile Safari (prevents automatic zooming on iOS) */
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* ── Mobile/Small Screen Styles for OAuth Login page ── */
@@ -3233,7 +3253,8 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   animation: modalFadeIn 0.2s ease-out;
 }
 
-.modal-dialog {
+.modal-dialog,
+.modal-box {
   background: var(--bg-surface, #0a0a2e);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -3251,7 +3272,8 @@ tbody tr:hover { background: rgba(139,92,246,0.15); }
   background: rgba(15, 23, 42, 0.55);
 }
 
-[data-theme='light'] .modal-dialog {
+[data-theme='light'] .modal-dialog,
+[data-theme='light'] .modal-box {
   background: #ffffff;
   border-color: #cbd5e1;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);

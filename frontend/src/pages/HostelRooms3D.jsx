@@ -580,9 +580,10 @@ export default function HostelRooms3D({ embedded = false }) {
         />
       )}
 
-      <div className="page-area" style={{ padding: embedded ? '0' : '20px 28px 40px' }}>
+      <div className="page-area hostel-rooms-page-container" style={{ padding: embedded ? '0' : '20px 28px 40px' }}>
         {/* ── Hostel Selection Switcher (BH-1, BH-2, GH-1, GH-2) ── */}
         <div
+          className="hostel-switcher-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
@@ -595,6 +596,7 @@ export default function HostelRooms3D({ embedded = false }) {
             return (
               <div
                 key={h.id}
+                className={`hostel-switcher-card ${isSelected ? 'active' : ''}`}
                 onClick={() => {
                   if (hostel !== h.id) {
                     setHostel(h.id);
@@ -653,6 +655,7 @@ export default function HostelRooms3D({ embedded = false }) {
                     </div>
                     <div>
                       <div
+                        className="hostel-code"
                         style={{
                           fontWeight: 900,
                           fontSize: 16,
@@ -690,7 +693,7 @@ export default function HostelRooms3D({ embedded = false }) {
                   )}
                 </div>
 
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                <div className="hostel-subtitle" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
                   {h.subtitle}
                 </div>
               </div>
@@ -700,6 +703,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* ── Top Header Bar ── */}
         <div
+          className="rooms-top-header-bar"
           style={{
             background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.75)',
             backdropFilter: 'blur(16px)',
@@ -742,6 +746,7 @@ export default function HostelRooms3D({ embedded = false }) {
                 </span>
               </div>
               <h1
+                className="rooms-main-title"
                 style={{
                   margin: '8px 0 0',
                   fontSize: 24,
@@ -756,7 +761,7 @@ export default function HostelRooms3D({ embedded = false }) {
               </h1>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="rooms-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               {/* Excel Download Button */}
               <button
                 type="button"
@@ -835,6 +840,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
           {/* ── Summary Stats Grid ── */}
           <div
+            className="rooms-stats-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
@@ -879,6 +885,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* ── View Switcher: 3D Rooms Grid vs Excel Students Roster ── */}
         <div
+          className="rooms-view-switcher-bar"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -889,6 +896,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           <div
+            className="view-switcher-group"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -977,7 +985,7 @@ export default function HostelRooms3D({ embedded = false }) {
         {viewMode === '3d-matrix' && (
           <>
             {/* ── Floor Navigation Elevation Pills ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 16 }}>
+        <div className="floor-pills-scroll" style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 16 }}>
           {floorOptions.map((fl) => (
             <button
               key={fl.value}
@@ -1008,6 +1016,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* ── Search & Occupancy Status Filter Bar ── */}
         <div
+          className="rooms-filter-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1019,6 +1028,7 @@ export default function HostelRooms3D({ embedded = false }) {
         >
           {/* Search Box */}
           <div
+            className="rooms-search-box"
             style={{
               position: 'relative',
               flex: '1 1 280px',
@@ -1055,7 +1065,7 @@ export default function HostelRooms3D({ embedded = false }) {
           </div>
 
           {/* Status Filter Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div className="occupancy-filter-group" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {[
               { label: 'All Rooms', value: 'all', count: filterCounts.all },
               { label: '🟢 Has Vacancies', value: 'vacant', count: filterCounts.vacant },
@@ -1404,6 +1414,7 @@ export default function HostelRooms3D({ embedded = false }) {
       <div className="excel-roster-view-container">
         {/* 1. Header Card with Title requested by user */}
         <div
+          className="excel-roster-header-card"
           style={{
             background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.85)',
             border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.1)',
@@ -1510,6 +1521,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
           {/* Roster Metric Badges */}
           <div
+            className="excel-roster-metrics-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
@@ -1544,6 +1556,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* 2. Roster Filter & Search Bar */}
         <div
+          className="roster-toolbar-row"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1554,7 +1567,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           {/* Search Box */}
-          <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 440 }}>
+          <div className="roster-search-box" style={{ position: 'relative', flex: '1 1 280px', maxWidth: 440 }}>
             <MdSearch
               size={20}
               style={{
@@ -1588,7 +1601,7 @@ export default function HostelRooms3D({ embedded = false }) {
           </div>
 
           {/* Floor Filter Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div className="roster-toolbar-pills floor-pills" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {floorOptions.map((fl) => (
               <button
                 key={fl.value}
@@ -1618,7 +1631,7 @@ export default function HostelRooms3D({ embedded = false }) {
           </div>
 
           {/* Year Filter Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div className="roster-toolbar-pills year-pills" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {['All', '2nd Year', '3rd Year'].map((yr) => (
               <button
                 key={yr}
@@ -1646,6 +1659,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
         {/* 3. Excel Spreadsheet Data Table */}
         <div
+          className="excel-table-card"
           style={{
             background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.9)',
             border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.12)',
@@ -1663,8 +1677,13 @@ export default function HostelRooms3D({ embedded = false }) {
             }}
           />
 
-          <div style={{ overflowX: 'auto', maxHeight: '680px' }}>
+          <div className="mobile-table-hint">
+            👉 Swipe horizontally to view all spreadsheet columns
+          </div>
+
+          <div className="excel-table-scroll-wrapper" style={{ overflowX: 'auto', maxHeight: '680px' }}>
             <table
+              className="excel-spreadsheet-table"
               style={{
                 width: '100%',
                 borderCollapse: 'collapse',
@@ -1917,6 +1936,7 @@ export default function HostelRooms3D({ embedded = false }) {
 
           {/* Table Footer with Pagination Controls */}
           <div
+            className="excel-table-footer"
             style={{
               padding: '12px 20px',
               borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
@@ -2034,6 +2054,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           <div
+            className="room-modal-card"
             style={{
               backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
               borderRadius: 24,
@@ -2050,6 +2071,7 @@ export default function HostelRooms3D({ embedded = false }) {
           >
             {/* Modal Header */}
             <div
+              className="room-modal-header"
               style={{
                 padding: '20px 24px 16px',
                 borderBottom: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
@@ -2107,9 +2129,10 @@ export default function HostelRooms3D({ embedded = false }) {
             </div>
 
             {/* Modal Scrollable Body */}
-            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div className="room-modal-body" style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
               {/* Occupancy Status Strip */}
               <div
+                className="room-occupancy-strip"
                 style={{
                   padding: '14px 18px',
                   borderRadius: 16,
@@ -2175,6 +2198,7 @@ export default function HostelRooms3D({ embedded = false }) {
                     {activeRoom.students.map((student, idx) => (
                       <div
                         key={student._id || idx}
+                        className="modal-student-row"
                         style={{
                           padding: '12px 16px',
                           borderRadius: 16,
@@ -2217,7 +2241,7 @@ export default function HostelRooms3D({ embedded = false }) {
                         </div>
 
                         {/* Actions for this student */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <div className="modal-student-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                           <button
                             type="button"
                             onClick={() => {
@@ -2364,6 +2388,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           <div
+            className="modal-compact-card"
             style={{
               backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
               borderRadius: 20,
@@ -2574,6 +2599,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           <div
+            className="modal-compact-card"
             style={{
               backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
               borderRadius: 20,
@@ -2687,6 +2713,7 @@ export default function HostelRooms3D({ embedded = false }) {
           }}
         >
           <div
+            className="modal-compact-card modal-summary-card"
             style={{
               backgroundColor: theme === 'light' ? '#ffffff' : '#0f172a',
               borderRadius: 24,
@@ -2874,6 +2901,275 @@ export default function HostelRooms3D({ embedded = false }) {
         }
         .room-card-3d:hover {
           z-index: 10;
+        }
+        .mobile-table-hint {
+          display: none;
+        }
+
+        /* ── Mobile & Tablet Responsiveness (< 768px) ── */
+        @media (max-width: 768px) {
+          .hostel-rooms-page-container {
+            padding: 12px !important;
+          }
+
+          /* Hostel Switcher Grid */
+          .hostel-switcher-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 8px !important;
+            margin-bottom: 14px !important;
+          }
+          .hostel-switcher-card {
+            padding: 10px 12px !important;
+            border-radius: 14px !important;
+          }
+          .hostel-switcher-card .hostel-code {
+            font-size: 14px !important;
+          }
+          .hostel-switcher-card .hostel-subtitle {
+            display: none !important;
+          }
+
+          /* Top Header Bar */
+          .rooms-top-header-bar {
+            padding: 14px 16px !important;
+            border-radius: 16px !important;
+            gap: 12px !important;
+            margin-bottom: 14px !important;
+          }
+          .rooms-main-title {
+            font-size: 18px !important;
+            line-height: 1.3 !important;
+          }
+          .rooms-header-actions {
+            width: 100% !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+          .rooms-header-actions button {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 11px 14px !important;
+            font-size: 13px !important;
+          }
+
+          /* Summary Stats Grid */
+          .rooms-stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 8px !important;
+          }
+          .stat-pill {
+            padding: 9px 12px !important;
+            border-radius: 12px !important;
+          }
+          .stat-pill > div:last-child {
+            font-size: 19px !important;
+          }
+
+          /* View Switcher Bar */
+          .rooms-view-switcher-bar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            margin-bottom: 14px !important;
+          }
+          .view-switcher-group {
+            width: 100% !important;
+            display: flex !important;
+          }
+          .view-switcher-group button {
+            flex: 1 !important;
+            justify-content: center !important;
+            padding: 9px 10px !important;
+            font-size: 12px !important;
+          }
+
+          /* Floor Elevation Pills */
+          .floor-pills-scroll {
+            padding-bottom: 8px !important;
+            margin-bottom: 12px !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+          .floor-pills-scroll button {
+            padding: 8px 14px !important;
+            font-size: 12px !important;
+            border-radius: 12px !important;
+          }
+
+          /* Filter Toolbar & Search */
+          .rooms-filter-toolbar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            margin-bottom: 16px !important;
+          }
+          .rooms-search-box {
+            max-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+          }
+          .rooms-search-box input {
+            font-size: 16px !important; /* Prevents iOS Safari auto-zoom */
+            padding: 12px 14px 12px 42px !important;
+          }
+          .occupancy-filter-group {
+            width: 100% !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 6px !important;
+          }
+          .occupancy-filter-group button {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 8px 10px !important;
+            font-size: 11.5px !important;
+          }
+
+          /* 3D Rooms Matrix Grid (Flatten on touch/mobile for smooth UX) */
+          .rooms-matrix-grid {
+            perspective: none !important;
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+          }
+          .room-card-3d {
+            transform: none !important;
+            padding: 14px !important;
+            border-radius: 16px !important;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
+          }
+          .room-card-3d:hover {
+            transform: none !important;
+          }
+
+          /* Excel Roster View */
+          .excel-roster-header-card {
+            padding: 16px !important;
+            border-radius: 16px !important;
+            margin-bottom: 14px !important;
+          }
+          .excel-roster-header-card h2 {
+            font-size: 18px !important;
+          }
+          .excel-roster-header-card button {
+            width: 100% !important;
+            justify-content: center !important;
+            margin-top: 10px !important;
+          }
+          .excel-roster-metrics-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 8px !important;
+          }
+          .roster-toolbar-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+          }
+          .roster-search-box {
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+          .roster-search-box input {
+            font-size: 16px !important; /* Prevents iOS Safari auto-zoom */
+            padding: 12px 14px 12px 42px !important;
+          }
+          .roster-toolbar-pills {
+            width: 100% !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            flex-wrap: nowrap !important;
+            padding-bottom: 4px !important;
+          }
+          .roster-toolbar-pills button {
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+          }
+          .mobile-table-hint {
+            display: block !important;
+            padding: 8px 12px !important;
+            font-size: 11.5px !important;
+            color: #107c41 !important;
+            background: rgba(16, 124, 65, 0.09) !important;
+            border-bottom: 1px solid rgba(16, 124, 65, 0.2) !important;
+            font-weight: 700 !important;
+            text-align: center !important;
+          }
+          .excel-table-scroll-wrapper {
+            width: 100% !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+          .excel-spreadsheet-table {
+            min-width: 740px !important;
+          }
+          .excel-table-footer {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            text-align: center !important;
+            padding: 14px 16px !important;
+          }
+          .excel-table-footer > div:last-child {
+            justify-content: center !important;
+            flex-wrap: wrap !important;
+          }
+
+          /* Modal dialogs on mobile */
+          .room-modal-card,
+          .modal-compact-card {
+            border-radius: 20px !important;
+            max-height: 94vh !important;
+            width: 100% !important;
+            margin: 0 !important;
+          }
+          .room-modal-header {
+            padding: 14px 16px !important;
+          }
+          .room-modal-body {
+            padding: 14px 16px !important;
+            gap: 14px !important;
+          }
+          .room-occupancy-strip {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            padding: 12px 14px !important;
+          }
+          .room-occupancy-strip button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          .modal-student-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            padding: 12px 14px !important;
+          }
+          .modal-student-actions {
+            width: 100% !important;
+            justify-content: flex-end !important;
+            padding-top: 6px !important;
+            border-top: 1px dashed rgba(255,255,255,0.08) !important;
+          }
+          .modal-compact-card input,
+          .modal-compact-card select {
+            font-size: 16px !important;
+          }
+        }
+
+        /* ── Extra Small Phone Responsiveness (< 420px) ── */
+        @media (max-width: 420px) {
+          .hostel-switcher-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+          .occupancy-filter-group {
+            grid-template-columns: 1fr !important;
+          }
+          .excel-roster-metrics-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+          .rooms-stats-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
         }
       `}</style>
     </div>
