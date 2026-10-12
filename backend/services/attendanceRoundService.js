@@ -361,7 +361,7 @@ const getRoundRoomsSummary = async (roundId) => {
       const allResolved =
         reqResponses.length >= totalOccupants &&
         reqResponses.every((r) =>
-          ['approved', 'manual_present', 'manual_absent', 'on_leave', 'manual_on_leave'].includes(r.status)
+          ['approved', 'manual_present', 'manual_absent', 'absent', 'on_leave', 'manual_on_leave'].includes(r.status)
         );
 
       const isExpired = new Date(activeReq.expires_at).getTime() < now;
@@ -476,7 +476,7 @@ const getRoomDetails = async (roundId, roomNo) => {
       } else if (resp) {
         if (resp.status === 'approved') status = 'Approved';
         else if (resp.status === 'manual_present') status = 'Present (manual)';
-        else if (resp.status === 'manual_absent') status = 'Absent';
+        else if (resp.status === 'manual_absent' || resp.status === 'absent') status = 'Absent';
         else if (resp.status === 'manual_on_leave') status = 'On leave';
         else if (resp.status === 'flagged') status = 'Flagged';
         else if (resp.status === 'timeout') status = 'Timed out';

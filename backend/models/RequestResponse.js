@@ -30,6 +30,7 @@ const requestResponseSchema = new mongoose.Schema(
       enum: [
         'pending',
         'approved',
+        'absent',
         'timeout',
         'flagged',
         'on_leave',

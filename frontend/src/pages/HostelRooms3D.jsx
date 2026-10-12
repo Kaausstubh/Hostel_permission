@@ -19,13 +19,69 @@ import {
   MdPerson,
   MdPhone,
   MdEmail,
+  MdFileDownload,
+  MdTableChart,
+  MdContentCopy,
+  MdVisibility,
 } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
+import { exportHostelStudentsExcel } from '../utils/excelReportGenerator';
+import hostelStudentsData from '../data/hostelStudentsData.json';
+
+// Helper: Determine Floor from Room Number
+const getFloorForRoom = (roomNumber) => {
+  if (!roomNumber) return 'Ground Floor';
+  const r = String(roomNumber).trim().toUpperCase();
+  if (r.startsWith('B')) return 'Basement';
+  const num = parseInt(r.replace(/\D/g, ''), 10);
+  if (isNaN(num)) return 'Ground Floor';
+  if (num < 100) return 'Ground Floor';
+  if (num >= 100 && num < 200) return '1st Floor';
+  if (num >= 200 && num < 300) return '2nd Floor';
+  if (num >= 300 && num < 400) return '3rd Floor';
+  if (num >= 400 && num < 500) return '4th Floor';
+  return 'Ground Floor';
+};
+
+// Helper: Academic Year from MIS
+const getYearFromMis = (mis) => {
+  if (!mis) return '—';
+  const str = String(mis).trim();
+  if (str.startsWith('1125')) return '2nd Year';
+  if (str.startsWith('1124')) return '3rd Year';
+  if (str.startsWith('1123')) return '4th Year';
+  if (str.startsWith('1126')) return '1st Year';
+  return 'B.Tech';
+};
+
+// Helper: Capitalize Student Name
+const formatStudentName = (name) => {
+  if (!name) return '—';
+  return String(name)
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+};
+
+// Helper: Natural Room Ordering
+const sortRoomsNatural = (a, b) => {
+  const roomA = String(a.room || a.roomNumber || '');
+  const roomB = String(b.room || b.roomNumber || '');
+  const isBaseA = roomA.toUpperCase().startsWith('B');
+  const isBaseB = roomB.toUpperCase().startsWith('B');
+  if (isBaseA && !isBaseB) return -1;
+  if (!isBaseA && isBaseB) return 1;
+  const numA = parseInt(roomA.replace(/\D/g, ''), 10) || 0;
+  const numB = parseInt(roomB.replace(/\D/g, ''), 10) || 0;
+  if (numA !== numB) return numA - numB;
+  return roomA.localeCompare(roomB);
+};
 
 export const HOSTEL_OPTIONS_CONFIG = [
-  { id: 'BH1', name: 'Brahmaputra', code: 'BH-1', type: "Boys' Hostel 1", icon: '🏢', color: '#3b82f6', subtitle: 'Brahmaputra Residence' },
+  { id: 'BH1', name: 'Brahmaputra', code: 'BH-1', type: "Boys' Hostel 1", icon: '🏢', color: '#3b82f6', subtitle: 'Brahmaputra Residence (394 Students)' },
   { id: 'BH2', name: 'Krishna',     code: 'BH-2', type: "Boys' Hostel 2", icon: '🏢', color: '#6366f1', subtitle: 'Krishna Residence (394 Students)' },
   { id: 'GH1', name: 'Indrayani',   code: 'GH-1', type: "Girls' Hostel 1", icon: '🏢', color: '#ec4899', subtitle: 'Indrayani Residence' },
   { id: 'GH2', name: 'Sindhu',      code: 'GH-2', type: "Girls' Hostel 2", icon: '🏢', color: '#f43f5e', subtitle: 'Sindhu Residence' },
@@ -33,15 +89,22 @@ export const HOSTEL_OPTIONS_CONFIG = [
 
 export default function HostelRooms3D({ embedded = false }) {
   const { theme } = useTheme();
-  const [hostel, setHostel] = useState('BH2');
+  const [hostel, setHostel] = useState('BH1');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingPdf, setSyncingPdf] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
 
+  // View Mode: '3d-matrix' (Physical 3D Grid) or 'excel-roster' (Spreadsheet View)
+  const [viewMode, setViewMode] = useState('3d-matrix');
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [rosterYearFilter, setRosterYearFilter] = useState('All');
+  const [rosterPageSize, setRosterPageSize] = useState(100);
+  const [rosterPage, setRosterPage] = useState(1);
+
   const currentHostel = useMemo(
-    () => HOSTEL_OPTIONS_CONFIG.find((h) => h.id === hostel) || HOSTEL_OPTIONS_CONFIG[1],
+    () => HOSTEL_OPTIONS_CONFIG.find((h) => h.id === hostel) || HOSTEL_OPTIONS_CONFIG[0],
     [hostel]
   );
 
@@ -96,19 +159,21 @@ export default function HostelRooms3D({ embedded = false }) {
   useEffect(() => {
     setSelectedFloor('All');
     setSearchTerm('');
+    setRosterYearFilter('All');
+    setRosterPage(1);
     setActiveRoom(null);
     fetchRooms();
   }, [hostel]);
 
   // Sync / Re-load all 394 students from the uploaded PDF
   const handleSyncPdf = async () => {
-    if (!window.confirm('Sync and upload all 394 BH-2 students from the PDF into their respective rooms?')) {
+    if (!window.confirm(`Sync and upload all 394 students from the PDF into ${currentHostel.name} (${currentHostel.code})?`)) {
       return;
     }
     setSyncingPdf(true);
-    const toastId = toast.loading('Syncing all BH-2 students and room allocations from PDF...');
+    const toastId = toast.loading(`Syncing all students and room allocations from PDF into ${currentHostel.code}...`);
     try {
-      const res = await api.post('/rooms/sync-pdf');
+      const res = await api.post('/rooms/sync-pdf', { hostel });
       if (res.data?.success) {
         toast.success(res.data.message || 'All students from PDF synced successfully!', { id: toastId });
         if (res.data?.summary) {
@@ -273,7 +338,7 @@ export default function HostelRooms3D({ embedded = false }) {
       floorCounts[r.floor] = (floorCounts[r.floor] || 0) + 1;
     });
 
-    if (hostel === 'BH2') {
+    if (['BH1', 'BH2'].includes(hostel)) {
       return [
         { label: `All Floors (${totalRooms})`, value: 'All', icon: '🏢' },
         { label: `Basement (B01-B13) (${floorCounts['Basement'] || 0})`, value: 'Basement', icon: '🔻' },
@@ -297,6 +362,215 @@ export default function HostelRooms3D({ embedded = false }) {
       })),
     ];
   }, [hostel, data?.rooms]);
+
+  // ── All Residing Students in this Hostel (Live DB + Official PDF list fallback) ──
+  const allHostelStudents = useMemo(() => {
+    const list = [];
+    const seenMis = new Set();
+    const bedCountPerRoom = {};
+
+    // 1. Live DB Occupants
+    if (data?.rooms && Array.isArray(data.rooms)) {
+      data.rooms.forEach((room) => {
+        if (Array.isArray(room.beds)) {
+          room.beds.forEach((b, idx) => {
+            if (b?.student && (b.student.name || b.student.rollNo)) {
+              const mis = b.student.rollNo || b.student.mis || '';
+              const key = mis ? String(mis).toLowerCase() : `${room.roomNumber}-${idx}`;
+              if (!seenMis.has(key)) {
+                seenMis.add(key);
+                bedCountPerRoom[room.roomNumber] = (bedCountPerRoom[room.roomNumber] || 0) + 1;
+                list.push({
+                  name: b.student.name,
+                  mis: mis || '—',
+                  room: room.roomNumber,
+                  floor: room.floor || getFloorForRoom(room.roomNumber),
+                  bedIndex: b.bedNumber || (idx + 1),
+                  year: getYearFromMis(mis),
+                  phone: b.student.phone || '—',
+                  email: b.student.email || (mis ? `${mis}@cse.iiitp.ac.in` : '—'),
+                  _id: b.student._id,
+                  hostel: currentHostel.code,
+                  source: 'db',
+                });
+              }
+            }
+          });
+        }
+        if (Array.isArray(room.students)) {
+          room.students.forEach((st, idx) => {
+            const mis = st.rollNo || st.mis || '';
+            const key = mis ? String(mis).toLowerCase() : `${room.roomNumber}-st-${idx}`;
+            if (!seenMis.has(key)) {
+              seenMis.add(key);
+              bedCountPerRoom[room.roomNumber] = (bedCountPerRoom[room.roomNumber] || 0) + 1;
+              list.push({
+                name: st.name,
+                mis: mis || '—',
+                room: room.roomNumber,
+                floor: room.floor || getFloorForRoom(room.roomNumber),
+                bedIndex: idx + 1,
+                year: getYearFromMis(mis),
+                phone: st.phone || '—',
+                email: st.email || (mis ? `${mis}@cse.iiitp.ac.in` : '—'),
+                _id: st._id,
+                hostel: currentHostel.code,
+                source: 'db',
+              });
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Official PDF student list fallback for BH1 / BH2 (if DB not fully synced)
+    if (['BH1', 'BH2'].includes(hostel)) {
+      hostelStudentsData.forEach((pdfSt) => {
+        const misKey = pdfSt.mis ? String(pdfSt.mis).toLowerCase() : null;
+        if (!misKey || !seenMis.has(misKey)) {
+          if (misKey) seenMis.add(misKey);
+          bedCountPerRoom[pdfSt.room] = (bedCountPerRoom[pdfSt.room] || 0) + 1;
+          list.push({
+            name: pdfSt.name,
+            mis: pdfSt.mis,
+            room: pdfSt.room,
+            floor: getFloorForRoom(pdfSt.room),
+            bedIndex: bedCountPerRoom[pdfSt.room] <= 4 ? bedCountPerRoom[pdfSt.room] : 1,
+            year: pdfSt.year || getYearFromMis(pdfSt.mis),
+            phone: '—',
+            email: `${pdfSt.mis}@cse.iiitp.ac.in`,
+            hostel: currentHostel.code,
+            source: 'pdf-official',
+          });
+        }
+      });
+    }
+
+    // Sort by natural room order, then bed index
+    return list.sort((a, b) => {
+      const roomDiff = sortRoomsNatural(a, b);
+      if (roomDiff !== 0) return roomDiff;
+      return (a.bedIndex || 1) - (b.bedIndex || 1);
+    });
+  }, [data?.rooms, hostel, currentHostel]);
+
+  // Filtered Roster for Excel View
+  const filteredRosterStudents = useMemo(() => {
+    let list = allHostelStudents;
+
+    if (selectedFloor !== 'All') {
+      list = list.filter((s) => s.floor === selectedFloor);
+    }
+
+    if (rosterYearFilter !== 'All') {
+      list = list.filter((s) => s.year === rosterYearFilter);
+    }
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      list = list.filter(
+        (s) =>
+          (s.name && s.name.toLowerCase().includes(q)) ||
+          (s.mis && s.mis.toLowerCase().includes(q)) ||
+          (s.room && s.room.toLowerCase().includes(q)) ||
+          (s.email && s.email.toLowerCase().includes(q))
+      );
+    }
+
+    return list;
+  }, [allHostelStudents, selectedFloor, rosterYearFilter, searchTerm]);
+
+  // Paginated Roster Students
+  const paginatedRosterStudents = useMemo(() => {
+    if (rosterPageSize === 'All' || rosterPageSize >= filteredRosterStudents.length) {
+      return filteredRosterStudents;
+    }
+    const size = Number(rosterPageSize) || 100;
+    const start = (rosterPage - 1) * size;
+    return filteredRosterStudents.slice(start, start + size);
+  }, [filteredRosterStudents, rosterPage, rosterPageSize]);
+
+  const totalRosterPages = useMemo(() => {
+    if (rosterPageSize === 'All') return 1;
+    const size = Number(rosterPageSize) || 100;
+    return Math.ceil(filteredRosterStudents.length / size) || 1;
+  }, [filteredRosterStudents.length, rosterPageSize]);
+
+  // Roster metrics
+  const uniqueRoomsCount = useMemo(() => {
+    return new Set(allHostelStudents.map((s) => s.room)).size;
+  }, [allHostelStudents]);
+
+  const secondYearCount = useMemo(() => {
+    return allHostelStudents.filter((s) => s.year === '2nd Year').length;
+  }, [allHostelStudents]);
+
+  const thirdYearCount = useMemo(() => {
+    return allHostelStudents.filter((s) => s.year === '3rd Year').length;
+  }, [allHostelStudents]);
+
+  // Download official Excel sheet (.xlsx)
+  const handleDownloadExcel = async () => {
+    try {
+      setExportingExcel(true);
+      const toastId = toast.loading(`Preparing official Excel sheet for ${currentHostel.code} (${currentHostel.name}) students...`);
+
+      await exportHostelStudentsExcel({
+        hostelCode: currentHostel.code,
+        hostelName: currentHostel.name,
+        students: allHostelStudents,
+        customFileName: `${currentHostel.code}_${currentHostel.name.replace(/\s+/g, '_')}_Hostel_Students_Roster.xlsx`,
+      });
+
+      toast.success(`Excel sheet for ${currentHostel.code} ${currentHostel.name} downloaded!`, { id: toastId });
+    } catch (err) {
+      toast.error(err.message || 'Failed to download Excel sheet');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  // Inspect student room in 3D modal
+  const handleInspectStudentRoom = (student) => {
+    const foundRoom = data?.rooms?.find((r) => r.roomNumber === student.room);
+    if (foundRoom) {
+      setActiveRoom(foundRoom);
+    } else {
+      const roomOccupants = allHostelStudents.filter((s) => s.room === student.room);
+      setActiveRoom({
+        roomNumber: student.room,
+        floor: student.floor,
+        capacity: 4,
+        occupancy: roomOccupants.length,
+        vacancies: Math.max(0, 4 - roomOccupants.length),
+        hostel,
+        students: roomOccupants.map((s, idx) => ({
+          name: s.name,
+          rollNo: s.mis,
+          email: s.email,
+          phone: s.phone,
+          bedNumber: s.bedIndex || (idx + 1),
+        })),
+        beds: roomOccupants.map((s, idx) => ({
+          bedNumber: s.bedIndex || (idx + 1),
+          isOccupied: true,
+          student: {
+            name: s.name,
+            rollNo: s.mis,
+            email: s.email,
+            phone: s.phone,
+          },
+        })),
+      });
+    }
+  };
+
+  // Copy MIS to clipboard
+  const handleCopyMis = (mis) => {
+    if (!mis || mis === '—') return;
+    navigator.clipboard.writeText(String(mis));
+    toast.success(`Copied MIS ${mis} to clipboard!`);
+  };
 
   return (
     <div className={`hostel-rooms-3d-page ${embedded ? 'embedded' : ''}`}>
@@ -483,7 +757,33 @@ export default function HostelRooms3D({ embedded = false }) {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {hostel === 'BH2' && (
+              {/* Excel Download Button */}
+              <button
+                type="button"
+                onClick={handleDownloadExcel}
+                disabled={exportingExcel}
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #107c41 0%, #0c5e31 100%)',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: exportingExcel ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 4px 14px rgba(16, 124, 65, 0.35)',
+                  transition: 'all 0.18s ease',
+                }}
+                title={`Download official .xlsx Excel sheet of ${currentHostel.code} (${currentHostel.name}) students`}
+              >
+                <MdFileDownload size={18} />
+                <span>{exportingExcel ? 'Exporting...' : `Download Excel Sheet (.xlsx)`}</span>
+              </button>
+
+              {['BH1', 'BH2'].includes(hostel) && (
                 <button
                   type="button"
                   onClick={handleSyncPdf}
@@ -502,10 +802,10 @@ export default function HostelRooms3D({ embedded = false }) {
                     gap: 8,
                     boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                   }}
-                  title="Sync / Upload all students from the official PDF list into BH-2"
+                  title={`Sync / Upload all 394 students from the official PDF list into ${currentHostel.code}`}
                 >
                   <span>📥</span>
-                  <span>{syncingPdf ? 'Syncing PDF...' : 'Sync All PDF Students (394)'}</span>
+                  <span>{syncingPdf ? 'Syncing PDF...' : `Sync All PDF Students (394)`}</span>
                 </button>
               )}
 
@@ -529,27 +829,6 @@ export default function HostelRooms3D({ embedded = false }) {
               >
                 <MdRefresh size={18} style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
                 <span>Refresh</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setView3D(!view3D)}
-                style={{
-                  padding: '9px 14px',
-                  borderRadius: 12,
-                  border: view3D ? '1.5px solid #6366f1' : '1px solid var(--border-color)',
-                  background: view3D ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-                  color: view3D ? 'var(--primary-light)' : 'var(--text-muted)',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <MdViewInAr size={18} />
-                <span>{view3D ? '3D Isometric View' : 'Flat Grid View'}</span>
               </button>
             </div>
           </div>
@@ -598,7 +877,106 @@ export default function HostelRooms3D({ embedded = false }) {
           </div>
         </div>
 
-        {/* ── Floor Navigation Elevation Pills ── */}
+        {/* ── View Switcher: 3D Rooms Grid vs Excel Students Roster ── */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 18,
+          }}
+        >
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.05)',
+              padding: '4px',
+              borderRadius: 14,
+              border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode('3d-matrix')}
+              style={{
+                padding: '8px 18px',
+                borderRadius: 10,
+                border: 'none',
+                background: viewMode === '3d-matrix'
+                  ? (theme === 'light' ? '#ffffff' : 'rgba(99, 102, 241, 0.35)')
+                  : 'transparent',
+                color: viewMode === '3d-matrix'
+                  ? (theme === 'light' ? '#1e293b' : '#ffffff')
+                  : 'var(--text-muted)',
+                fontWeight: viewMode === '3d-matrix' ? 800 : 600,
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: viewMode === '3d-matrix' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.18s ease',
+              }}
+            >
+              <MdViewInAr size={18} style={{ color: viewMode === '3d-matrix' ? '#6366f1' : 'inherit' }} />
+              <span>3D Rooms Grid</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode('excel-roster')}
+              style={{
+                padding: '8px 18px',
+                borderRadius: 10,
+                border: 'none',
+                background: viewMode === 'excel-roster'
+                  ? (theme === 'light' ? '#ffffff' : 'rgba(16, 124, 65, 0.35)')
+                  : 'transparent',
+                color: viewMode === 'excel-roster'
+                  ? (theme === 'light' ? '#107c41' : '#34d399')
+                  : 'var(--text-muted)',
+                fontWeight: viewMode === 'excel-roster' ? 800 : 600,
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: viewMode === 'excel-roster' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.18s ease',
+              }}
+            >
+              <MdTableChart size={18} style={{ color: '#107c41' }} />
+              <span>Students Roster (Excel View)</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 99,
+                  background: viewMode === 'excel-roster'
+                    ? 'rgba(16, 124, 65, 0.15)'
+                    : (theme === 'light' ? '#e2e8f0' : 'rgba(255,255,255,0.1)'),
+                  fontWeight: 800,
+                }}
+              >
+                {allHostelStudents.length}
+              </span>
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+              Active View: <strong>{viewMode === '3d-matrix' ? 'Physical 3D Room Grid' : `${currentHostel.code} Excel Students Roster`}</strong>
+            </span>
+          </div>
+        </div>
+
+        {viewMode === '3d-matrix' && (
+          <>
+            {/* ── Floor Navigation Elevation Pills ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 16 }}>
           {floorOptions.map((fl) => (
             <button
@@ -735,12 +1113,12 @@ export default function HostelRooms3D({ embedded = false }) {
           </div>
         ) : (
           <div
-            className={`rooms-matrix-grid ${view3D ? 'view-3d-active' : ''}`}
+            className="rooms-matrix-grid view-3d-active"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
-              gap: 20,
-              perspective: view3D ? '1200px' : 'none',
+              gap: 22,
+              perspective: '1300px',
             }}
           >
             {filteredRooms.map((room) => {
@@ -762,38 +1140,37 @@ export default function HostelRooms3D({ embedded = false }) {
                   style={{
                     background: theme === 'light' ? '#ffffff' : 'rgba(30, 41, 59, 0.75)',
                     border: isFull
-                      ? (theme === 'light' ? '1.5px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.35)')
+                      ? (theme === 'light' ? '1.5px solid #fecaca' : '1px solid rgba(239, 68, 68, 0.4)')
                       : hasVacancy
-                      ? (theme === 'light' ? '1.5px solid #bbf7d0' : '1.5px solid rgba(16, 185, 129, 0.4)')
+                      ? (theme === 'light' ? '1.5px solid #bbf7d0' : '1.5px solid rgba(16, 185, 129, 0.45)')
                       : '1px solid var(--border-color)',
+                    borderBottom: isFull
+                      ? '5px solid #ef4444'
+                      : hasVacancy
+                      ? '5px solid #10b981'
+                      : '5px solid #6366f1',
                     borderRadius: 20,
                     padding: 18,
                     cursor: 'pointer',
                     position: 'relative',
-                    transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                    boxShadow: view3D
-                      ? (theme === 'light'
-                        ? '0 12px 24px -6px rgba(0,0,0,0.08), 0 4px 8px -2px rgba(0,0,0,0.04)'
-                        : '0 14px 28px -6px rgba(0,0,0,0.5), 0 0 16px rgba(99, 102, 241, 0.08)')
-                      : 'none',
-                    transform: view3D ? 'translateZ(0) rotateX(1.5deg)' : 'none',
+                    transition: 'all 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
+                    boxShadow: theme === 'light'
+                      ? '0 6px 0 rgba(0,0,0,0.03), 0 16px 28px -6px rgba(0,0,0,0.09), 0 4px 8px -2px rgba(0,0,0,0.04)'
+                      : '0 8px 0 rgba(0,0,0,0.4), 0 18px 32px -6px rgba(0,0,0,0.55), 0 0 20px rgba(99, 102, 241, 0.1)',
+                    transform: 'rotateX(3deg) translateZ(0)',
                     overflow: 'hidden',
                   }}
                   onMouseEnter={(e) => {
-                    if (view3D) {
-                      e.currentTarget.style.transform = 'translateY(-6px) scale(1.015) rotateX(4deg)';
-                      e.currentTarget.style.boxShadow = isFull
-                        ? '0 20px 35px -8px rgba(239, 68, 68, 0.25)'
-                        : '0 20px 35px -8px rgba(16, 185, 129, 0.25)';
-                    }
+                    e.currentTarget.style.transform = 'translateY(-8px) scale(1.02) rotateX(6deg)';
+                    e.currentTarget.style.boxShadow = isFull
+                      ? '0 12px 0 rgba(239, 68, 68, 0.2), 0 24px 38px -8px rgba(239, 68, 68, 0.32)'
+                      : '0 12px 0 rgba(16, 185, 129, 0.2), 0 24px 38px -8px rgba(16, 185, 129, 0.32)';
                   }}
                   onMouseLeave={(e) => {
-                    if (view3D) {
-                      e.currentTarget.style.transform = 'translateZ(0) rotateX(1.5deg)';
-                      e.currentTarget.style.boxShadow = theme === 'light'
-                        ? '0 12px 24px -6px rgba(0,0,0,0.08)'
-                        : '0 14px 28px -6px rgba(0,0,0,0.5)';
-                    }
+                    e.currentTarget.style.transform = 'rotateX(3deg) translateZ(0)';
+                    e.currentTarget.style.boxShadow = theme === 'light'
+                      ? '0 6px 0 rgba(0,0,0,0.03), 0 16px 28px -6px rgba(0,0,0,0.09)'
+                      : '0 8px 0 rgba(0,0,0,0.4), 0 18px 32px -6px rgba(0,0,0,0.55), 0 0 20px rgba(99, 102, 241, 0.1)';
                   }}
                 >
                   {/* Top Header of Room Card */}
@@ -1019,7 +1396,621 @@ export default function HostelRooms3D({ embedded = false }) {
             })}
           </div>
         )}
+      </>
+    )}
+
+    {/* ── EXCEL STUDENTS ROSTER VIEW ── */}
+    {viewMode === 'excel-roster' && (
+      <div className="excel-roster-view-container">
+        {/* 1. Header Card with Title requested by user */}
+        <div
+          style={{
+            background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.85)',
+            border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: 20,
+            padding: '22px 26px',
+            marginBottom: 20,
+            boxShadow: '0 8px 30px rgba(0,0,0,0.04)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 16,
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span
+                  style={{
+                    background: 'linear-gradient(135deg, #107c41, #0c5e31)',
+                    color: '#fff',
+                    padding: '4px 10px',
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <MdTableChart size={14} /> EXCEL SPREADSHEET VIEW
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Official Allocation Register • {currentHostel.code}
+                </span>
+              </div>
+
+              {/* Title requested by user: e.g. "BH-2 Krishna Hostel Students" */}
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 24,
+                  fontWeight: 900,
+                  color: 'var(--text-primary)',
+                  letterSpacing: '-0.02em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span>{currentHostel.code} {currentHostel.name} Hostel Students</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    padding: '3px 12px',
+                    borderRadius: 99,
+                    background: 'rgba(16, 124, 65, 0.12)',
+                    color: '#107c41',
+                    border: '1px solid rgba(16, 124, 65, 0.3)',
+                  }}
+                >
+                  {filteredRosterStudents.length} Students Listed
+                </span>
+              </h2>
+
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                Complete room occupancy directory with student name, MIS number, assigned room, bed number, and academic year.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleDownloadExcel}
+                disabled={exportingExcel}
+                style={{
+                  padding: '11px 22px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #107c41 0%, #0c5e31 100%)',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  cursor: exportingExcel ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 6px 20px rgba(16, 124, 65, 0.35)',
+                  transition: 'all 0.18s ease',
+                }}
+                title={`Download official .xlsx Excel spreadsheet of ${currentHostel.code} (${currentHostel.name}) students`}
+              >
+                <MdFileDownload size={20} />
+                <span>{exportingExcel ? 'Generating Sheet...' : `Download Excel Sheet (.xlsx)`}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Roster Metric Badges */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: 12,
+              marginTop: 18,
+              paddingTop: 16,
+              borderTop: theme === 'light' ? '1px solid #f1f5f9' : '1px solid rgba(255, 255, 255, 0.08)',
+            }}
+          >
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(16, 124, 65, 0.08)', border: '1px solid rgba(16, 124, 65, 0.2)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#107c41', textTransform: 'uppercase' }}>Total Students</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginTop: 2 }}>{allHostelStudents.length}</div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#818cf8', textTransform: 'uppercase' }}>Filtered Results</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginTop: 2 }}>{filteredRosterStudents.length}</div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#60a5fa', textTransform: 'uppercase' }}>Allocated Rooms</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginTop: 2 }}>{uniqueRoomsCount}</div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#fbbf24', textTransform: 'uppercase' }}>2nd Year (1125)</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginTop: 2 }}>{secondYearCount}</div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#c084fc', textTransform: 'uppercase' }}>3rd Year (1124)</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', marginTop: 2 }}>{thirdYearCount}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Roster Filter & Search Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          {/* Search Box */}
+          <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 440 }}>
+            <MdSearch
+              size={20}
+              style={{
+                position: 'absolute',
+                left: 14,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Search Student Name, MIS, or Room (e.g. B13, 203)..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setRosterPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '11px 14px 11px 42px',
+                borderRadius: 14,
+                border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(255, 255, 255, 0.15)',
+                background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.8)',
+                color: 'var(--text-primary)',
+                fontSize: 13,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Floor Filter Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {floorOptions.map((fl) => (
+              <button
+                key={fl.value}
+                type="button"
+                onClick={() => {
+                  setSelectedFloor(fl.value);
+                  setRosterPage(1);
+                }}
+                style={{
+                  padding: '7px 12px',
+                  borderRadius: 10,
+                  border: selectedFloor === fl.value ? '1.5px solid #107c41' : '1px solid var(--border-color)',
+                  background: selectedFloor === fl.value ? 'rgba(16, 124, 65, 0.15)' : 'transparent',
+                  color: selectedFloor === fl.value ? '#107c41' : 'var(--text-secondary)',
+                  fontWeight: selectedFloor === fl.value ? 800 : 600,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <span>{fl.icon}</span>
+                <span>{fl.value === 'All' ? 'All Floors' : fl.value}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Year Filter Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {['All', '2nd Year', '3rd Year'].map((yr) => (
+              <button
+                key={yr}
+                type="button"
+                onClick={() => {
+                  setRosterYearFilter(yr);
+                  setRosterPage(1);
+                }}
+                style={{
+                  padding: '7px 12px',
+                  borderRadius: 10,
+                  border: rosterYearFilter === yr ? '1.5px solid #6366f1' : '1px solid var(--border-color)',
+                  background: rosterYearFilter === yr ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                  color: rosterYearFilter === yr ? 'var(--primary-light)' : 'var(--text-secondary)',
+                  fontWeight: rosterYearFilter === yr ? 800 : 600,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                {yr === 'All' ? 'All Years' : yr}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 3. Excel Spreadsheet Data Table */}
+        <div
+          style={{
+            background: theme === 'light' ? '#ffffff' : 'rgba(15, 23, 42, 0.9)',
+            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: 18,
+            overflow: 'hidden',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.06)',
+          }}
+        >
+          {/* Spreadsheet Top Green Accent Bar */}
+          <div
+            style={{
+              background: 'linear-gradient(90deg, #107c41, #1e7145, #10b981)',
+              height: 4,
+              width: '100%',
+            }}
+          />
+
+          <div style={{ overflowX: 'auto', maxHeight: '680px' }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                textAlign: 'left',
+                fontSize: 13,
+              }}
+            >
+              <thead
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 10,
+                  background: theme === 'light' ? '#f1f5f9' : '#1e293b',
+                  borderBottom: theme === 'light' ? '2px solid #cbd5e1' : '2px solid rgba(255, 255, 255, 0.12)',
+                }}
+              >
+                <tr>
+                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--text-primary)', width: 50, textAlign: 'center' }}>#</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Student Name</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>MIS Number</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Hostel</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Room No</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Bed No</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Floor</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Academic Year</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)' }}>Email Address</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 800, color: 'var(--text-primary)', textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRosterStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>No students match your filter criteria</div>
+                      <div style={{ fontSize: 13, marginTop: 4 }}>Try clearing the search or switching the floor/year filter.</div>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedRosterStudents.map((st, idx) => {
+                    const rowNum = (rosterPage - 1) * (rosterPageSize === 'All' ? 0 : Number(rosterPageSize)) + idx + 1;
+                    const isEven = idx % 2 === 0;
+                    return (
+                      <tr
+                        key={`${st.mis}-${st.room}-${idx}`}
+                        style={{
+                          background: theme === 'light'
+                            ? (isEven ? '#ffffff' : '#f8fafc')
+                            : (isEven ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.25)'),
+                          borderBottom: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.05)',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = theme === 'light' ? 'rgba(16, 124, 65, 0.06)' : 'rgba(16, 124, 65, 0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = theme === 'light'
+                            ? (isEven ? '#ffffff' : '#f8fafc')
+                            : (isEven ? 'rgba(30, 41, 59, 0.4)' : 'rgba(15, 23, 42, 0.25)');
+                        }}
+                      >
+                        {/* # */}
+                        <td style={{ padding: '11px 14px', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>
+                          {rowNum}
+                        </td>
+
+                        {/* Student Name */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 10,
+                                background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 800,
+                                fontSize: 13,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {st.name ? st.name.charAt(0).toUpperCase() : '?'}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                                {formatStudentName(st.name)}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* MIS Number */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                fontWeight: 700,
+                                fontSize: 12.5,
+                                color: '#6366f1',
+                                background: 'rgba(99, 102, 241, 0.1)',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                              }}
+                            >
+                              {st.mis || '—'}
+                            </span>
+                            {st.mis && st.mis !== '—' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMis(st.mis)}
+                                title="Copy MIS"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: 'var(--text-muted)',
+                                  padding: 2,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <MdContentCopy size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Hostel */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: currentHostel.color,
+                              background: `${currentHostel.color}15`,
+                              padding: '3px 8px',
+                              borderRadius: 6,
+                            }}
+                          >
+                            {currentHostel.code} ({currentHostel.name})
+                          </span>
+                        </td>
+
+                        {/* Room Number */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectStudentRoom(st)}
+                            title={`Inspect Room ${st.room} 3D View`}
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.12)',
+                              color: '#059669',
+                              border: '1px solid rgba(16, 185, 129, 0.35)',
+                              padding: '4px 10px',
+                              borderRadius: 8,
+                              fontWeight: 800,
+                              fontSize: 12.5,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              transition: 'transform 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                          >
+                            <span>🚪</span>
+                            <span>Room {st.room}</span>
+                          </button>
+                        </td>
+
+                        {/* Bed Number */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: 6,
+                              background: 'rgba(59, 130, 246, 0.1)',
+                              color: '#3b82f6',
+                              fontWeight: 700,
+                              fontSize: 12,
+                            }}
+                          >
+                            Bed {st.bedIndex || 1}
+                          </span>
+                        </td>
+
+                        {/* Floor */}
+                        <td style={{ padding: '11px 16px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          {st.floor}
+                        </td>
+
+                        {/* Academic Year */}
+                        <td style={{ padding: '11px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 9px',
+                              borderRadius: 6,
+                              background: st.year === '2nd Year'
+                                ? 'rgba(245, 158, 11, 0.12)'
+                                : 'rgba(168, 85, 247, 0.12)',
+                              color: st.year === '2nd Year' ? '#d97706' : '#9333ea',
+                              fontWeight: 700,
+                              fontSize: 12,
+                            }}
+                          >
+                            {st.year}
+                          </span>
+                        </td>
+
+                        {/* Email */}
+                        <td style={{ padding: '11px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
+                          {st.email || '—'}
+                        </td>
+
+                        {/* Actions */}
+                        <td style={{ padding: '11px 16px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectStudentRoom(st)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: 8,
+                              border: '1px solid var(--border-color)',
+                              background: theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.06)',
+                              color: 'var(--primary-light)',
+                              fontWeight: 700,
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <MdVisibility size={14} />
+                            <span>Inspect Room</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer with Pagination Controls */}
+          <div
+            style={{
+              padding: '12px 20px',
+              borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+              background: theme === 'light' ? '#f8fafc' : 'rgba(15, 23, 42, 0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+              Showing <strong>{paginatedRosterStudents.length}</strong> of <strong>{filteredRosterStudents.length}</strong> students (Total: {allHostelStudents.length})
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* Page Size Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Rows per page:</span>
+                <select
+                  value={rosterPageSize}
+                  onChange={(e) => {
+                    setRosterPageSize(e.target.value === 'All' ? 'All' : Number(e.target.value));
+                    setRosterPage(1);
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 8,
+                    border: '1px solid var(--border-color)',
+                    background: theme === 'light' ? '#ffffff' : '#1e293b',
+                    color: 'var(--text-primary)',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value="All">All ({filteredRosterStudents.length})</option>
+                </select>
+              </div>
+
+              {/* Pagination Buttons */}
+              {rosterPageSize !== 'All' && totalRosterPages > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setRosterPage((p) => Math.max(1, p - 1))}
+                    disabled={rosterPage === 1}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      background: 'transparent',
+                      color: 'var(--text-primary)',
+                      cursor: rosterPage === 1 ? 'not-allowed' : 'pointer',
+                      opacity: rosterPage === 1 ? 0.4 : 1,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Previous
+                  </button>
+
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', padding: '0 4px' }}>
+                    Page {rosterPage} of {totalRosterPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setRosterPage((p) => Math.min(totalRosterPages, p + 1))}
+                    disabled={rosterPage === totalRosterPages}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      background: 'transparent',
+                      color: 'var(--text-primary)',
+                      cursor: rosterPage === totalRosterPages ? 'not-allowed' : 'pointer',
+                      opacity: rosterPage === totalRosterPages ? 0.4 : 1,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+    )}
+  </div>
 
       {/* ── 3D ROOM INSPECTOR & MANAGEMENT MODAL ── */}
       {activeRoom && (

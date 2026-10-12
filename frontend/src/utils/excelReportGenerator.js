@@ -565,3 +565,68 @@ export const downloadVisitorRecordsExcel = async ({
 
   XLSX.writeFile(wb, fileName);
 };
+
+/**
+ * Export official Excel spreadsheet of students residing in a hostel
+ * Title: e.g. "BH2 Krishna Hostel Students"
+ * Columns: Sr. No | Student Name | MIS / Roll Number | Hostel | Room Number | Bed Number | Floor | Academic Year | Contact Phone | Email
+ */
+export const exportHostelStudentsExcel = async ({
+  hostelCode = 'BH2',
+  hostelName = 'Krishna',
+  students = [],
+  customFileName = null,
+}) => {
+  if (!students || students.length === 0) {
+    throw new Error('No students found to export.');
+  }
+
+  const XLSX = await getXLSX();
+  const wb = XLSX.utils.book_new();
+
+  const formattedRows = students.map((s, index) => {
+    const mis = s.mis || s.rollNo || '—';
+    let year = s.year;
+    if (!year) {
+      if (typeof mis === 'string' && mis.startsWith('1125')) year = '2nd Year';
+      else if (typeof mis === 'string' && mis.startsWith('1124')) year = '3rd Year';
+      else if (typeof mis === 'string' && mis.startsWith('1123')) year = '4th Year';
+      else year = '—';
+    }
+
+    return {
+      'Sr. No.': index + 1,
+      'Student Name': sanitizeFormula(s.name || 'Unknown'),
+      'MIS / Roll Number': sanitizeFormula(mis),
+      'Hostel': sanitizeFormula(`${hostelCode} (${hostelName})`),
+      'Room Number': sanitizeFormula(s.room || s.roomNumber || s.roomNo || 'Unassigned'),
+      'Bed Number': sanitizeFormula(s.bedIndex ? `Bed ${s.bedIndex}` : s.bedNumber || '—'),
+      'Floor': sanitizeFormula(s.floor || '—'),
+      'Academic Year': sanitizeFormula(year),
+      'Contact Phone': sanitizeFormula(s.phone || '—'),
+      'Email': sanitizeFormula(s.email || (mis !== '—' ? `${mis}@cse.iiitp.ac.in` : '—')),
+    };
+  });
+
+  const wsRoster = XLSX.utils.json_to_sheet(formattedRows);
+  wsRoster['!cols'] = autoFitColumns(formattedRows, 14);
+  const sheetTitle = `${hostelCode} Students Roster`.slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, wsRoster, sheetTitle);
+
+  // Summary Sheet
+  const summaryRows = [
+    { 'Property': 'INSTITUTION', 'Details': 'Indian Institute of Information Technology, Pune (IIITP)' },
+    { 'Property': 'HOSTEL CODE', 'Details': hostelCode },
+    { 'Property': 'HOSTEL NAME', 'Details': `${hostelName} Residence` },
+    { 'Property': 'REPORT TITLE', 'Details': `${hostelCode} ${hostelName} Hostel Students List` },
+    { 'Property': 'TOTAL STUDENTS LISTED', 'Details': students.length },
+    { 'Property': 'EXPORT GENERATED AT', 'Details': new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) },
+  ];
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  wsSummary['!cols'] = [{ wch: 28 }, { wch: 55 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Hostel Summary');
+
+  const defaultFileName = `${hostelCode}_${hostelName.replace(/\s+/g, '_')}_Hostel_Students_Roster.xlsx`;
+  XLSX.writeFile(wb, customFileName || defaultFileName);
+};
+

@@ -1,46 +1,37 @@
 /**
  * StudentAttendancePrompt Component
- * In-app notification banner and biometric approval modal with WebAuthn & GPS geofencing.
- * Provides clear user feedback: Success, Outside hostel area, Weak GPS signal, Request expired.
+ * Automatic geofence-based attendance detection.
+ * When hostel staff requests attendance, the student opens their device:
+ * - If inside hostel geofence: automatically detects and marks attendance PRESENT.
+ * - Else (outside hostel boundary or no location): marks ABSENT.
+ * No biometric or fingerprint hardware authentication required.
  */
 
 import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
-  MdFingerprint,
   MdLocationOn,
   MdGpsFixed,
   MdCheckCircle,
+  MdCancel,
   MdWarning,
   MdClose,
   MdRefresh,
-  MdShield,
-  MdSecurity,
   MdMeetingRoom,
+  MdMyLocation,
 } from 'react-icons/md';
-import {
-  registerPlatformAuthenticator,
-  verifyBiometricAssertion,
-} from '../utils/webauthn';
 
 export default function StudentAttendancePrompt({ user, socket, onVerified = () => {} }) {
   const [pendingRequest, setPendingRequest] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Device status
-  const [deviceStatus, setDeviceStatus] = useState(null);
-  const [deviceLoading, setDeviceLoading] = useState(false);
-
-  // Enrollment consent state
-  const [consentAgreed, setConsentAgreed] = useState(false);
-  const [enrollingDevice, setEnrollingDevice] = useState(false);
-
   // Verification state
   const [verifying, setVerifying] = useState(false);
   const [gpsData, setGpsData] = useState(null);
   const [gpsError, setGpsError] = useState(null);
-  const [verificationResult, setVerificationResult] = useState(null); // { type: 'success'|'error', code, message }
+  const [verificationResult, setVerificationResult] = useState(null); // { type: 'present'|'absent'|'error', message, distanceMeters, accuracy }
+  const hasAutoTriggeredRef = useRef(false);
 
   const remainingSeconds = pendingRequest?.remainingSeconds ?? 0;
 
@@ -59,20 +50,6 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
     }
   };
 
-  const fetchDeviceStatus = async () => {
-    try {
-      setDeviceLoading(true);
-      const res = await api.get('/attendance/devices/status');
-      if (res.data?.success) {
-        setDeviceStatus(res.data);
-      }
-    } catch {
-      // silent fallback
-    } finally {
-      setDeviceLoading(false);
-    }
-  };
-
   useEffect(() => {
     checkPending();
     const timer = setInterval(checkPending, 3500);
@@ -82,149 +59,155 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
   // Listen to Socket.IO for instant zero-latency push
   useEffect(() => {
     if (!socket) return;
-    const handleReq = (data) => {
-      toast('Staff requested attendance for your room!', {
+    const handleReq = () => {
+      toast('Hostel staff requested attendance for your room!', {
         icon: '🏛️',
         duration: 6000,
       });
+      hasAutoTriggeredRef.current = false;
       checkPending();
     };
     socket.on('attendance_requested', handleReq);
     return () => socket.off('attendance_requested', handleReq);
   }, [socket]);
 
-  // Open modal and load device status & GPS
-  const handleOpenPrompt = () => {
-    setModalOpen(true);
-    setVerificationResult(null);
-    fetchDeviceStatus();
-    acquireGPS();
-  };
+  // Automatically open popup modal & trigger GPS check as soon as an active request is detected
+  useEffect(() => {
+    if (pendingRequest?.id && !hasAutoTriggeredRef.current) {
+      hasAutoTriggeredRef.current = true;
+      setModalOpen(true);
+      toast(`📍 Attendance request detected for Room ${pendingRequest.roomNo}! Checking hostel geofence...`, {
+        icon: '🛰️',
+        duration: 4000,
+      });
+      detectAndMarkAttendance(null, pendingRequest);
+    }
+  }, [pendingRequest?.id]);
 
-  // Acquire high accuracy GPS location
-  const acquireGPS = () => {
+  // Execute Geofence Attendance Detection
+  const detectAndMarkAttendance = (coordsOverride = null, reqObj = null) => {
+    const targetReq = reqObj || pendingRequest;
+    if (!targetReq?.id) return;
+    setVerifying(true);
+    setVerificationResult(null);
     setGpsError(null);
+
+    const submitWithCoords = async (coords) => {
+      try {
+        const res = await api.post(`/attendance/requests/${targetReq.id}/approve`, {
+          gps_lat: coords.lat,
+          gps_lng: coords.lng,
+          gps_accuracy: coords.accuracy,
+          timestamp: Date.now(),
+        });
+
+        const data = res.data;
+        if (data?.status === 'present' || data?.code === 'PRESENT') {
+          setVerificationResult({
+            type: 'present',
+            message: data.message || 'Inside hostel geofence! Attendance marked PRESENT.',
+            accuracy: data.accuracy ?? Math.round(coords.accuracy),
+          });
+          toast.success('Attendance Marked: PRESENT! (Inside hostel geofence)', {
+            icon: '🟢',
+            duration: 5000,
+          });
+
+          // Trigger browser notification if supported
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification('Attendance Marked: PRESENT', {
+                body: `Room ${targetReq.roomNo}: Verified inside hostel geofence!`,
+                icon: '/favicon.ico',
+              });
+            } catch (_) {}
+          }
+
+          onVerified();
+          setTimeout(() => {
+            setModalOpen(false);
+            setPendingRequest(null);
+          }, 3200);
+        } else {
+          // Outside geofence -> Marked ABSENT
+          setVerificationResult({
+            type: 'absent',
+            message: data.message || 'Outside hostel geofence. Attendance marked ABSENT.',
+            distanceMeters: data.distanceMeters,
+          });
+          toast.error('Attendance Marked: ABSENT (Outside hostel geofence)', {
+            icon: '🔴',
+            duration: 6000,
+          });
+
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification('Attendance Marked: ABSENT', {
+                body: `Device outside hostel geofence (${data.distanceMeters || 0}m away)`,
+                icon: '/favicon.ico',
+              });
+            } catch (_) {}
+          }
+
+          onVerified();
+        }
+      } catch (err) {
+        const errData = err.response?.data;
+        const msg = errData?.message || err.message || 'Verification failed';
+        setVerificationResult({
+          type: 'error',
+          message: msg,
+          code: errData?.code,
+          distanceMeters: errData?.distanceMeters,
+        });
+        toast.error(msg);
+      } finally {
+        setVerifying(false);
+      }
+    };
+
+    if (coordsOverride) {
+      submitWithCoords(coordsOverride);
+      return;
+    }
+
     if (!navigator.geolocation) {
-      setGpsError('Geolocation is not supported by your browser');
+      setGpsError('Geolocation is not supported by your browser.');
+      setVerifying(false);
+      setVerificationResult({
+        type: 'absent',
+        message: 'Geolocation unavailable. Attendance marked ABSENT.',
+      });
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setGpsData({
+        const coords = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
-        });
+        };
+        setGpsData(coords);
+        submitWithCoords(coords);
       },
       (err) => {
-        setGpsError(`Unable to acquire GPS: ${err.message}. Please enable location permissions.`);
+        setGpsError(`Location error: ${err.message}. Please enable location permissions.`);
+        setVerifying(false);
+        setVerificationResult({
+          type: 'absent',
+          message: 'Location access denied or unavailable. Attendance marked ABSENT.',
+        });
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // Device Enrollment Handler
-  const handleEnrollDevice = async () => {
-    if (!consentAgreed) {
-      toast.error('You must accept the biometric & location consent to enroll this device');
-      return;
-    }
-
-    try {
-      setEnrollingDevice(true);
-      const cred = await registerPlatformAuthenticator({
-        userId: user._id,
-        userName: user.email,
-        userDisplayName: user.name,
-      });
-
-      const res = await api.post('/attendance/devices/register', {
-        deviceId: cred.deviceId,
-        credentialId: cred.credentialId,
-        publicKey: cred.publicKey,
-        deviceModel: cred.deviceModel,
-        consentGiven: true,
-      });
-
-      if (res.data?.success) {
-        toast.success('Device registered successfully!');
-        fetchDeviceStatus();
-      }
-    } catch (err) {
-      toast.error(err.message || 'Device registration failed');
-    } finally {
-      setEnrollingDevice(false);
-    }
-  };
-
-  // Biometric Attendance Approval Handler
-  const handleApproveAttendance = async () => {
-    if (!gpsData) {
-      acquireGPS();
-      toast.error('Acquiring GPS location… please wait a moment');
-      return;
-    }
-
-    try {
-      setVerifying(true);
-      setVerificationResult(null);
-
-      // 1. Get request challenge / nonce
-      const challengeRes = await api.get(`/attendance/challenge/${pendingRequest.id}`);
-      const nonce = challengeRes.data?.nonce;
-
-      // 2. Trigger platform authenticator (TouchID / FaceID / Fingerprint)
-      const assertion = await verifyBiometricAssertion({
-        credentialId: deviceStatus?.device?.device_id || pendingRequest.nonce,
-        challengeNonce: nonce,
-      });
-
-      // 3. Submit approval payload to server
-      const approveRes = await api.post(`/attendance/requests/${pendingRequest.id}/approve`, {
-        nonce,
-        deviceId: deviceStatus?.device?.device_id || 'web_device',
-        credentialId: assertion.credentialId,
-        signature: assertion.signature,
-        gps_lat: gpsData.lat,
-        gps_lng: gpsData.lng,
-        gps_accuracy: gpsData.accuracy,
-        timestamp: Date.now(),
-      });
-
-      if (approveRes.data?.success) {
-        setVerificationResult({
-          type: 'success',
-          message: 'Attendance successfully verified! Your presence in this room is confirmed.',
-        });
-        toast.success('Attendance verified!');
-        onVerified();
-        setTimeout(() => {
-          setModalOpen(false);
-          setPendingRequest(null);
-        }, 3000);
-      }
-    } catch (err) {
-      const data = err.response?.data;
-      const code = data?.code || 'ERROR';
-      const msg = data?.message || err.message || 'Verification failed';
-
-      setVerificationResult({
-        type: 'error',
-        code,
-        message: msg,
-      });
-
-      if (code === 'LOW_GPS_ACCURACY') {
-        toast.error('Weak GPS signal. Move near a window and retry.');
-      } else if (code === 'OUTSIDE_GEOFENCE') {
-        toast.error('Outside hostel boundary area. Rejected.');
-      } else {
-        toast.error(msg);
-      }
-    } finally {
-      setVerifying(false);
-    }
+  // Open modal and auto-run geofence detection
+  const handleOpenPrompt = () => {
+    setModalOpen(true);
+    setVerificationResult(null);
+    detectAndMarkAttendance();
   };
 
   if (!pendingRequest || pendingRequest.alreadyApproved) return null;
@@ -239,62 +222,72 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
           position: 'sticky',
           top: 0,
           zIndex: 45,
-          background: 'linear-gradient(135deg, rgba(139,92,246,0.95) 0%, rgba(34,211,238,0.9) 100%)',
+          background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
           color: '#fff',
-          padding: '10px 16px',
+          padding: '11px 18px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           cursor: 'pointer',
-          boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
+          boxShadow: '0 4px 20px rgba(79, 70, 229, 0.35)',
           backdropFilter: 'blur(10px)',
           animation: 'slideDown 0.3s ease',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
             style={{
-              width: 32,
-              height: 32,
+              width: 36,
+              height: 36,
               borderRadius: '50%',
-              background: 'rgba(255,255,255,0.25)',
+              background: 'rgba(255,255,255,0.22)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: 18,
+              fontSize: 20,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
             }}
           >
-            <MdFingerprint />
+            <MdGpsFixed />
           </div>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>
-              Attendance Requested for Room {pendingRequest.roomNo}!
+            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.01em' }}>
+              Hostel Attendance Requested: Room {pendingRequest.roomNo}!
             </div>
-            <div style={{ fontSize: 11.5, opacity: 0.9 }}>
-              Tap to verify with biometrics &amp; location ({remainingSeconds}s remaining)
+            <div style={{ fontSize: 12, opacity: 0.92, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>📍 Tap to detect geofence &amp; mark attendance</span>
+              <span style={{ opacity: 0.75 }}>•</span>
+              <span style={{ fontWeight: 700, background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 99 }}>
+                {remainingSeconds}s remaining
+              </span>
             </div>
           </div>
         </div>
 
         <button
           type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenPrompt();
+          }}
           style={{
             background: '#fff',
-            color: '#6366f1',
+            color: '#4f46e5',
             border: 'none',
             borderRadius: 99,
-            padding: '6px 14px',
-            fontSize: 12,
-            fontWeight: 700,
+            padding: '7px 16px',
+            fontSize: 12.5,
+            fontWeight: 800,
             cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+            transition: 'all 0.15s ease',
           }}
         >
-          Verify Now
+          Detect &amp; Mark Attendance
         </button>
       </div>
 
-      {/* Biometric Verification Modal */}
+      {/* Geofence Detection Modal */}
       {modalOpen && (
         <div
           className="modal-backdrop show"
@@ -302,8 +295,8 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
             position: 'fixed',
             inset: 0,
             zIndex: 60,
-            background: 'rgba(0,0,0,0.8)',
-            backdropFilter: 'blur(12px)',
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -314,228 +307,209 @@ export default function StudentAttendancePrompt({ user, socket, onVerified = () 
             className="card"
             style={{
               width: '100%',
-              maxWidth: 460,
+              maxWidth: 480,
               padding: 24,
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--bg-surface)',
-              border: 'var(--border)',
+              borderRadius: 20,
+              background: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-color, rgba(255,255,255,0.12))',
+              boxShadow: '0 24px 48px -12px rgba(0,0,0,0.3)',
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <MdMeetingRoom size={20} style={{ color: 'var(--primary-light)' }} />
-                <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                  Room {pendingRequest.roomNo} Attendance
-                </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    color: '#6366f1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <MdMeetingRoom size={22} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Room {pendingRequest.roomNo} Attendance
+                  </h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Hostel Geofence Verification
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
               >
-                <MdClose size={22} />
+                <MdClose size={24} />
               </button>
             </div>
 
-            {/* If Device Not Registered: Show Consent & Enrollment Screen */}
-            {!deviceStatus?.registered ? (
-              <div>
-                <div
-                  style={{
-                    padding: 14,
-                    borderRadius: 'var(--radius-md)',
-                    background: 'rgba(139,92,246,0.08)',
-                    border: '1px solid rgba(139,92,246,0.2)',
-                    marginBottom: 16,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 14, color: 'var(--primary-light)', marginBottom: 6 }}>
-                    <MdShield /> Device Enrollment Consent
-                  </div>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
-                    To verify attendance securely without paper lists or cards, this device will be registered as your personal authenticator.
-                  </p>
-                  <ul style={{ fontSize: 11.5, color: 'var(--text-secondary)', paddingLeft: 18, marginTop: 8, lineHeight: 1.5 }}>
-                    <li><strong>Privacy-First:</strong> Biometric scans stay on your phone secure hardware. Only a cryptographic public key is saved.</li>
-                    <li><strong>Hostel Geofence:</strong> Location is checked exclusively during approval to confirm presence inside the hostel.</li>
-                  </ul>
+            {/* Explanation card */}
+            <div
+              style={{
+                background: 'rgba(99, 102, 241, 0.06)',
+                border: '1px solid rgba(99, 102, 241, 0.2)',
+                borderRadius: 14,
+                padding: '12px 16px',
+                marginBottom: 18,
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                color: 'var(--text-secondary)',
+              }}
+            >
+              📍 <strong>Automatic Geofencing Check:</strong> If your device is located inside the hostel boundary, attendance is instantly recorded as <strong>PRESENT</strong>. If outside, it is recorded as <strong>ABSENT</strong>. No fingerprint required.
+            </div>
+
+            {/* Result Status Display */}
+            {verificationResult && (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 14,
+                  marginBottom: 18,
+                  background:
+                    verificationResult.type === 'present'
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : 'rgba(239, 68, 68, 0.12)',
+                  border:
+                    verificationResult.type === 'present'
+                      ? '1.5px solid #10b981'
+                      : '1.5px solid #ef4444',
+                  color: verificationResult.type === 'present' ? '#10b981' : '#ef4444',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                }}
+              >
+                <div style={{ flexShrink: 0, marginTop: 2 }}>
+                  {verificationResult.type === 'present' ? (
+                    <MdCheckCircle size={24} />
+                  ) : (
+                    <MdCancel size={24} />
+                  )}
                 </div>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-primary)', cursor: 'pointer', marginBottom: 20 }}>
-                  <input
-                    type="checkbox"
-                    checked={consentAgreed}
-                    onChange={(e) => setConsentAgreed(e.target.checked)}
-                  />
-                  I consent to device binding and location verification for attendance.
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleEnrollDevice}
-                  disabled={!consentAgreed || enrollingDevice}
-                  style={{
-                    width: '100%',
-                    padding: '12px 20px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--gradient-primary)',
-                    color: '#fff',
-                    border: 'none',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: !consentAgreed || enrollingDevice ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <MdFingerprint size={18} />
-                  {enrollingDevice ? 'Enrolling Authenticator…' : 'Register This Device'}
-                </button>
-              </div>
-            ) : (
-              /* If Device Is Registered: Show Biometric & GPS Approval Screen */
-              <div>
-                {/* Result Alert Box (if submitted) */}
-                {verificationResult && (
-                  <div
-                    style={{
-                      padding: 12,
-                      borderRadius: 'var(--radius-md)',
-                      marginBottom: 16,
-                      background: verificationResult.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      border: verificationResult.type === 'success' ? '1px solid #10b981' : '1px solid #ef4444',
-                      color: verificationResult.type === 'success' ? '#10b981' : '#f87171',
-                      fontSize: 13,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    {verificationResult.type === 'success' ? <MdCheckCircle size={18} /> : <MdWarning size={18} />}
-                    <span>{verificationResult.message}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>
+                    {verificationResult.type === 'present'
+                      ? 'ATTENDANCE MARKED: PRESENT'
+                      : 'ATTENDANCE MARKED: ABSENT'}
                   </div>
-                )}
-
-                {/* Status Chips */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-                  {/* GPS Status */}
-                  <div
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-input)',
-                      border: 'var(--border)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <MdLocationOn style={{ color: gpsData ? 'var(--success)' : 'var(--warning)' }} />
-                      <span style={{ color: 'var(--text-primary)' }}>Hostel Geofence GPS</span>
-                    </div>
-
-                    {gpsData ? (
-                      <span style={{ color: 'var(--success)', fontWeight: 600 }}>
-                        Accuracy ±{Math.round(gpsData.accuracy)}m
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={acquireGPS}
-                        style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11.5 }}
-                      >
-                        Acquire GPS…
-                      </button>
-                    )}
+                  <div style={{ fontSize: 12.5, opacity: 0.95, lineHeight: 1.4 }}>
+                    {verificationResult.message}
                   </div>
-
-                  {gpsError && (
-                    <div style={{ fontSize: 11.5, color: '#f87171', paddingLeft: 4 }}>
-                      ⚠️ {gpsError}
+                  {verificationResult.accuracy && (
+                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                      Verified with GPS Accuracy: ±{verificationResult.accuracy}m
                     </div>
                   )}
-
-                  {/* Authenticator Status */}
-                  <div
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-input)',
-                      border: 'var(--border)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <MdSecurity style={{ color: 'var(--primary)' }} />
-                      <span style={{ color: 'var(--text-primary)' }}>Registered Authenticator</span>
+                  {verificationResult.distanceMeters > 0 && (
+                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                      Distance to hostel edge: {verificationResult.distanceMeters}m
                     </div>
-                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Ready</span>
-                  </div>
+                  )}
                 </div>
-
-                {/* Primary Action Button */}
-                <button
-                  type="button"
-                  onClick={handleApproveAttendance}
-                  disabled={verifying || Boolean(verificationResult?.type === 'success')}
-                  style={{
-                    width: '100%',
-                    padding: '14px 20px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--gradient-primary)',
-                    color: '#fff',
-                    border: 'none',
-                    fontWeight: 700,
-                    fontSize: 15,
-                    cursor: verifying ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 10,
-                    boxShadow: 'var(--shadow-md)',
-                  }}
-                >
-                  <MdFingerprint size={22} />
-                  {verifying ? 'Verifying Biometrics…' : 'Approve with Biometrics'}
-                </button>
-
-                {verificationResult?.code === 'LOW_GPS_ACCURACY' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      acquireGPS();
-                      setVerificationResult(null);
-                    }}
-                    style={{
-                      width: '100%',
-                      marginTop: 10,
-                      padding: '10px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-input)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--accent)',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <MdRefresh /> Refresh GPS &amp; Retry
-                  </button>
-                )}
               </div>
             )}
+
+            {/* GPS Diagnostic Pill */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: 'var(--bg-input, rgba(0,0,0,0.04))',
+                border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: 12.5,
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MdLocationOn
+                  size={18}
+                  style={{
+                    color: gpsData ? '#10b981' : verifying ? '#6366f1' : '#f59e0b',
+                  }}
+                />
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Hostel Geofence GPS</span>
+              </div>
+
+              {verifying ? (
+                <span style={{ color: '#6366f1', fontWeight: 700, fontSize: 12 }}>
+                  Detecting location…
+                </span>
+              ) : gpsData ? (
+                <span style={{ color: '#10b981', fontWeight: 700, fontSize: 12 }}>
+                  Detected (±{Math.round(gpsData.accuracy)}m)
+                </span>
+              ) : (
+                <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: 12 }}>
+                  Waiting for GPS
+                </span>
+              )}
+            </div>
+
+            {gpsError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#ef4444',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: 'rgba(239,68,68,0.08)',
+                  marginBottom: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <MdWarning size={16} />
+                <span>{gpsError}</span>
+              </div>
+            )}
+
+            {/* Primary Action Button */}
+            <button
+              type="button"
+              onClick={() => detectAndMarkAttendance()}
+              disabled={verifying || Boolean(verificationResult?.type === 'present')}
+              style={{
+                width: '100%',
+                padding: '13px 20px',
+                borderRadius: 12,
+                background:
+                  verificationResult?.type === 'present'
+                    ? '#10b981'
+                    : 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
+                color: '#fff',
+                border: 'none',
+                fontWeight: 800,
+                fontSize: 14.5,
+                cursor: verifying ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 4px 16px rgba(79, 70, 229, 0.3)',
+                transition: 'all 0.18s ease',
+              }}
+            >
+              <MdMyLocation size={18} />
+              {verifying
+                ? 'Detecting Location & Marking...'
+                : verificationResult?.type === 'present'
+                ? 'Attendance Verified (Present)'
+                : verificationResult?.type === 'absent'
+                ? 'Re-check Geofence Location'
+                : 'Detect Location & Mark Attendance'}
+            </button>
           </div>
         </div>
       )}

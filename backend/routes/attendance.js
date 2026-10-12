@@ -668,201 +668,175 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
       });
     }
 
-    // Check 5: Server-issued single-use nonce
-    if (!nonce || nonce !== request.nonce || request.nonce_used) {
-      return res.status(400).json({
-        success: false,
-        code: 'NONCE_INVALID',
-        message: 'Single-use cryptographic challenge nonce is invalid or has already been consumed',
+    // Check 5: GPS Geofence Verification (no biometric/fingerprint required)
+    const hasCoords = typeof gps_lat === 'number' && typeof gps_lng === 'number' && !isNaN(gps_lat) && !isNaN(gps_lng);
+    let geoResult = null;
+    if (hasCoords) {
+      geoResult = await verifyHostelGeofence(request.hostel, {
+        lat: Number(gps_lat),
+        lng: Number(gps_lng),
+        accuracy: Number(gps_accuracy || 10),
       });
     }
 
-    // Check 6: Registered hardware device binding
-    const studentDevice = await StudentDevice.findOne({
-      student_id: req.user._id,
-      active: true,
-    });
+    const isInsideGeofence = Boolean(hasCoords && geoResult && geoResult.valid);
+    const now = new Date();
+    const todayDate = now.toISOString().slice(0, 10);
+    const { getIO } = require('../services/socketService');
+    const io = getIO();
 
-    if (!studentDevice) {
-      return res.status(400).json({
-        success: false,
-        code: 'DEVICE_NOT_REGISTERED',
-        message: 'No registered biometric device found for your account. Please enroll your device first.',
-      });
-    }
-
-    if (credentialId && studentDevice.credential_id !== credentialId) {
-      return res.status(403).json({
-        success: false,
-        code: 'DEVICE_MISMATCH',
-        message: 'Device credential does not match your enrolled registered device',
-      });
-    }
-
-    // Check 7: Signature / Biometric assertion presence
-    if (!signature) {
-      return res.status(400).json({
-        success: false,
-        code: 'BIOMETRIC_FAILED',
-        message: 'Biometric verification signature missing or failed',
-      });
-    }
-
-    // Check 8: GPS Geofence & Accuracy verification
-    const geoResult = await verifyHostelGeofence(request.hostel, {
-      lat: Number(gps_lat),
-      lng: Number(gps_lng),
-      accuracy: Number(gps_accuracy),
-    });
-
-    // Handle Weak GPS accuracy (returns retryable LOW_GPS_ACCURACY)
-    if (geoResult.reason === 'LOW_GPS_ACCURACY') {
-      return res.status(400).json({
-        success: false,
-        code: 'LOW_GPS_ACCURACY',
-        message: 'Weak GPS signal, move near a window and retry',
-        accuracy: geoResult.accuracy,
-      });
-    }
-
-    // Handle Outside Geofence
-    if (!geoResult.valid && geoResult.reason === 'OUTSIDE_GEOFENCE') {
-      // Flag student response for staff review
+    if (isInsideGeofence) {
+      // ── INSIDE GEOFENCE: MARK PRESENT (APPROVED) ──
       if (!resp) {
         resp = await RequestResponse.create({
           request_id: request._id,
           student_id: req.user._id,
           allocation_id: activeAlloc?._id || undefined,
-          status: 'flagged',
+          status: 'approved',
+          approved_at: now,
           gps_lat: Number(gps_lat),
           gps_lng: Number(gps_lng),
-          gps_accuracy: Number(gps_accuracy),
-          inside_geofence: false,
-          flags: ['OUTSIDE_GEOFENCE'],
+          gps_accuracy: Number(gps_accuracy || 10),
+          inside_geofence: true,
+          flags: [],
         });
       } else {
-        resp.status = 'flagged';
+        resp.status = 'approved';
         if (activeAlloc?._id) resp.allocation_id = activeAlloc._id;
+        resp.approved_at = now;
         resp.gps_lat = Number(gps_lat);
         resp.gps_lng = Number(gps_lng);
-        resp.gps_accuracy = Number(gps_accuracy);
-        resp.inside_geofence = false;
-        if (!resp.flags.includes('OUTSIDE_GEOFENCE')) resp.flags.push('OUTSIDE_GEOFENCE');
+        resp.gps_accuracy = Number(gps_accuracy || 10);
+        resp.inside_geofence = true;
+        resp.flags = [];
         await resp.save();
       }
 
-      return res.status(400).json({
-        success: false,
-        code: 'OUTSIDE_GEOFENCE',
-        message: 'Outside hostel area. Biometric approval rejected.',
-        distanceMeters: Math.round(geoResult.distanceToEdgeMeters),
-      });
-    }
+      await AttendanceRecord.findOneAndUpdate(
+        { student_id: req.user._id, date: todayDate, session: 'Night Attendance' },
+        {
+          $set: {
+            student_id: req.user._id,
+            date: todayDate,
+            session: 'Night Attendance',
+            hostel: request.hostel,
+            floor: request.floor || '',
+            roomNo: request.roomNo,
+            status: 'present',
+            method: 'self_approved',
+            verified_by: req.user._id,
+            remark: `Detected inside hostel geofence (Accuracy ±${Math.round(gps_accuracy || 10)}m)`,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch((err) => logger.warn('[AttendanceRecord] Record upsert warning: ' + err.message));
 
-    // ── Anomaly Detections ───────────────────────────────────────────────────
-    const anomalyFlags = [];
-    const activeCredId = credentialId || studentDevice.credential_id;
-
-    // Check A: Device Sharing (Same device credential used by another student in this round)
-    if (activeCredId) {
-      const roundRoomReqs = await RoomAttendanceRequest.find({ round_id: request.round_id })
-        .select('_id')
-        .lean();
-      const roundReqIds = roundRoomReqs.map((r) => r._id);
-      const duplicateDeviceUsage = await RequestResponse.findOne({
-        request_id: { $in: roundReqIds },
-        student_id: { $ne: req.user._id },
-        credential_id: activeCredId,
-      }).lean();
-
-      if (duplicateDeviceUsage) {
-        anomalyFlags.push('DEVICE_SHARING');
-        logger.warn('[Attendance] Anomaly detected: DEVICE_SHARING', {
-          studentId: req.user._id,
-          credentialId: activeCredId,
+      if (io) {
+        io.of('/dashboard').emit('room_attendance_updated', {
           roundId: request.round_id,
+          roomNo: request.roomNo,
+          studentId: req.user._id,
+          studentName: req.user.name,
+          status: 'approved',
+          timestamp: now.toISOString(),
         });
       }
-    }
 
-    // Check B: Mock Location flag
-    if (
-      req.body.isMockLocation ||
-      Number(gps_accuracy) < 0 ||
-      (Number(gps_lat) === 0 && Number(gps_lng) === 0)
-    ) {
-      anomalyFlags.push('MOCK_LOCATION');
-      logger.warn('[Attendance] Anomaly detected: MOCK_LOCATION', {
+      logger.info('[Attendance] Student verified inside geofence -> PRESENT', {
         studentId: req.user._id,
-        coords: { lat: gps_lat, lng: gps_lng, accuracy: gps_accuracy },
+        roomNo: request.roomNo,
+        hostel: request.hostel,
       });
-    }
 
-    const finalStatus = anomalyFlags.length > 0 ? 'flagged' : 'approved';
-
-    // ── Record Verified or Flagged Response ──────────────────────────────────
-    const now = new Date();
-    if (!resp) {
-      resp = await RequestResponse.create({
-        request_id: request._id,
-        student_id: req.user._id,
-        allocation_id: activeAlloc?._id || undefined,
-        status: finalStatus,
-        approved_at: now,
-        device_id: deviceId || studentDevice.device_id,
-        credential_id: credentialId || studentDevice.credential_id,
-        signature: String(signature),
-        gps_lat: Number(gps_lat),
-        gps_lng: Number(gps_lng),
-        gps_accuracy: Number(gps_accuracy),
-        inside_geofence: true,
-        flags: anomalyFlags,
+      return res.json({
+        success: true,
+        status: 'present',
+        code: 'PRESENT',
+        message: 'Verified inside hostel geofence! Attendance marked PRESENT.',
+        accuracy: Math.round(gps_accuracy || 10),
+        approvedAt: now.toISOString(),
       });
     } else {
-      resp.status = finalStatus;
-      if (activeAlloc?._id) resp.allocation_id = activeAlloc._id;
-      resp.approved_at = now;
-      resp.device_id = deviceId || studentDevice.device_id;
-      resp.credential_id = credentialId || studentDevice.credential_id;
-      resp.signature = String(signature);
-      resp.gps_lat = Number(gps_lat);
-      resp.gps_lng = Number(gps_lng);
-      resp.gps_accuracy = Number(gps_accuracy);
-      resp.inside_geofence = true;
-      resp.flags = anomalyFlags;
-      await resp.save();
-    }
+      // ── OUTSIDE GEOFENCE OR NO COORDS: MARK ABSENT ──
+      const distanceAway = Math.round(geoResult?.distanceToEdgeMeters || 0);
+      const reasonMsg = hasCoords
+        ? `Device is outside hostel geofence boundary${distanceAway > 0 ? ` (${distanceAway}m away)` : ''}`
+        : 'GPS location not available';
 
-    // Invalidate single-use challenge nonce
-    request.nonce_used = true;
-    await request.save();
+      if (!resp) {
+        resp = await RequestResponse.create({
+          request_id: request._id,
+          student_id: req.user._id,
+          allocation_id: activeAlloc?._id || undefined,
+          status: 'absent',
+          gps_lat: hasCoords ? Number(gps_lat) : null,
+          gps_lng: hasCoords ? Number(gps_lng) : null,
+          gps_accuracy: hasCoords ? Number(gps_accuracy) : null,
+          inside_geofence: false,
+          flags: [hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION'],
+          remark: reasonMsg,
+        });
+      } else {
+        resp.status = 'absent';
+        if (activeAlloc?._id) resp.allocation_id = activeAlloc._id;
+        if (hasCoords) {
+          resp.gps_lat = Number(gps_lat);
+          resp.gps_lng = Number(gps_lng);
+          resp.gps_accuracy = Number(gps_accuracy);
+        }
+        resp.inside_geofence = false;
+        if (!resp.flags.includes(hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION')) {
+          resp.flags.push(hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION');
+        }
+        resp.remark = reasonMsg;
+        await resp.save();
+      }
 
-    // Broadcast real-time update to staff dashboard
-    const { getIO } = require('../services/socketService');
-    const io = getIO();
-    if (io) {
-      io.of('/dashboard').emit('room_attendance_updated', {
-        roundId: request.round_id,
-        roomNo: request.roomNo,
+      await AttendanceRecord.findOneAndUpdate(
+        { student_id: req.user._id, date: todayDate, session: 'Night Attendance' },
+        {
+          $set: {
+            student_id: req.user._id,
+            date: todayDate,
+            session: 'Night Attendance',
+            hostel: request.hostel,
+            floor: request.floor || '',
+            roomNo: request.roomNo,
+            status: 'absent',
+            method: 'self_approved',
+            verified_by: req.user._id,
+            remark: reasonMsg,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).catch((err) => logger.warn('[AttendanceRecord] Record upsert warning: ' + err.message));
+
+      if (io) {
+        io.of('/dashboard').emit('room_attendance_updated', {
+          roundId: request.round_id,
+          roomNo: request.roomNo,
+          studentId: req.user._id,
+          studentName: req.user.name,
+          status: 'absent',
+          timestamp: now.toISOString(),
+        });
+      }
+
+      logger.info('[Attendance] Student outside geofence / no coords -> ABSENT', {
         studentId: req.user._id,
-        studentName: req.user.name,
-        status: 'approved',
-        timestamp: now.toISOString(),
+        roomNo: request.roomNo,
+        hostel: request.hostel,
+        distanceAway,
+      });
+
+      return res.json({
+        success: true,
+        status: 'absent',
+        code: hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION',
+        message: `${reasonMsg}. Attendance marked ABSENT.`,
+        distanceMeters: distanceAway,
       });
     }
-
-    logger.info('[Attendance] Student successfully approved attendance', {
-      studentId: req.user._id,
-      roomNo: request.roomNo,
-      hostel: request.hostel,
-    });
-
-    res.json({
-      success: true,
-      code: 'APPROVED',
-      message: 'Attendance verified and approved successfully!',
-      approvedAt: now.toISOString(),
-    });
   } catch (err) {
     logger.error('[Attendance] Error during student approval', { error: err.message });
     res.status(500).json({ success: false, message: 'Server error during attendance verification' });
