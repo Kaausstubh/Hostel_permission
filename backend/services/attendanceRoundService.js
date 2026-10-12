@@ -119,80 +119,113 @@ const resolveFloorRooms = async (hostelCode, floorStr) => {
  * Get distinct hostels and their floors using Room Allocation as the single source of truth.
  */
 const getHostelsAndFloors = async (staffUser = null) => {
-  // Check defined hostels (excluding any test hostels)
-  const definedHostels = await Hostel.find({ active: true, code: { $not: /^test/i } }).sort({ code: 1 }).lean();
-
-  if (definedHostels.length > 0) {
-    const result = [];
-    for (const h of definedHostels) {
-      const floors = await HostelFloor.find({ hostel_id: h._id, active: true })
-        .sort({ floor_number: 1 })
-        .lean();
-
-      // Count active allocations in this hostel
-      const rooms = await HostelRoom.find({ hostel_id: h._id }).select('_id');
-      const roomIds = rooms.map((r) => r._id);
-      const studentCount = await RoomAllocation.countDocuments({
-        room_id: { $in: roomIds },
-        status: 'active',
-      });
-
-      result.push({
-        hostel: h.code,
-        name: `${h.name} (${h.code})`,
-        studentCount,
-        floors: floors.map((f) => f.label),
-      });
-    }
-
-    // Include BH1 and GH if they are not in definedHostels
-    const existingCodes = new Set(definedHostels.map((h) => h.code));
-    for (const fallbackCode of ['BH1', 'GH']) {
-      if (!existingCodes.has(fallbackCode)) {
-        const legacyStudents = await User.countDocuments({ role: 'student', hostel: fallbackCode, isActive: true });
-        result.push({
-          hostel: fallbackCode,
-          name: fallbackCode === 'BH1' ? "Boys' Hostel 1 (BH1)" : "Girls' Hostel (GH)",
-          studentCount: legacyStudents,
-          floors: fallbackCode === 'BH1'
-            ? ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor']
-            : ['1st Floor', '2nd Floor', '3rd Floor'],
-        });
+  // Ensure default campus hostel entries exist in database
+  try {
+    const campusHostelsToEnsure = [
+      { code: 'BH1', name: "Boys' Hostel 1 (BH1)", type: 'boys' },
+      { code: 'BH2', name: "Boys' Hostel 2 (BH2)", type: 'boys' },
+      { code: 'GH1', name: "Girls' Hostel 1 (GH1)", type: 'girls' },
+      { code: 'GH2', name: "Girls' Hostel 2 (GH2)", type: 'girls' },
+    ];
+    for (const ch of campusHostelsToEnsure) {
+      const exists = await Hostel.findOne({ code: ch.code });
+      if (!exists) {
+        await Hostel.create({
+          code: ch.code,
+          name: ch.name,
+          type: ch.type,
+          active: true,
+          description: `${ch.name} campus building`,
+        }).catch(() => {});
       }
     }
-
-    return result;
+  } catch (e) {
+    logger.warn('[Attendance] Auto-ensure hostels error: ' + e.message);
   }
 
-  // Fallback for legacy DB
-  const students = await User.find({
-    role: 'student',
-    isActive: true,
-    hostel: { $in: ['BH1', 'BH2', 'GH'] },
-    roomNo: { $ne: null },
-  })
-    .select('hostel roomNo')
-    .lean();
+  const standardConfigs = [
+    {
+      code: 'BH1',
+      name: "Boys' Hostel 1 (BH1)",
+      floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    },
+    {
+      code: 'BH2',
+      name: "Boys' Hostel 2 (BH2)",
+      floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    },
+    {
+      code: 'GH1',
+      name: "Girls' Hostel 1 (GH1)",
+      floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    },
+    {
+      code: 'GH2',
+      name: "Girls' Hostel 2 (GH2)",
+      floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    },
+  ];
 
-  const hostelMap = {
-    BH1: { name: "Boys' Hostel 1 (BH1)", floors: new Set(), studentCount: 0 },
-    BH2: { name: "Boys' Hostel 2 (BH2)", floors: new Set(), studentCount: 0 },
-    GH:  { name: "Girls' Hostel (GH)", floors: new Set(), studentCount: 0 },
-  };
+  // Check defined hostels in DB
+  const definedHostels = await Hostel.find({ active: true, code: { $not: /^test/i } }).sort({ code: 1 }).lean();
+  const hostelMap = new Map();
 
-  for (const s of students) {
-    if (!hostelMap[s.hostel]) continue;
-    hostelMap[s.hostel].studentCount += 1;
-    const floor = parseFloorFromRoom(s.roomNo);
-    hostelMap[s.hostel].floors.add(floor);
+  for (const h of definedHostels) {
+    if (h.code === 'GH') continue; // Legacy GH skipped in favor of GH1 & GH2
+
+    const floors = await HostelFloor.find({ hostel_id: h._id, active: true })
+      .sort({ floor_number: 1 })
+      .lean();
+
+    const rooms = await HostelRoom.find({ hostel_id: h._id }).select('_id');
+    const roomIds = rooms.map((r) => r._id);
+    const allocCount = await RoomAllocation.countDocuments({
+      room_id: { $in: roomIds },
+      status: 'active',
+    });
+
+    let userCount = 0;
+    if (h.code === 'GH1') {
+      userCount = await User.countDocuments({ role: 'student', hostel: { $in: ['GH1', 'GH'] }, isActive: true });
+    } else {
+      userCount = await User.countDocuments({ role: 'student', hostel: h.code, isActive: true });
+    }
+
+    const matchedConfig = standardConfigs.find((c) => c.code === h.code);
+    const defaultFl = matchedConfig ? matchedConfig.floors : ['1st Floor', '2nd Floor', '3rd Floor'];
+
+    hostelMap.set(h.code, {
+      hostel: h.code,
+      name: matchedConfig?.name || `${h.name} (${h.code})`,
+      studentCount: Math.max(allocCount, userCount),
+      floors: floors.length > 0 ? floors.map((f) => f.label) : defaultFl,
+    });
   }
 
-  return Object.entries(hostelMap).map(([hostelKey, data]) => ({
-    hostel: hostelKey,
-    name: data.name,
-    studentCount: data.studentCount,
-    floors: Array.from(data.floors).length > 0 ? Array.from(data.floors) : ['1st Floor', '2nd Floor', '3rd Floor'],
-  }));
+  // Ensure all 4 standard hostels exist in response
+  for (const sc of standardConfigs) {
+    if (!hostelMap.has(sc.code)) {
+      let userCount = 0;
+      if (sc.code === 'GH1') {
+        userCount = await User.countDocuments({ role: 'student', hostel: { $in: ['GH1', 'GH'] }, isActive: true });
+      } else {
+        userCount = await User.countDocuments({ role: 'student', hostel: sc.code, isActive: true });
+      }
+
+      hostelMap.set(sc.code, {
+        hostel: sc.code,
+        name: sc.name,
+        studentCount: userCount,
+        floors: sc.floors,
+      });
+    }
+  }
+
+  // Consistent campus order: BH1, BH2, GH1, GH2
+  const order = { BH1: 1, BH2: 2, GH1: 3, GH2: 4 };
+  return Array.from(hostelMap.values()).sort(
+    (a, b) => (order[a.hostel] || 99) - (order[b.hostel] || 99)
+  );
 };
 
 
@@ -203,11 +236,12 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
   const date = getTodayDateStr();
   const cleanHostel = hostel.toUpperCase();
   const cleanFloor = String(floor).trim();
+  const permanentSession = 'Night Attendance'; // Fixed permanent session
 
   // 1. Look for existing active round for this staff/hostel/floor/session/date
   let existingRound = await AttendanceRound.findOne({
     date,
-    session_name,
+    session_name: permanentSession,
     hostel: cleanHostel,
     floor: cleanFloor,
     status: 'active',
@@ -220,7 +254,7 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
   // 2. Create new round
   const newRound = await AttendanceRound.create({
     date,
-    session_name,
+    session_name: permanentSession,
     hostel: cleanHostel,
     floor: cleanFloor,
     staff_id: staffUser._id,
@@ -279,10 +313,13 @@ const getRoundRoomsSummary = async (roundId) => {
     }
   } else {
     // Fallback to User query
+    const studentHostelFilter =
+      round.hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : round.hostel;
+
     const students = await User.find({
       role: 'student',
       isActive: true,
-      hostel: round.hostel,
+      hostel: studentHostelFilter,
     })
       .select('_id name rollNo roomNo studentPhoto picture phone')
       .lean();

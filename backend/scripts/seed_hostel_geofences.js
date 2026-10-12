@@ -51,6 +51,22 @@ const HOSTEL_COORDINATES = [
     buffer_m: 0,
     accuracy_threshold_m: 50,
   },
+  {
+    hostel: 'GH1',
+    name: "Girls' Hostel 1 (Indrayani)",
+    center: { lat: 18.765075, lng: 73.699101 },
+    radius_m: 50,
+    buffer_m: 0,
+    accuracy_threshold_m: 50,
+  },
+  {
+    hostel: 'GH2',
+    name: "Girls' Hostel 2 (Sindhu)",
+    center: { lat: 18.765075, lng: 73.699101 },
+    radius_m: 50,
+    buffer_m: 0,
+    accuracy_threshold_m: 50,
+  },
 ];
 
 async function seedGeofences() {

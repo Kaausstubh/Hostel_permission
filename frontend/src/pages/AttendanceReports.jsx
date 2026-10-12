@@ -213,9 +213,10 @@ export default function AttendanceReports() {
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           >
             <option value="ALL">All Hostels</option>
-            <option value="BH1">Boys Hostel 1 (BH1)</option>
-            <option value="BH2">Boys Hostel 2 (BH2)</option>
-            <option value="GH">Girls Hostel (GH)</option>
+            <option value="BH1">Boys' Hostel 1 (BH1)</option>
+            <option value="BH2">Boys' Hostel 2 (BH2)</option>
+            <option value="GH1">Girls' Hostel 1 (GH1 - Indrayani)</option>
+            <option value="GH2">Girls' Hostel 2 (GH2 - Sindhu)</option>
           </select>
         </div>
         <div>

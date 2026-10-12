@@ -41,19 +41,42 @@ export default function AttendanceRoundSetup() {
     try {
       setLoading(true);
       const res = await api.get('/attendance/hostels');
+      let loadedHostels = [];
       if (res.data?.success && res.data.hostels?.length > 0) {
-        const validHostels = res.data.hostels.filter(
+        loadedHostels = res.data.hostels.filter(
           (h) => !h.hostel.toLowerCase().startsWith('test')
         );
-        setHostels(validHostels);
-        // Default to user's assigned hostel if available
-        const defaultH = validHostels.find(
-          (h) => h.hostel === user?.hostel || h.hostel === 'BH1'
-        ) || validHostels[0];
-        if (defaultH) {
-          setSelectedHostel(defaultH.hostel);
-          if (defaultH.floors?.length > 0) setSelectedFloor(defaultH.floors[0]);
+      }
+
+      // Map any legacy GH to GH1
+      loadedHostels = loadedHostels.map((h) => {
+        if (h.hostel === 'GH') {
+          return { ...h, hostel: 'GH1', name: "Girls' Hostel 1 (Indrayani)" };
         }
+        return h;
+      });
+
+      // Authoritative campus hostels
+      const standardList = [
+        { hostel: 'BH1', name: "Boys' Hostel 1 (BH1)", studentCount: 0, floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'] },
+        { hostel: 'BH2', name: "Boys' Hostel 2 (BH2)", studentCount: 0, floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'] },
+        { hostel: 'GH1', name: "Girls' Hostel 1 (GH1 - Indrayani)", studentCount: 0, floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'] },
+        { hostel: 'GH2', name: "Girls' Hostel 2 (GH2 - Sindhu)", studentCount: 0, floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'] },
+      ];
+
+      const merged = standardList.map((st) => {
+        const found = loadedHostels.find((lh) => lh.hostel === st.hostel);
+        return found ? { ...st, ...found } : st;
+      });
+
+      setHostels(merged);
+      // Default to user's assigned hostel if available
+      const defaultH = merged.find(
+        (h) => h.hostel === user?.hostel || h.hostel === 'BH1'
+      ) || merged[0];
+      if (defaultH) {
+        setSelectedHostel(defaultH.hostel);
+        if (defaultH.floors?.length > 0) setSelectedFloor(defaultH.floors[0]);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load hostels');
@@ -234,26 +257,41 @@ export default function AttendanceRoundSetup() {
 
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
-              Session Name
+              Session Name (Permanent)
             </label>
-            <select
-              value={sessionName}
-              onChange={(e) => setSessionName(e.target.value)}
+            <div
               style={{
-                width: '100%',
                 padding: '12px 14px',
                 background: 'var(--bg-input)',
                 borderRadius: 'var(--radius-md)',
                 border: 'var(--border)',
                 color: 'var(--text-primary)',
+                fontWeight: 700,
                 fontSize: 13,
-                outline: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
               }}
             >
-              <option value="Night Attendance">Night Attendance (Standard)</option>
-              <option value="Evening Attendance">Evening Attendance</option>
-              <option value="Emergency Roll Call">Emergency Roll Call</option>
-            </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>🌙</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Night Attendance</span>
+              </div>
+              <span
+                style={{
+                  fontSize: 10.5,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: 'var(--primary-light, #818cf8)',
+                  textTransform: 'uppercase',
+                  fontWeight: 800,
+                  letterSpacing: 0.5,
+                }}
+              >
+                Permanent Standard
+              </span>
+            </div>
           </div>
         </div>
 

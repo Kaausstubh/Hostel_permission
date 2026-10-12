@@ -83,9 +83,10 @@ export default function AttendanceSummary() {
             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           >
             <option value="ALL">All Hostels</option>
-            <option value="BH1">BH1</option>
-            <option value="BH2">BH2</option>
-            <option value="GH">GH</option>
+            <option value="BH1">Brahmaputra (BH1)</option>
+            <option value="BH2">Krishna (BH2)</option>
+            <option value="GH1">Indrayani (GH1)</option>
+            <option value="GH2">Sindhu (GH2)</option>
           </select>
           <button
             onClick={() => fetchSummary()}

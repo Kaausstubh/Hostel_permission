@@ -98,7 +98,7 @@ router.post('/rounds', protect, authorize('warden', 'admin'), async (req, res) =
     const { round, resumed } = await startOrResumeRound({
       hostel,
       floor,
-      session_name: session_name || 'Night Attendance',
+      session_name: 'Night Attendance',
       staffUser: req.user,
     });
 
@@ -915,9 +915,15 @@ router.get('/summary', protect, authorize('warden', 'security', 'admin'), async 
 
     if (hostel && hostel.toUpperCase() !== 'ALL') {
       const cleanHostel = hostel.toUpperCase();
-      studentFilter.hostel = cleanHostel;
-      recordFilter.hostel = cleanHostel;
-      roundFilter.hostel = cleanHostel;
+      if (cleanHostel === 'GH1' || cleanHostel === 'GH') {
+        studentFilter.hostel = { $in: ['GH1', 'GH'] };
+        recordFilter.hostel = { $in: ['GH1', 'GH'] };
+        roundFilter.hostel = { $in: ['GH1', 'GH'] };
+      } else {
+        studentFilter.hostel = cleanHostel;
+        recordFilter.hostel = cleanHostel;
+        roundFilter.hostel = cleanHostel;
+      }
     }
 
     const totalStudents = await User.countDocuments(studentFilter);
@@ -1017,7 +1023,12 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
     }
 
     if (hostel && hostel.toUpperCase() !== 'ALL') {
-      query.hostel = hostel.toUpperCase();
+      const hUpper = hostel.toUpperCase();
+      if (hUpper === 'GH1' || hUpper === 'GH') {
+        query.hostel = { $in: ['GH1', 'GH'] };
+      } else {
+        query.hostel = hUpper;
+      }
     }
 
     if (floor && floor.toUpperCase() !== 'ALL') {

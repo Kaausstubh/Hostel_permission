@@ -70,6 +70,32 @@ const DEFAULT_GEOFENCES = [
     accuracy_threshold_m: 50,
     active: true,
   },
+  {
+    hostel: 'GH1',
+    name: "Girls' Hostel 1 (Indrayani)",
+    polygon: [
+      { lat: 18.53050, lng: 73.85720 },
+      { lat: 18.53120, lng: 73.85720 },
+      { lat: 18.53120, lng: 73.85800 },
+      { lat: 18.53050, lng: 73.85800 },
+    ],
+    buffer_m: 25,
+    accuracy_threshold_m: 50,
+    active: true,
+  },
+  {
+    hostel: 'GH2',
+    name: "Girls' Hostel 2 (Sindhu)",
+    polygon: [
+      { lat: 18.53050, lng: 73.85720 },
+      { lat: 18.53120, lng: 73.85720 },
+      { lat: 18.53120, lng: 73.85800 },
+      { lat: 18.53050, lng: 73.85800 },
+    ],
+    buffer_m: 25,
+    accuracy_threshold_m: 50,
+    active: true,
+  },
 ];
 
 async function run() {

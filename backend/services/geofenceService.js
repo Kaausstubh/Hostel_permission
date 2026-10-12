@@ -138,7 +138,11 @@ const verifyHostelGeofence = async (hostel, coords, overrideGeofence = null) => 
   let geofence = overrideGeofence;
   if (!geofence && mongoose.connection.readyState === 1) {
     try {
-      geofence = await HostelGeofence.findOne({ hostel: (hostel || '').toUpperCase(), active: true }).lean();
+      const hUpper = (hostel || '').toUpperCase();
+      geofence = await HostelGeofence.findOne({ hostel: hUpper, active: true }).lean();
+      if (!geofence && (hUpper === 'GH1' || hUpper === 'GH2')) {
+        geofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
+      }
     } catch (err) {
       logger.warn('[Geofence] Failed to query hostel geofence:', err.message);
     }
