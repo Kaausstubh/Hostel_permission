@@ -68,59 +68,171 @@ async function syncPdfDataHelper() {
   }
   const rawData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
-  let studentsSynced = 0;
-  const roomSet = new Set();
+  const roomMap = new Map();
+  const reviewList = [];
+  let totalRead = 0;
+  let studentsAllocated = 0;
+  let studentsUpdated = 0;
+  let studentsAlreadyPresent = 0;
 
+  // 1. Group records by room, preserving exact PDF order
   for (const item of rawData) {
     if (!item.mis && !item.name) continue;
-    const mis = String(item.mis || '').trim();
-    const name = String(item.name || '').trim();
-    const room = item.room ? String(item.room).trim() : null;
-    const email = mis ? `${mis}@cse.iiitp.ac.in` : `${name.toLowerCase().replace(/\s+/g, '')}@student.iiitp.ac.in`;
+    totalRead++;
+    const mis = item.mis ? String(item.mis).trim() : '';
+    const name = item.name ? String(item.name).trim() : '';
+    const rawRoom = item.room ? String(item.room).trim() : null;
+    const year = item.year || (mis.startsWith('1124') ? '3rd Year' : '2nd Year');
 
-    if (room) roomSet.add(room);
+    if (!rawRoom) {
+      // Flag record with missing room for manual review
+      reviewList.push({
+        name,
+        rollNo: mis,
+        year,
+        originalRoom: null,
+        reason: 'No room assigned in PDF. Added to Unassigned Review list.',
+      });
+      continue;
+    }
 
-    // Upsert student
-    await User.findOneAndUpdate(
-      { $or: [{ rollNo: mis }, { email }] },
-      {
-        $set: {
-          name,
-          rollNo: mis || undefined,
-          email,
-          hostel: 'BH2',
-          roomNo: room,
-          role: 'student',
-          isActive: true,
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-    studentsSynced++;
+    if (!roomMap.has(rawRoom)) {
+      roomMap.set(rawRoom, []);
+    }
+    roomMap.get(rawRoom).push({ name, mis, year, rawRoom });
   }
 
-  // Ensure Room records exist for all rooms found in data
-  for (const rNum of roomSet) {
+  // 2. Process each room, enforcing strict 4-bed limit
+  const allRooms = Array.from(roomMap.keys());
+  for (const rNum of allRooms) {
     const floor = getFloorForRoom(rNum);
-    // Room 30 has 6 students, all others 4 capacity
-    const defaultCapacity = rNum === '30' ? 6 : 4;
+
+    // Ensure Room record in DB with strict capacity: 4
     await Room.findOneAndUpdate(
       { hostelCode: 'BH2', roomNumber: rNum },
       {
-        $setOnInsert: {
+        $set: {
           hostelCode: 'BH2',
           roomNumber: rNum,
           floor,
-          capacity: defaultCapacity,
+          capacity: 4,
           isActive: true,
         },
       },
-      { upsert: true }
+      { upsert: true, new: true }
     );
+
+    const candidates = roomMap.get(rNum);
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      const email = cand.mis
+        ? `${cand.mis}@cse.iiitp.ac.in`
+        : `${cand.name.toLowerCase().replace(/\s+/g, '')}@student.iiitp.ac.in`;
+
+      if (i < 4) {
+        // Beds 1 to 4: Allocate student to this room
+        const existing = await User.findOne({
+          $or: [{ rollNo: cand.mis }, { email }],
+        });
+
+        if (existing) {
+          if (existing.hostel === 'BH2' && existing.roomNo === rNum && existing.name === cand.name) {
+            studentsAlreadyPresent++;
+          } else {
+            studentsUpdated++;
+          }
+        }
+
+        await User.findOneAndUpdate(
+          { $or: [{ rollNo: cand.mis }, { email }] },
+          {
+            $set: {
+              name: cand.name,
+              rollNo: cand.mis || undefined,
+              email,
+              hostel: 'BH2',
+              roomNo: rNum,
+              role: 'student',
+              isActive: true,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        studentsAllocated++;
+      } else {
+        // Exceeds 4 beds (e.g. Room 30 listed with 6 occupants in PDF)
+        // Store in DB as unassigned student in BH2 and flag for review
+        reviewList.push({
+          name: cand.name,
+          rollNo: cand.mis,
+          year: cand.year,
+          originalRoom: rNum,
+          reason: `Room ${rNum} capacity exceeded (listed 6 students in PDF for a 4-bed room). Beds 1-4 filled; placed in Unassigned Review list for reallocation.`,
+        });
+
+        await User.findOneAndUpdate(
+          { $or: [{ rollNo: cand.mis }, { email }] },
+          {
+            $set: {
+              name: cand.name,
+              rollNo: cand.mis || undefined,
+              email,
+              hostel: 'BH2',
+              roomNo: null,
+              role: 'student',
+              isActive: true,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      }
+    }
+  }
+
+  // Also upsert any students in reviewList that had no room
+  for (const unassignedItem of reviewList) {
+    if (!unassignedItem.originalRoom) {
+      const email = unassignedItem.rollNo
+        ? `${unassignedItem.rollNo}@cse.iiitp.ac.in`
+        : `${unassignedItem.name.toLowerCase().replace(/\s+/g, '')}@student.iiitp.ac.in`;
+
+      await User.findOneAndUpdate(
+        { $or: [{ rollNo: unassignedItem.rollNo }, { email }] },
+        {
+          $set: {
+            name: unassignedItem.name,
+            rollNo: unassignedItem.rollNo || undefined,
+            email,
+            hostel: 'BH2',
+            roomNo: null,
+            role: 'student',
+            isActive: true,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
   }
 
   await invalidateLogsCache();
-  return { studentsSynced, totalRooms: roomSet.size };
+
+  const totalCapacity = roomMap.size * 4;
+  const availableBeds = totalCapacity - studentsAllocated;
+
+  return {
+    totalRead,
+    imported: studentsAllocated,
+    updated: studentsUpdated,
+    alreadyPresent: studentsAlreadyPresent,
+    duplicates: 0,
+    requiresReview: reviewList.length,
+    reviewList,
+    rejected: 0,
+    roomsCreatedOrUpdated: roomMap.size,
+    allocatedBH2: studentsAllocated,
+    totalCapacity,
+    availableBeds,
+  };
 }
 
 /**
@@ -159,14 +271,14 @@ async function ensureDefaultRoomsForHostel(hostelCode) {
 }
 
 // ─── POST /api/rooms/sync-pdf ─────────────────────────────────────────────────
-// Warden/Admin endpoint to import/sync all PDF data into BH-2
-router.post('/sync-pdf', protect, authorize('warden', 'admin'), async (req, res) => {
+// Warden/Admin/Hostel Staff endpoint to import/sync all PDF data into BH-2
+router.post('/sync-pdf', protect, authorize('warden', 'admin', 'hostel_staff'), async (req, res) => {
   try {
     const result = await syncPdfDataHelper();
     res.json({
       success: true,
-      message: `Successfully synced ${result.studentsSynced} students into BH-2 across ${result.totalRooms} rooms from PDF.`,
-      ...result,
+      message: `Successfully synced ${result.allocatedBH2} students into BH-2 across ${result.roomsCreatedOrUpdated} verified rooms. (${result.requiresReview} records flagged for review).`,
+      summary: result,
     });
   } catch (error) {
     logger.error('[Rooms API] Sync PDF error', { error: error.message });
@@ -183,10 +295,11 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
     const search = req.query.search ? String(req.query.search).trim() : '';
     const statusFilter = req.query.status ? String(req.query.status).trim().toLowerCase() : 'all';
 
-    // Auto-seed BH-2 if 0 students currently in BH2
+    // Auto-seed BH-2 if not fully populated (needs all 104 rooms and >= 300 students)
     if (hostel === 'BH2') {
-      const bh2Count = await User.countDocuments({ hostel: 'BH2', role: 'student' });
-      if (bh2Count < 50) {
+      const bh2RoomsCount = await Room.countDocuments({ hostelCode: 'BH2' });
+      const bh2StudentCount = await User.countDocuments({ hostel: 'BH2', role: 'student', roomNo: { $ne: null } });
+      if (bh2RoomsCount < 100 || bh2StudentCount < 300) {
         try {
           await syncPdfDataHelper();
         } catch (e) {
@@ -265,8 +378,8 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       const residing = roomStudentsMap.get(rNum) || [];
       const floor = config?.floor || getFloorForRoom(rNum);
       
-      // Standard room capacity is 4 students unless specifically configured otherwise
-      const capacity = config?.capacity || (rNum === '30' ? Math.max(6, residing.length) : Math.max(4, residing.length));
+      // Standard room capacity is strictly 4 students for BH-2
+      const capacity = hostel === 'BH2' ? 4 : (config?.capacity || 4);
       const occupancy = residing.length;
       const vacancies = Math.max(0, capacity - occupancy);
 
@@ -302,6 +415,26 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
         bedIndex: idx + 1,
       }));
 
+      // Generate explicit 4 bed slots (Bed 1 to Bed 4)
+      const beds = [];
+      for (let b = 1; b <= capacity; b++) {
+        const student = residing[b - 1] || null;
+        beds.push({
+          bedNumber: b,
+          status: student ? 'OCCUPIED' : 'VACANT',
+          student: student
+            ? {
+                _id: student._id,
+                name: student.name,
+                rollNo: student.rollNo || '',
+                email: student.email || '',
+                phone: student.phone || '',
+                studentPhoto: student.studentPhoto || null,
+              }
+            : null,
+        });
+      }
+
       roomList.push({
         roomNumber: rNum,
         hostel,
@@ -314,6 +447,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
         hasVacancy: vacancies > 0,
         notes: config?.notes || '',
         students: studentsWithBeds,
+        beds,
       });
     });
 
@@ -364,6 +498,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
         totalVacancies,
         fullRooms: fullRoomsCount,
         availableRooms: availableRoomsCount,
+        roomsWithVacancies: availableRoomsCount,
         emptyRooms: emptyRoomsCount,
         unassignedCount: unassignedStudents.length,
         occupancyRate: totalCapacity > 0 ? Math.round((totalOccupied / totalCapacity) * 100) : 0,
@@ -387,15 +522,15 @@ router.post('/:roomNumber/add-student', protect, authorize('warden', 'admin', 'h
     const hostel = String(req.body.hostel || 'BH2').trim().toUpperCase();
     const { studentId, name, rollNo, email, phone } = req.body;
 
-    // Check room capacity
+    // Check room capacity (Strict 4-student limit for BH-2)
     const currentStudents = await User.find({ hostel, roomNo: roomNumber, role: 'student', isActive: true });
     const configuredRoom = await Room.findOne({ hostelCode: hostel, roomNumber });
-    const capacity = configuredRoom?.capacity || 4;
+    const capacity = hostel === 'BH2' ? 4 : (configuredRoom?.capacity || 4);
 
     if (currentStudents.length >= capacity) {
       return res.status(400).json({
         success: false,
-        message: `Room ${roomNumber} is already at full capacity (${capacity}/${capacity} students). Free up a bed first or expand capacity.`,
+        message: `Room ${roomNumber} is already at full capacity (${capacity}/${capacity} students). Adding a 5th student to a 4-bed room is rejected. Free up a bed first or choose another room.`,
       });
     }
 
@@ -519,7 +654,7 @@ router.post('/transfer-student', protect, authorize('warden', 'admin', 'hostel_s
 
     const cleanTargetRoom = String(targetRoomNumber).trim();
 
-    // Check capacity of target room
+    // Check capacity of target room (Strict 4-student limit for BH-2)
     const targetRoomOccupants = await User.countDocuments({
       hostel,
       roomNo: cleanTargetRoom,
@@ -527,12 +662,12 @@ router.post('/transfer-student', protect, authorize('warden', 'admin', 'hostel_s
       isActive: true,
     });
     const targetRoomConfig = await Room.findOne({ hostelCode: hostel, roomNumber: cleanTargetRoom });
-    const capacity = targetRoomConfig?.capacity || 4;
+    const capacity = hostel === 'BH2' ? 4 : (targetRoomConfig?.capacity || 4);
 
     if (targetRoomOccupants >= capacity) {
       return res.status(400).json({
         success: false,
-        message: `Target Room ${cleanTargetRoom} is full (${targetRoomOccupants}/${capacity}). Choose a room with vacancy.`,
+        message: `Target Room ${cleanTargetRoom} is full (${targetRoomOccupants}/${capacity} students). Adding a 5th student to a 4-bed room is rejected. Choose a room with vacancy.`,
       });
     }
 
