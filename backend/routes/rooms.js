@@ -391,6 +391,13 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
         studentPhoto: s.studentPhoto || s.picture || null,
         department,
         year,
+        course: 'B.Tech',
+        gender: hostel.startsWith('GH') ? 'Female' : 'Male',
+        allocationStatus: rNum && rNum !== 'null' && rNum !== 'undefined' ? 'Allocated' : 'Unassigned',
+        allocationDate: s.createdAt || new Date(),
+        roomNo: rNum && rNum !== 'null' && rNum !== 'undefined' ? rNum : null,
+        floor: rNum && rNum !== 'null' && rNum !== 'undefined' ? getFloorForRoom(rNum) : 'Unassigned',
+        hostel,
       };
 
       if (!rNum || rNum === 'null' || rNum === 'undefined') {
@@ -459,6 +466,11 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       const studentsWithBeds = residing.map((st, idx) => ({
         ...st,
         bedIndex: idx + 1,
+        bedNumber: idx + 1,
+        floor,
+        roomNo: rNum,
+        hostel,
+        allocationStatus: 'Allocated',
       }));
 
       // Generate explicit 4 bed slots (Bed 1 to Bed 4)
@@ -470,14 +482,13 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
           status: student ? 'OCCUPIED' : 'VACANT',
           student: student
             ? {
-                _id: student._id,
-                name: student.name,
-                rollNo: student.rollNo || '',
-                email: student.email || '',
-                phone: student.phone || '',
-                studentPhoto: student.studentPhoto || null,
-                department: student.department,
-                year: student.year,
+                ...student,
+                bedIndex: b,
+                bedNumber: b,
+                floor,
+                roomNo: rNum,
+                hostel,
+                allocationStatus: 'Allocated',
               }
             : null,
         });
@@ -538,6 +549,11 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       .sort((a, b) => (FLOOR_ORDER[a] ?? 99) - (FLOOR_ORDER[b] ?? 99));
     const availableFloors = ['All', ...(uniqueFloors.length > 0 ? uniqueFloors : ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'])];
 
+    const allStudents = [
+      ...roomList.flatMap((r) => r.students),
+      ...unassignedStudents,
+    ];
+
     res.json({
       success: true,
       hostel,
@@ -557,6 +573,7 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       floorBreakdown: Object.values(floorStatsMap).sort((a, b) => (FLOOR_ORDER[a.floor] || 99) - (FLOOR_ORDER[b.floor] || 99)),
       rooms: filteredRooms,
       unassigned: unassignedStudents,
+      allStudents,
     });
   } catch (error) {
     logger.error('[Rooms API] Fetch rooms error', { error: error.message });
