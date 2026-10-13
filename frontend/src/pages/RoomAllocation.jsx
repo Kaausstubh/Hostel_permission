@@ -78,9 +78,7 @@ export default function RoomAllocation({ embedded = false }) {
 
   // ── 4. Student & Room Filters ────────────────────────────────────────────────
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
-  const [filterDepartment, setFilterDepartment] = useState('All'); // 'All', 'CSE', 'ECE'
-  const [filterCourse, setFilterCourse] = useState('All'); // 'All', 'B.Tech'
-  const [filterYear, setFilterYear] = useState('All'); // 'All', '1st Year', '2nd Year', '3rd Year', '4th Year'
+  const [filterYear, setFilterYear] = useState('All'); // 'All', 'FY', 'SY', 'TY', 'Fourth Year'
   const [filterAllocationStatus, setFilterAllocationStatus] = useState('All'); // 'All', 'Allocated', 'Unassigned'
   const [filterRoomStatus, setFilterRoomStatus] = useState('All'); // 'All', 'available', 'partial', 'full'
   const [roomSortBy, setRoomSortBy] = useState('default'); // 'default', 'vacancies_desc', 'occupancy_desc', 'room_asc'
@@ -242,6 +240,20 @@ export default function RoomAllocation({ embedded = false }) {
       );
     }
 
+    // Year filter (FY, SY, TY, Fourth Year)
+    if (filterYear !== 'All') {
+      list = list.filter((r) =>
+        r.students?.some((s) => {
+          const y = String(s.year || '').toLowerCase();
+          if (filterYear === 'FY') return y.includes('1st') || y.includes('fy') || y.includes('first');
+          if (filterYear === 'SY') return y.includes('2nd') || y.includes('sy') || y.includes('second');
+          if (filterYear === 'TY') return y.includes('3rd') || y.includes('ty') || y.includes('third');
+          if (filterYear === 'Fourth Year') return y.includes('4th') || y.includes('fourth') || y.includes('final');
+          return y.includes(filterYear.toLowerCase());
+        })
+      );
+    }
+
     // Sorting
     if (roomSortBy === 'vacancies_desc') {
       list.sort((a, b) => b.vacancies - a.vacancies);
@@ -252,7 +264,7 @@ export default function RoomAllocation({ embedded = false }) {
     }
 
     return list;
-  }, [data?.rooms, selectedFloor, selectedRoomNumber, filterRoomStatus, studentSearchTerm, roomSortBy]);
+  }, [data?.rooms, selectedFloor, selectedRoomNumber, filterRoomStatus, studentSearchTerm, filterYear, roomSortBy]);
 
   // ── 11. Master Student List & Multi-Filtering ────────────────────────────────
   // Collect all students for the selected hostel, floor, and room scope
@@ -312,23 +324,16 @@ export default function RoomAllocation({ embedded = false }) {
     }
 
     // Department filter
-    if (filterDepartment !== 'All') {
-      list = list.filter((s) => {
-        const dept = s.department || '';
-        if (filterDepartment === 'CSE') return dept.includes('Computer') || dept.includes('CSE');
-        if (filterDepartment === 'ECE') return dept.includes('Electronics') || dept.includes('ECE');
-        return true;
-      });
-    }
-
-    // Course filter
-    if (filterCourse !== 'All') {
-      list = list.filter((s) => (s.course || 'B.Tech') === filterCourse);
-    }
-
-    // Year / Semester filter
+    // Year / Semester filter (FY, SY, TY, Fourth Year)
     if (filterYear !== 'All') {
-      list = list.filter((s) => (s.year || '').includes(filterYear));
+      list = list.filter((s) => {
+        const y = String(s.year || '').toLowerCase();
+        if (filterYear === 'FY') return y.includes('1st') || y.includes('fy') || y.includes('first');
+        if (filterYear === 'SY') return y.includes('2nd') || y.includes('sy') || y.includes('second');
+        if (filterYear === 'TY') return y.includes('3rd') || y.includes('ty') || y.includes('third');
+        if (filterYear === 'Fourth Year') return y.includes('4th') || y.includes('fourth') || y.includes('final');
+        return y.includes(filterYear.toLowerCase());
+      });
     }
 
     // Allocation status filter
@@ -348,7 +353,7 @@ export default function RoomAllocation({ embedded = false }) {
     });
 
     return list;
-  }, [scopedStudentsList, studentSearchTerm, filterDepartment, filterCourse, filterYear, filterAllocationStatus, studentSortBy]);
+  }, [scopedStudentsList, studentSearchTerm, filterYear, filterAllocationStatus, studentSortBy]);
 
   // Paginated Students for Overall Table
   const paginatedStudents = useMemo(() => {
@@ -463,8 +468,6 @@ export default function RoomAllocation({ embedded = false }) {
   // Clear all filters helper
   const handleClearAllFilters = () => {
     setStudentSearchTerm('');
-    setFilterDepartment('All');
-    setFilterCourse('All');
     setFilterYear('All');
     setFilterAllocationStatus('All');
     setFilterRoomStatus('All');
@@ -1216,7 +1219,7 @@ export default function RoomAllocation({ embedded = false }) {
               Showing <strong>{filteredStudents.length}</strong> students across <strong>{filteredRooms.length}</strong> rooms
             </span>
 
-            {(studentSearchTerm || filterDepartment !== 'All' || filterCourse !== 'All' || filterYear !== 'All' || filterAllocationStatus !== 'All' || filterRoomStatus !== 'All') && (
+            {(studentSearchTerm || filterYear !== 'All' || filterAllocationStatus !== 'All' || filterRoomStatus !== 'All') && (
               <button
                 type="button"
                 className="btn btn-sm btn-ghost"
@@ -1229,11 +1232,51 @@ export default function RoomAllocation({ embedded = false }) {
           </div>
         </div>
 
-        {/* Multi-Filter Controls Row (Search, Dept, Course, Year, Status) */}
+        {/* Quick Academic Year Pills (FY / SY / TY / Fourth Year) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginRight: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>🎓</span> Academic Year:
+          </span>
+          {[
+            { id: 'All', label: 'All Years' },
+            { id: 'FY', label: 'FY' },
+            { id: 'SY', label: 'SY' },
+            { id: 'TY', label: 'TY' },
+            { id: 'Fourth Year', label: 'Fourth Year' },
+          ].map((pill) => {
+            const active = filterYear === pill.id;
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => {
+                  setFilterYear(pill.id);
+                  setStudentPage(1);
+                }}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  border: active ? '1.5px solid #6366f1' : '1px solid var(--border-color)',
+                  background: active ? 'rgba(99, 102, 241, 0.16)' : 'var(--bg-card, #fff)',
+                  color: active ? '#6366f1' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: active ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none',
+                }}
+              >
+                {pill.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Multi-Filter Controls Row (Search, Year, Status, Sort) */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
             gap: 12,
             alignItems: 'center',
           }}
@@ -1263,40 +1306,7 @@ export default function RoomAllocation({ embedded = false }) {
             )}
           </div>
 
-          {/* Filter: Department */}
-          <div>
-            <select
-              className="form-select"
-              value={filterDepartment}
-              onChange={(e) => {
-                setFilterDepartment(e.target.value);
-                setStudentPage(1);
-              }}
-              style={{ width: '100%', height: 40, borderRadius: 10, fontSize: 12 }}
-            >
-              <option value="All">All Departments</option>
-              <option value="CSE">Computer Science (CSE)</option>
-              <option value="ECE">Electronics (ECE)</option>
-            </select>
-          </div>
-
-          {/* Filter: Course */}
-          <div>
-            <select
-              className="form-select"
-              value={filterCourse}
-              onChange={(e) => {
-                setFilterCourse(e.target.value);
-                setStudentPage(1);
-              }}
-              style={{ width: '100%', height: 40, borderRadius: 10, fontSize: 12 }}
-            >
-              <option value="All">All Courses</option>
-              <option value="B.Tech">B.Tech</option>
-            </select>
-          </div>
-
-          {/* Filter: Year / Semester */}
+          {/* Filter: Year (FY, SY, TY, Fourth Year) */}
           <div>
             <select
               className="form-select"
@@ -1305,13 +1315,20 @@ export default function RoomAllocation({ embedded = false }) {
                 setFilterYear(e.target.value);
                 setStudentPage(1);
               }}
-              style={{ width: '100%', height: 40, borderRadius: 10, fontSize: 12 }}
+              style={{
+                width: '100%',
+                height: 40,
+                borderRadius: 10,
+                fontSize: 12.5,
+                fontWeight: 700,
+                border: filterYear !== 'All' ? '1.5px solid #6366f1' : '1px solid var(--border-color)',
+              }}
             >
               <option value="All">All Academic Years</option>
-              <option value="1st Year">1st Year (Sem 1/2)</option>
-              <option value="2nd Year">2nd Year (Sem 3/4)</option>
-              <option value="3rd Year">3rd Year (Sem 5/6)</option>
-              <option value="4th Year">4th Year (Sem 7/8)</option>
+              <option value="FY">FY (First Year)</option>
+              <option value="SY">SY (Second Year)</option>
+              <option value="TY">TY (Third Year)</option>
+              <option value="Fourth Year">Fourth Year</option>
             </select>
           </div>
 
