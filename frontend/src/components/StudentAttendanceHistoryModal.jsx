@@ -152,16 +152,16 @@ export default function StudentAttendanceHistoryModal({ onClose = () => {} }) {
                             gap: 4,
                           }}
                         >
-                          ⏰ {record.time || new Date(record.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}
+                          ⏰ {record.time || new Date(record.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                         </span>
                       )}
                       <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                        {record.session}
+                        {record.hostel ? `${record.hostel} · ` : ''}{record.session}
                       </span>
                     </div>
 
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                      Room {record.roomNo} · Method: {record.method === 'self_approved' ? 'GPS Geofence Verified' : `Staff Verified (${record.verifiedBy})`}
+                      Hostel {record.hostel || 'Assigned'} · Room {record.roomNo} · Method: {record.method === 'self_approved' ? 'Automatic (GPS Geofence)' : `Manual (${record.verifiedBy})`}
                       {record.remark && <span> · "{record.remark}"</span>}
                     </div>
                   </div>

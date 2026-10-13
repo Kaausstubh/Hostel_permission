@@ -32,45 +32,50 @@ const HOSTEL_COORDINATES = [
     name: "Boys' Hostel 2 (Krishna)",
     // 18°45'47.1"N 73°41'57.7"E
     center: { lat: 18.7630833, lng: 73.6993611 },
-    radius_m: 30,
+    radius_m: 22,
     buffer_m: 0,
-    accuracy_threshold_m: 45,
+    accuracy_threshold_m: 25,
+    auto_attendance: true,
   },
   {
     hostel: 'BH1',
     name: "Boys' Hostel 1 (Brahmaputra)",
     // 18°45'50.8"N 73°41'57.4"E
     center: { lat: 18.7641111, lng: 73.6992778 },
-    radius_m: 30,
+    radius_m: 22,
     buffer_m: 0,
-    accuracy_threshold_m: 45,
+    accuracy_threshold_m: 25,
+    auto_attendance: true,
   },
   {
     hostel: 'GH',
     name: "Girls' Hostel (GH)",
     // 18°45'54.4"N 73°41'56.8"E
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 30,
+    radius_m: 22,
     buffer_m: 0,
-    accuracy_threshold_m: 45,
+    accuracy_threshold_m: 25,
+    auto_attendance: true,
   },
   {
     hostel: 'GH1',
     name: "Girls' Hostel 1 (Indrayani)",
     // 18°45'54.4"N 73°41'56.8"E
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 30,
+    radius_m: 22,
     buffer_m: 0,
-    accuracy_threshold_m: 45,
+    accuracy_threshold_m: 25,
+    auto_attendance: true,
   },
   {
     hostel: 'GH2',
     name: "Girls' Hostel 2 (Sindhu)",
     // 18°45'54.4"N 73°41'56.8"E
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 30,
+    radius_m: 22,
     buffer_m: 0,
-    accuracy_threshold_m: 45,
+    accuracy_threshold_m: 25,
+    auto_attendance: true,
   },
 ];
 

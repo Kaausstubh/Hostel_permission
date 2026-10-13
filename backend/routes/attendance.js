@@ -24,6 +24,7 @@ const {
 const {
   verifyHostelGeofence,
   normalizeHostelCode,
+  getHostelGeofenceConfig,
 } = require('../services/geofenceService');
 const {
   getHostelsAndFloors,
@@ -517,26 +518,39 @@ router.get('/geofences', protect, authorize('warden', 'admin'), async (req, res)
 router.put('/geofences/:hostel', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const { hostel } = req.params;
-    const { polygon, buffer_m, accuracy_threshold_m, active, name } = req.body;
+    const {
+      center,
+      radius_m,
+      buffer_m,
+      accuracy_threshold_m,
+      auto_attendance,
+      active,
+      name,
+      polygon,
+    } = req.body;
 
-    if (!Array.isArray(polygon) || polygon.length < 3) {
-      return res.status(400).json({
-        success: false,
-        message: 'Polygon must contain at least 3 vertices with {lat, lng}',
-      });
+    const normHostel = normalizeHostelCode(hostel);
+    const updateData = {
+      hostel: normHostel,
+      updated_by: req.user._id,
+    };
+
+    if (name) updateData.name = name;
+    if (center && typeof center.lat === 'number' && typeof center.lng === 'number') {
+      updateData.center = { lat: Number(center.lat), lng: Number(center.lng) };
     }
+    if (typeof radius_m === 'number') updateData.radius_m = Number(radius_m);
+    if (typeof buffer_m === 'number') updateData.buffer_m = Number(buffer_m);
+    if (typeof accuracy_threshold_m === 'number') {
+      updateData.accuracy_threshold_m = Number(accuracy_threshold_m);
+    }
+    if (typeof auto_attendance === 'boolean') updateData.auto_attendance = auto_attendance;
+    if (typeof active === 'boolean') updateData.active = active;
+    if (Array.isArray(polygon) && polygon.length >= 3) updateData.polygon = polygon;
 
     const updated = await HostelGeofence.findOneAndUpdate(
-      { hostel: hostel.toUpperCase() },
-      {
-        hostel: hostel.toUpperCase(),
-        name: name || `${hostel.toUpperCase()} Hostel`,
-        polygon,
-        buffer_m: buffer_m ?? 25,
-        accuracy_threshold_m: accuracy_threshold_m ?? 50,
-        active: active !== undefined ? active : true,
-        updated_by: req.user._id,
-      },
+      { hostel: normHostel },
+      { $set: updateData },
       { new: true, upsert: true }
     );
 
@@ -548,7 +562,13 @@ router.put('/geofences/:hostel', protect, authorize('warden', 'admin'), async (r
       entity: 'HostelGeofence',
       entity_id: updated._id.toString(),
       old_value: null,
-      new_value: { hostel: updated.hostel, buffer_m: updated.buffer_m, vertices: polygon.length },
+      new_value: {
+        hostel: updated.hostel,
+        center: updated.center,
+        radius_m: updated.radius_m,
+        accuracy_threshold_m: updated.accuracy_threshold_m,
+        auto_attendance: updated.auto_attendance,
+      },
       reason: req.body.reason || 'Geofence boundary calibrated by administrator',
     });
 
@@ -573,7 +593,7 @@ router.post('/geofences/verify', protect, async (req, res) => {
   }
 });
 
-// Helper: Format record timestamp to Indian Standard Time (IST) 12-hour clock
+// Helper: Format record timestamp to Indian Standard Time (IST) 12-hour clock with seconds
 function formatRecordTime(ts) {
   if (!ts) return null;
   const d = new Date(ts);
@@ -582,19 +602,20 @@ function formatRecordTime(ts) {
     timeZone: 'Asia/Kolkata',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: true,
   });
 }
 
-// Helper: Format record date to e.g. "13 Oct 2026"
+// Helper: Format record date to e.g. "13 October 2026"
 function formatRecordDate(ts, fallbackDate) {
   if (ts) {
     const d = new Date(ts);
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString('en-IN', {
         timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
+        day: 'numeric',
+        month: 'long',
         year: 'numeric',
       });
     }
@@ -606,8 +627,8 @@ function formatRecordDate(ts, fallbackDate) {
       if (!isNaN(d.getTime())) {
         return d.toLocaleDateString('en-IN', {
           timeZone: 'UTC',
-          day: '2-digit',
-          month: 'short',
+          day: 'numeric',
+          month: 'long',
           year: 'numeric',
         });
       }
@@ -615,6 +636,304 @@ function formatRecordDate(ts, fallbackDate) {
   }
   return fallbackDate || null;
 }
+
+// ── Student: Today's Attendance Session Status & Record ───────────────────────
+router.get('/today', protect, authorize('student'), async (req, res) => {
+  try {
+    const now = new Date();
+    // Today's date in IST (UTC + 5.5h)
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const assignedHostel = normalizeHostelCode(req.user.hostel);
+
+    if (!req.user.hostel) {
+      return res.json({
+        success: true,
+        hostel: 'Unassigned',
+        hostelName: 'Unassigned',
+        date: todayDate,
+        formattedDate: formatRecordDate(now, todayDate),
+        status: 'NOT MARKED',
+        time: null,
+        method: null,
+        verification: 'Unassigned',
+        confirmedByServer: true,
+        message: 'No hostel assigned to your student profile. Please contact administration.',
+      });
+    }
+
+    const geofenceConfig = await getHostelGeofenceConfig(assignedHostel);
+
+    const record = await AttendanceRecord.findOne({
+      student_id: req.user._id,
+      date: todayDate,
+      session: 'Night Attendance',
+    }).populate('verified_by', 'name role').lean();
+
+    if (record) {
+      const isPresent = record.status === 'present';
+      const isAbsent = record.status === 'absent';
+      const displayStatus = isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : record.status.toUpperCase();
+      const displayMethod = record.method === 'self_approved' ? 'Automatic' : 'Manual';
+      const exactTime = formatRecordTime(record.createdAt || record.updatedAt);
+      const exactDate = formatRecordDate(record.createdAt || record.updatedAt, record.date);
+
+      return res.json({
+        success: true,
+        isMarked: true,
+        recordId: record._id,
+        hostel: record.hostel || assignedHostel,
+        hostelName: geofenceConfig.name,
+        date: record.date,
+        formattedDate: exactDate,
+        time: exactTime,
+        status: displayStatus,
+        method: displayMethod,
+        verification: isPresent ? 'Successful' : 'Unconfirmed',
+        remark: record.remark,
+        confirmedByServer: true,
+        markedAt: record.createdAt || record.updatedAt,
+      });
+    }
+
+    // Unmarked session
+    res.json({
+      success: true,
+      isMarked: false,
+      hostel: assignedHostel,
+      hostelName: geofenceConfig.name,
+      date: todayDate,
+      formattedDate: formatRecordDate(now, todayDate),
+      status: 'NOT MARKED',
+      time: null,
+      method: null,
+      verification: 'Pending Presence Verification',
+      autoAttendanceEnabled: geofenceConfig.auto_attendance !== false,
+      permittedRadiusMeters: geofenceConfig.radius_m,
+      accuracyThresholdMeters: geofenceConfig.accuracy_threshold_m,
+      confirmedByServer: true,
+      message: 'Attendance has not yet been recorded for this session.',
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error fetching today attendance', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to fetch today attendance' });
+  }
+});
+
+// ── Student: Automatic Geofence Presence Verification ─────────────────────────
+router.post('/auto-verify', protect, authorize('student'), async (req, res) => {
+  try {
+    const student = req.user;
+    if (!student.hostel) {
+      return res.status(400).json({
+        success: false,
+        status: 'NOT MARKED',
+        code: 'NO_HOSTEL_ASSIGNED',
+        message: 'No hostel assigned to your student profile. Please contact administration.',
+      });
+    }
+
+    const assignedHostel = normalizeHostelCode(student.hostel);
+
+    // Strict Cross-Hostel Validation: Student cannot specify or spoof another hostel
+    if (req.body.hostel) {
+      const requestedHostel = normalizeHostelCode(req.body.hostel);
+      if (requestedHostel !== assignedHostel) {
+        return res.status(403).json({
+          success: false,
+          status: 'NOT MARKED',
+          code: 'CROSS_HOSTEL_FORBIDDEN',
+          message: `You are assigned to ${student.hostel}. Attendance at ${req.body.hostel} is not permitted.`,
+        });
+      }
+    }
+
+    const geofenceConfig = await getHostelGeofenceConfig(assignedHostel);
+    if (geofenceConfig.auto_attendance === false) {
+      return res.status(403).json({
+        success: false,
+        status: 'NOT MARKED',
+        code: 'AUTO_ATTENDANCE_DISABLED',
+        message: `Automatic attendance is currently disabled for ${geofenceConfig.name}. Please wait for manual staff verification.`,
+      });
+    }
+
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const now = new Date();
+
+    // Idempotency: If already marked present today, return existing record and original timestamp
+    const existingRecord = await AttendanceRecord.findOne({
+      student_id: student._id,
+      date: todayDate,
+      session: 'Night Attendance',
+    }).lean();
+
+    if (existingRecord && existingRecord.status === 'present') {
+      return res.status(200).json({
+        success: true,
+        alreadyMarked: true,
+        status: 'PRESENT',
+        code: 'ALREADY_MARKED',
+        hostel: existingRecord.hostel || assignedHostel,
+        hostelName: geofenceConfig.name,
+        date: existingRecord.date,
+        formattedDate: formatRecordDate(existingRecord.createdAt || existingRecord.updatedAt, existingRecord.date),
+        time: formatRecordTime(existingRecord.createdAt || existingRecord.updatedAt),
+        method: existingRecord.method === 'self_approved' ? 'Automatic' : 'Manual',
+        verification: 'Successful',
+        markedAt: existingRecord.createdAt || existingRecord.updatedAt,
+        message: 'Attendance has already been marked for this session.',
+      });
+    }
+
+    // Validate GPS Coordinates
+    const { lat, lng, accuracy, timestamp } = req.body;
+    const numLat = Number(lat);
+    const numLng = Number(lng);
+    const numAccuracy = Number(accuracy);
+
+    if (
+      typeof lat === 'undefined' ||
+      typeof lng === 'undefined' ||
+      isNaN(numLat) ||
+      isNaN(numLng) ||
+      !isFinite(numLat) ||
+      !isFinite(numLng) ||
+      numLat < -90 ||
+      numLat > 90 ||
+      numLng < -180 ||
+      numLng > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        status: 'NOT MARKED',
+        code: 'INVALID_COORDINATES',
+        message: 'Invalid or missing GPS coordinates from device.',
+      });
+    }
+
+    // Freshness check: reject readings older than 120 seconds
+    if (timestamp && typeof timestamp === 'number') {
+      const ageSeconds = Math.abs(Date.now() - timestamp) / 1000;
+      if (ageSeconds > 120) {
+        return res.status(400).json({
+          success: false,
+          status: 'NOT MARKED',
+          code: 'STALE_COORDINATES',
+          message: 'GPS reading is stale. Please acquire a fresh location reading and try again.',
+        });
+      }
+    }
+
+    // Accuracy threshold check: reject readings with accuracy worse than threshold
+    const accuracyThreshold = geofenceConfig.accuracy_threshold_m ?? 25;
+    if (typeof accuracy === 'number' && numAccuracy > accuracyThreshold) {
+      return res.status(400).json({
+        success: false,
+        status: 'NOT MARKED',
+        code: 'LOW_GPS_ACCURACY',
+        accuracy: numAccuracy,
+        accuracyThreshold,
+        message: `Your location accuracy (±${Math.round(numAccuracy)}m) is insufficient. Please enable High Accuracy / Precise Location or move near a window/open area and try again.`,
+      });
+    }
+
+    // Haversine geofence verification against student's assigned hostel
+    const geoResult = await verifyHostelGeofence(assignedHostel, {
+      lat: numLat,
+      lng: numLng,
+      accuracy: numAccuracy || 10,
+    });
+
+    if (!geoResult.valid) {
+      return res.status(400).json({
+        success: false,
+        status: 'NOT MARKED',
+        code: geoResult.reason || 'OUTSIDE_GEOFENCE',
+        hostel: assignedHostel,
+        hostelName: geofenceConfig.name,
+        distanceMeters: geoResult.distanceToCenterMeters,
+        permittedRadius: geoResult.radiusMeters,
+        message: `You are outside your assigned hostel's permitted attendance area (${Math.round(geoResult.distanceToCenterMeters)}m from center, permitted radius: ${geoResult.radiusMeters}m).`,
+      });
+    }
+
+    // Eligible and inside geofence -> Record attendance atomically
+    const remark = `Automatic geofence verification inside ${geofenceConfig.name} (${Math.round(geoResult.distanceToCenterMeters)}m from center, accuracy ±${Math.round(numAccuracy || 10)}m)`;
+
+    const record = await AttendanceRecord.findOneAndUpdate(
+      { student_id: student._id, date: todayDate, session: 'Night Attendance' },
+      {
+        $setOnInsert: {
+          student_id: student._id,
+          date: todayDate,
+          session: 'Night Attendance',
+          hostel: assignedHostel,
+          floor: student.floor || '',
+          roomNo: student.roomNo || 'Assigned',
+          status: 'present',
+          method: 'self_approved',
+          verified_by: student._id,
+          remark,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    const exactTime = formatRecordTime(record.createdAt || now);
+    const exactDate = formatRecordDate(record.createdAt || now, todayDate);
+
+    // Audit log
+    await AttendanceAuditLog.create({
+      actor_id: student._id,
+      actor_role: student.role,
+      actor_name: student.name,
+      action: 'AUTO_ATTENDANCE_MARKED',
+      entity: 'AttendanceRecord',
+      entity_id: record._id.toString(),
+      old_value: null,
+      new_value: {
+        hostel: assignedHostel,
+        status: 'present',
+        method: 'self_approved',
+        distanceMeters: geoResult.distanceToCenterMeters,
+        accuracy: numAccuracy,
+      },
+      reason: remark,
+    }).catch((err) => logger.warn('[AuditLog] Warning: ' + err.message));
+
+    // Emit live socket event
+    const { getIO } = require('../services/socketService');
+    const io = getIO();
+    if (io) {
+      io.of('/dashboard').emit('student_attendance_marked', {
+        studentId: student._id,
+        studentName: student.name,
+        hostel: assignedHostel,
+        roomNo: student.roomNo,
+        status: 'present',
+        method: 'Automatic',
+        timestamp: (record.createdAt || now).toISOString(),
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      status: 'PRESENT',
+      hostel: assignedHostel,
+      hostelName: geofenceConfig.name,
+      date: todayDate,
+      formattedDate: exactDate,
+      time: exactTime,
+      markedAt: (record.createdAt || now).toISOString(),
+      method: 'Automatic',
+      verification: 'Successful',
+      message: `Verified inside ${geofenceConfig.name}! Attendance marked PRESENT.`,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error during auto-verification', { error: err.message });
+    res.status(500).json({ success: false, message: 'Server error during attendance verification' });
+  }
+});
 
 // ── Student: Pending Attendance Request Check ────────────────────────────────
 router.get('/pending', protect, authorize('student'), async (req, res) => {
@@ -841,6 +1160,17 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
       logger.warn('[Attendance] Error checking live RoomAllocation', { error: allocErr.message });
     }
 
+    // Check 2.5: Strict Assigned Hostel Validation (A BH1 student cannot approve at BH2, etc.)
+    const studentHostelNorm = normalizeHostelCode(req.user.hostel);
+    const requestHostelNorm = normalizeHostelCode(request.hostel);
+    if (studentHostelNorm !== requestHostelNorm) {
+      return res.status(403).json({
+        success: false,
+        code: 'CROSS_HOSTEL_FORBIDDEN',
+        message: `You are assigned to ${req.user.hostel}. Attendance at ${request.hostel} is not permitted.`,
+      });
+    }
+
     if (!isStudentInRoom) {
       const studentHostel = req.user.hostel?.toUpperCase();
       const studentRoomNo = req.user.roomNo?.trim().toUpperCase();
@@ -970,91 +1300,31 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         time: formatRecordTime(now),
       });
     } else {
-      // ── OUTSIDE GEOFENCE OR NO COORDS: MARK ABSENT ──
-      const distanceAway = Math.round(geoResult?.distanceToCenterMeters || geoResult?.distanceToEdgeMeters || 0);
-      const reasonMsg = geoResult?.message || (hasCoords
-        ? `Device is outside hostel building (${distanceAway}m away, max allowed is 30m)`
-        : 'GPS location not available');
-
-      if (!resp) {
-        resp = await RequestResponse.create({
-          request_id: request._id,
-          student_id: req.user._id,
-          allocation_id: activeAlloc?._id || undefined,
-          status: 'absent',
-          gps_lat: hasCoords ? Number(gps_lat) : null,
-          gps_lng: hasCoords ? Number(gps_lng) : null,
-          gps_accuracy: hasCoords ? Number(gps_accuracy) : null,
-          inside_geofence: false,
-          flags: [hasCoords ? (geoResult?.reason || 'OUTSIDE_GEOFENCE') : 'NO_LOCATION'],
-          remark: reasonMsg,
-        });
-      } else {
-        resp.status = 'absent';
-        if (activeAlloc?._id) resp.allocation_id = activeAlloc._id;
-        if (hasCoords) {
-          resp.gps_lat = Number(gps_lat);
-          resp.gps_lng = Number(gps_lng);
-          resp.gps_accuracy = Number(gps_accuracy);
-        }
-        resp.inside_geofence = false;
-        const flag = hasCoords ? (geoResult?.reason || 'OUTSIDE_GEOFENCE') : 'NO_LOCATION';
-        if (!resp.flags.includes(flag)) {
-          resp.flags.push(flag);
-        }
-        resp.remark = reasonMsg;
-        await resp.save();
-      }
-
-      await AttendanceRecord.findOneAndUpdate(
-        { student_id: req.user._id, date: todayDate, session: 'Night Attendance' },
-        {
-          $set: {
-            student_id: req.user._id,
-            date: todayDate,
-            session: 'Night Attendance',
-            hostel: request.hostel,
-            floor: request.floor || '',
-            roomNo: request.roomNo,
-            status: 'absent',
-            method: 'self_approved',
-            verified_by: req.user._id,
-            remark: reasonMsg,
-          },
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      ).catch((err) => logger.warn('[AttendanceRecord] Record upsert warning: ' + err.message));
-
-      if (io) {
-        io.of('/dashboard').emit('room_attendance_updated', {
-          roundId: request.round_id,
-          roomNo: request.roomNo,
-          studentId: req.user._id,
-          studentName: req.user.name,
-          status: 'absent',
-          timestamp: now.toISOString(),
+      // ── REJECT: LOCATION INACCURATE OR OUTSIDE GEOFENCE ──
+      if (!hasCoords) {
+        return res.status(400).json({
+          success: false,
+          code: 'NO_LOCATION',
+          message: 'GPS location not available. Please grant location permissions and try again.',
         });
       }
 
-      logger.info('[Attendance] Student outside building / low accuracy -> ABSENT', {
-        studentId: req.user._id,
-        roomNo: request.roomNo,
-        hostel: request.hostel,
-        distanceAway,
-        reason: geoResult?.reason || 'NO_LOCATION',
-      });
+      if (geoResult?.reason === 'LOW_GPS_ACCURACY') {
+        return res.status(400).json({
+          success: false,
+          code: 'LOW_GPS_ACCURACY',
+          accuracy: Number(gps_accuracy),
+          message: geoResult.message || 'Your location accuracy is insufficient. Please enable High Accuracy / Precise Location and try again.',
+        });
+      }
 
-      return res.json({
-        success: true,
-        status: 'absent',
-        code: geoResult?.reason || 'ABSENT',
-        message: reasonMsg,
+      const distanceAway = Math.round(geoResult?.distanceToCenterMeters || 0);
+      return res.status(400).json({
+        success: false,
+        code: 'OUTSIDE_GEOFENCE',
         distanceMeters: distanceAway,
-        accuracy: hasCoords ? Math.round(gps_accuracy) : null,
-        markedAt: now.toISOString(),
-        date: todayDate,
-        formattedDate: formatRecordDate(now, todayDate),
-        time: formatRecordTime(now),
+        permittedRadius: geoResult?.radiusMeters || 22,
+        message: geoResult?.message || `You are outside your assigned hostel's permitted attendance area (${distanceAway}m away).`,
       });
     }
   } catch (err) {

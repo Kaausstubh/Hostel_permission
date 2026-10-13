@@ -33,7 +33,6 @@ import {
   MdEmail,
   MdViewModule,
   MdViewList,
-  MdCloudSync,
   MdContentCopy,
   MdArrowForward,
   MdCheckBox,
@@ -797,20 +796,6 @@ export default function RoomAllocation({ embedded = false }) {
 
           {/* Right Header Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            {selectedHostel === 'BH2' && (
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                onClick={handleSyncPdf}
-                disabled={syncingPdf || loading}
-                title="Sync all 394 students from the official BH-2 PDF allotment sheet"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-              >
-                <MdCloudSync size={17} style={{ animation: syncingPdf ? 'spin 1s linear infinite' : 'none' }} />
-                <span>Sync Official PDF</span>
-              </button>
-            )}
-
             <button
               type="button"
               className="btn btn-sm btn-secondary"

@@ -13,9 +13,9 @@ const mongoose = require('mongoose');
 const { verifyHostelGeofence, haversineDistanceMeters } = require('../services/geofenceService');
 
 const HOSTELS = {
-  BH2: { lat: 18.763092, lng: 73.699231 },
-  BH1: { lat: 18.764126, lng: 73.699223 },
-  GH: { lat: 18.765075, lng: 73.699101 },
+  BH2: { lat: 18.7630833, lng: 73.6993611 },
+  BH1: { lat: 18.7641111, lng: 73.6992778 },
+  GH: { lat: 18.7651111, lng: 73.6991111 },
 };
 
 function offsetCoords(center, distanceMeters) {
@@ -28,9 +28,19 @@ function offsetCoords(center, distanceMeters) {
   };
 }
 
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+
 async function runTests() {
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/hostel');
-  console.log('Connected to MongoDB. Running geofence tests...');
+  if (process.env.MONGODB_URI) {
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 });
+      console.log('Connected to MongoDB. Running geofence tests...');
+    } catch {
+      console.log('MongoDB not reachable. Running geofence tests against authoritative constants...');
+    }
+  } else {
+    console.log('Running geofence tests against authoritative constants...');
+  }
 
   for (const [code, center] of Object.entries(HOSTELS)) {
     console.log(`\nTesting ${code} at (${center.lat}, ${center.lng}):`);
@@ -45,27 +55,28 @@ async function runTests() {
     assert.strictEqual(resCenter.strictlyInside, true, `${code} at center should be strictly inside`);
     console.log(`  ✔ Exact Center (0m): VALID`);
 
-    // 2. 25m away (inside 50m)
-    const p25 = offsetCoords(center, 25);
-    const res25 = await verifyHostelGeofence(code, {
-      lat: p25.lat,
-      lng: p25.lng,
+    // 2. 15m away (inside 22m building radius)
+    const p15 = offsetCoords(center, 15);
+    const res15 = await verifyHostelGeofence(code, {
+      lat: p15.lat,
+      lng: p15.lng,
       accuracy: 15,
     });
-    assert.strictEqual(res25.valid, true, `${code} at 25m should be valid`);
-    console.log(`  ✔ 25m away: VALID`);
+    assert.strictEqual(res15.valid, true, `${code} at 15m should be valid`);
+    console.log(`  ✔ 15m away: VALID`);
 
-    // 3. 48m away (inside 50m)
-    const p48 = offsetCoords(center, 48);
-    const res48 = await verifyHostelGeofence(code, {
-      lat: p48.lat,
-      lng: p48.lng,
+    // 3. 26m away (outside 22m building radius)
+    const p26 = offsetCoords(center, 26);
+    const res26 = await verifyHostelGeofence(code, {
+      lat: p26.lat,
+      lng: p26.lng,
       accuracy: 10,
     });
-    assert.strictEqual(res48.valid, true, `${code} at 48m should be valid`);
-    console.log(`  ✔ 48m away: VALID`);
+    assert.strictEqual(res26.valid, false, `${code} at 26m should be invalid`);
+    assert.strictEqual(res26.reason, 'OUTSIDE_GEOFENCE', `${code} reason should be OUTSIDE_GEOFENCE`);
+    console.log(`  ✔ 26m away: REJECTED (OUTSIDE_GEOFENCE)`);
 
-    // 4. 55m away (outside 50m radius)
+    // 4. 55m away (outside geofence radius)
     const p55 = offsetCoords(center, 55);
     const res55 = await verifyHostelGeofence(code, {
       lat: p55.lat,
@@ -76,15 +87,15 @@ async function runTests() {
     assert.strictEqual(res55.reason, 'OUTSIDE_GEOFENCE', `${code} reason should be OUTSIDE_GEOFENCE`);
     console.log(`  ✔ 55m away: REJECTED (OUTSIDE_GEOFENCE)`);
 
-    // 5. Accuracy > 50m threshold
+    // 5. Accuracy > 25m threshold
     const resInacc = await verifyHostelGeofence(code, {
       lat: center.lat,
       lng: center.lng,
-      accuracy: 65,
+      accuracy: 35,
     });
-    assert.strictEqual(resInacc.valid, false, `${code} with accuracy 65m should be rejected`);
+    assert.strictEqual(resInacc.valid, false, `${code} with accuracy 35m should be rejected`);
     assert.strictEqual(resInacc.reason, 'LOW_GPS_ACCURACY', `${code} reason should be LOW_GPS_ACCURACY`);
-    console.log(`  ✔ Poor GPS Accuracy (65m): REJECTED (LOW_GPS_ACCURACY)`);
+    console.log(`  ✔ Poor GPS Accuracy (35m): REJECTED (LOW_GPS_ACCURACY)`);
   }
 
   // Cross-hostel tests

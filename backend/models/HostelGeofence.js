@@ -32,12 +32,12 @@ const hostelGeofenceSchema = new mongoose.Schema(
       type: pointSchema,
       default: null,
     },
-    // Circular geofence radius in meters (default 50m)
+    // Circular geofence radius in meters (default 22m building footprint)
     radius_m: {
       type: Number,
-      default: 50,
+      default: 22,
       min: 10,
-      max: 500,
+      max: 200,
     },
     // Array of {lat, lng} vertices defining the perimeter polygon
     polygon: {
@@ -51,14 +51,19 @@ const hostelGeofenceSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
-      max: 200,
+      max: 100,
     },
-    // Maximum acceptable GPS accuracy in meters (default 50m)
+    // Maximum acceptable GPS accuracy in meters (default 25m)
     accuracy_threshold_m: {
       type: Number,
-      default: 50,
+      default: 25,
       min: 5,
-      max: 500,
+      max: 200,
+    },
+    // Auto attendance eligibility when student is inside geofence
+    auto_attendance: {
+      type: Boolean,
+      default: true,
     },
     active: {
       type: Boolean,
