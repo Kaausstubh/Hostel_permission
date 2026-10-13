@@ -608,7 +608,32 @@ export const exportHostelStudentsExcel = async ({
     };
   });
 
-  const wsRoster = XLSX.utils.json_to_sheet(formattedRows);
+  const numCols = Object.keys(formattedRows[0] || {}).length || 10;
+  const dateStr = new Date().toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  // Official Institutional Title Block Header
+  const titleAoa = [
+    ['INDIAN INSTITUTE OF INFORMATION TECHNOLOGY, PUNE (IIITP)'],
+    [`${hostelCode} (${hostelName} Hostel) — Students Occupancy Roster`],
+    [`Total Students: ${students.length}  |  Academic Year: 2025-26  |  Export Date: ${dateStr}  |  Office of Chief Warden`],
+    [], // Blank spacing row before table headers
+  ];
+
+  const wsRoster = XLSX.utils.aoa_to_sheet(titleAoa);
+  XLSX.utils.sheet_add_json(wsRoster, formattedRows, { origin: 'A5' });
+
+  // Merge title banner rows across all table columns
+  wsRoster['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: numCols - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: numCols - 1 } },
+  ];
+
   wsRoster['!cols'] = autoFitColumns(formattedRows, 14);
   const sheetTitle = `${hostelCode} Students Roster`.slice(0, 31);
   XLSX.utils.book_append_sheet(wb, wsRoster, sheetTitle);
