@@ -3643,79 +3643,82 @@ export default function StudentDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Always-accessible Chat Input Bar */}
-        <div style={{
-          padding: isMobile ? '8px 10px' : '12px 24px',
-          background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
-          borderTop: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid var(--glass-border)',
-          boxShadow: theme === 'light' ? '0 -2px 10px rgba(0,0,0,0.03)' : 'none',
-        }}>
-          <form onSubmit={handleSend} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              id="chatbot-input"
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
-                step === STEPS.HV_PLACE
-                  ? 'Type destination place, or menu to go back...' :
-                step === STEPS.INOUT_OTHER
-                  ? 'Type destination, or menu to go back...' :
-                step === STEPS.CPL_PHOTO
-                  ? 'Optional: type room number or notes for photo...' :
-                step === STEPS.CPL_TEXT ? 'Describe complaint, or menu / cancel...' :
-                'Type a message, 1-4, or menu...'
-              }
-              style={{
-                flex: 1,
-                padding: isMobile ? '10px 14px' : '11px 18px',
-                borderRadius: 24,
-                border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(139, 92, 246, 0.35)',
-                background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.06)',
-                color: 'var(--text-primary)',
-                fontSize: 14,
-                outline: 'none',
-                transition: 'all 0.15s ease',
-              }}
-              disabled={loading}
-            />
-            <button
-              id="chatbot-send"
-              type="submit"
-              disabled={loading || !input.trim()}
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                border: 'none',
-                background: loading || !input.trim()
-                  ? (theme === 'light' ? '#cbd5e1' : 'rgba(99,102,241,0.25)')
-                  : 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s',
-                flexShrink: 0,
-                boxShadow: loading || !input.trim() ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
-              }}
-              title="Send message"
-            >
-              <MdSend size={18} style={{ marginLeft: 2 }} />
-            </button>
-          </form>
+        {/* Chat Input Bar — only appears when text input is really needed (e.g. entering destination place, custom reason, or complaint description) */}
+        {[STEPS.INOUT_OTHER, STEPS.INOUT_REASON_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.CPL_TEXT].includes(step) && (
           <div style={{
-            fontSize: 11,
-            color: theme === 'light' ? '#64748b' : '#94a3b8',
-            textAlign: 'center',
-            marginTop: 5,
-            fontWeight: 500,
+            padding: isMobile ? '8px 10px' : '12px 24px',
+            background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
+            borderTop: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid var(--glass-border)',
+            boxShadow: theme === 'light' ? '0 -2px 10px rgba(0,0,0,0.03)' : 'none',
           }}>
-            Type <strong style={{ color: 'var(--text-primary)' }}>1-4</strong> or <strong style={{ color: 'var(--text-primary)' }}>menu</strong> anytime for quick options
+            <form onSubmit={handleSend} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                id="chatbot-input"
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
+                  step === STEPS.HV_PLACE
+                    ? 'Type destination place (e.g. Satara, Pune), or menu to exit...' :
+                  step === STEPS.INOUT_OTHER
+                    ? 'Type destination location, or menu to exit...' :
+                  step === STEPS.INOUT_REASON_OTHER
+                    ? 'Type reason, or menu to exit...' :
+                  step === STEPS.CPL_TEXT ? 'Describe complaint, or menu / cancel...' :
+                  'Type a message, or menu to exit...'
+                }
+                style={{
+                  flex: 1,
+                  padding: isMobile ? '10px 14px' : '11px 18px',
+                  borderRadius: 24,
+                  border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(139, 92, 246, 0.35)',
+                  background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.06)',
+                  color: 'var(--text-primary)',
+                  fontSize: 14,
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                }}
+                disabled={loading}
+                autoFocus
+              />
+              <button
+                id="chatbot-send"
+                type="submit"
+                disabled={loading || !input.trim()}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: loading || !input.trim()
+                    ? (theme === 'light' ? '#cbd5e1' : 'rgba(99,102,241,0.25)')
+                    : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  flexShrink: 0,
+                  boxShadow: loading || !input.trim() ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
+                }}
+                title="Send message"
+              >
+                <MdSend size={18} style={{ marginLeft: 2 }} />
+              </button>
+            </form>
+            <div style={{
+              fontSize: 11,
+              color: theme === 'light' ? '#64748b' : '#94a3b8',
+              textAlign: 'center',
+              marginTop: 5,
+              fontWeight: 500,
+            }}>
+              Type <strong style={{ color: 'var(--text-primary)' }}>menu</strong> or <strong style={{ color: 'var(--text-primary)' }}>cancel</strong> anytime to return to the main menu
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── QR Zoom Modal ── */}
