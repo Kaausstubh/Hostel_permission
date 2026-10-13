@@ -129,12 +129,6 @@ async function syncPdfDataHelper(targetHostel = 'BH2') {
 
   const allRooms = Array.from(roomMap.keys());
 
-  // Clean up any legacy dummy rooms for this hostel that are not in the official PDF list
-  await Room.deleteMany({
-    hostelCode,
-    roomNumber: { $nin: allRooms },
-  }).catch(() => {});
-
   // 2. Process each room, enforcing strict 4-bed limit
   for (const rNum of allRooms) {
     const floor = getFloorForRoom(rNum);
@@ -173,23 +167,25 @@ async function syncPdfDataHelper(targetHostel = 'BH2') {
           } else {
             studentsUpdated++;
           }
+          existing.name = cand.name;
+          if (cand.mis) existing.rollNo = cand.mis;
+          existing.email = email;
+          existing.hostel = hostelCode;
+          existing.roomNo = rNum;
+          existing.role = 'student';
+          existing.isActive = true;
+          await existing.save();
+        } else {
+          await User.create({
+            name: cand.name,
+            rollNo: cand.mis || undefined,
+            email,
+            hostel: hostelCode,
+            roomNo: rNum,
+            role: 'student',
+            isActive: true,
+          });
         }
-
-        await User.findOneAndUpdate(
-          { $or: [{ rollNo: cand.mis }, { email }] },
-          {
-            $set: {
-              name: cand.name,
-              rollNo: cand.mis || undefined,
-              email,
-              hostel: hostelCode,
-              roomNo: rNum,
-              role: 'student',
-              isActive: true,
-            },
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
         studentsAllocated++;
       } else {
         // Exceeds 4 beds (e.g. Room 30 listed with 6 occupants in PDF)
@@ -202,47 +198,63 @@ async function syncPdfDataHelper(targetHostel = 'BH2') {
           reason: `Room ${rNum} capacity exceeded (listed 6 students in PDF for a 4-bed room). Beds 1-4 filled; placed in Unassigned Review list for reallocation.`,
         });
 
-        await User.findOneAndUpdate(
-          { $or: [{ rollNo: cand.mis }, { email }] },
-          {
-            $set: {
-              name: cand.name,
-              rollNo: cand.mis || undefined,
-              email,
-              hostel: hostelCode,
-              roomNo: null,
-              role: 'student',
-              isActive: true,
-            },
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
+        const existingOver = await User.findOne({
+          $or: [{ rollNo: cand.mis }, { email }],
+        });
+        if (existingOver) {
+          existingOver.name = cand.name;
+          if (cand.mis) existingOver.rollNo = cand.mis;
+          existingOver.email = email;
+          existingOver.hostel = hostelCode;
+          existingOver.roomNo = null;
+          existingOver.role = 'student';
+          existingOver.isActive = true;
+          await existingOver.save();
+        } else {
+          await User.create({
+            name: cand.name,
+            rollNo: cand.mis || undefined,
+            email,
+            hostel: hostelCode,
+            roomNo: null,
+            role: 'student',
+            isActive: true,
+          });
+        }
       }
     }
   }
 
-  // Also upsert any students in reviewList that had no room
+  // Also safely upsert any students in reviewList that had no room
   for (const unassignedItem of reviewList) {
     if (!unassignedItem.originalRoom) {
       const email = unassignedItem.rollNo
         ? `${unassignedItem.rollNo}@cse.iiitp.ac.in`
         : `${unassignedItem.name.toLowerCase().replace(/\s+/g, '')}@student.iiitp.ac.in`;
 
-      await User.findOneAndUpdate(
-        { $or: [{ rollNo: unassignedItem.rollNo }, { email }] },
-        {
-          $set: {
-            name: unassignedItem.name,
-            rollNo: unassignedItem.rollNo || undefined,
-            email,
-            hostel: hostelCode,
-            roomNo: null,
-            role: 'student',
-            isActive: true,
-          },
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
+      const existingUnassigned = await User.findOne({
+        $or: [{ rollNo: unassignedItem.rollNo }, { email }],
+      });
+      if (existingUnassigned) {
+        existingUnassigned.name = unassignedItem.name;
+        if (unassignedItem.rollNo) existingUnassigned.rollNo = unassignedItem.rollNo;
+        existingUnassigned.email = email;
+        existingUnassigned.hostel = hostelCode;
+        existingUnassigned.roomNo = null;
+        existingUnassigned.role = 'student';
+        existingUnassigned.isActive = true;
+        await existingUnassigned.save();
+      } else {
+        await User.create({
+          name: unassignedItem.name,
+          rollNo: unassignedItem.rollNo || undefined,
+          email,
+          hostel: hostelCode,
+          roomNo: null,
+          role: 'student',
+          isActive: true,
+        });
+      }
     }
   }
 
@@ -273,12 +285,7 @@ async function syncPdfDataHelper(targetHostel = 'BH2') {
  */
 async function ensureDefaultRoomsForHostel(hostelCode) {
   try {
-    if (hostelCode === 'BH2') {
-      await syncPdfDataHelper('BH2');
-      return;
-    }
-
-    // Default physical rooms template for campus hostels (BH1, GH1, GH2)
+    // Default physical rooms template for campus hostels (BH1, BH2, GH1, GH2)
     // 25 rooms per floor across Ground (G01-G25), 1st (101-125), 2nd (201-225), 3rd (301-325)
     // All created with capacity 4 beds and 0 occupants, awaiting allocation.
     const floors = [
@@ -304,6 +311,14 @@ async function ensureDefaultRoomsForHostel(hostelCode) {
 
     if (roomDefs.length > 0) {
       await Room.insertMany(roomDefs, { ordered: false }).catch(() => {});
+    }
+
+    if (hostelCode === 'BH2') {
+      try {
+        await syncPdfDataHelper('BH2');
+      } catch (syncErr) {
+        logger.warn(`[Rooms API] BH2 PDF sync in ensureDefaultRoomsForHostel: ${syncErr.message}`);
+      }
     }
   } catch (err) {
     logger.warn(`[Rooms API] ensureDefaultRoomsForHostel warning for ${hostelCode}: ${err.message}`);
@@ -342,22 +357,21 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
     const search = req.query.search ? String(req.query.search).trim() : '';
     const statusFilter = req.query.status ? String(req.query.status).trim().toLowerCase() : 'all';
 
+    // Ensure standard campus rooms exist for hostel if not yet configured
+    const existingRoomsCount = await Room.countDocuments({ hostelCode: hostel });
+    if (existingRoomsCount === 0) {
+      await ensureDefaultRoomsForHostel(hostel);
+    }
+
     // Auto-seed ONLY BH-2 from the Krishna PDF list if not fully populated
     if (hostel === 'BH2') {
-      const roomsCount = await Room.countDocuments({ hostelCode: 'BH2' });
       const studentCount = await User.countDocuments({ hostel: 'BH2', role: 'student', roomNo: { $ne: null } });
-      if (roomsCount < 100 || studentCount < 300) {
+      if (studentCount < 300) {
         try {
           await syncPdfDataHelper('BH2');
         } catch (e) {
           logger.warn(`[Rooms API] Auto-sync initial data warning for BH2: ` + e.message);
         }
-      }
-    } else {
-      // For BH1, GH1, GH2: Ensure default rooms exist if not yet configured (empty rooms, 0 students)
-      const existingRoomsCount = await Room.countDocuments({ hostelCode: hostel });
-      if (existingRoomsCount === 0) {
-        await ensureDefaultRoomsForHostel(hostel);
       }
     }
 
@@ -547,7 +561,17 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
 
     const uniqueFloors = Array.from(new Set(roomList.map((r) => r.floor)))
       .sort((a, b) => (FLOOR_ORDER[a] ?? 99) - (FLOOR_ORDER[b] ?? 99));
-    const availableFloors = ['All', ...(uniqueFloors.length > 0 ? uniqueFloors : ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'])];
+
+    // Ensure standard campus floors (Ground Floor, 1st Floor, 2nd Floor, 3rd Floor) are always available
+    const standardFloors = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+    const floorList = [...uniqueFloors];
+    for (const sf of standardFloors) {
+      if (!floorList.includes(sf)) {
+        floorList.push(sf);
+      }
+    }
+    floorList.sort((a, b) => (FLOOR_ORDER[a] ?? 99) - (FLOOR_ORDER[b] ?? 99));
+    const availableFloors = ['All', ...floorList];
 
     const allStudents = [
       ...roomList.flatMap((r) => r.students),
