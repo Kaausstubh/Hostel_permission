@@ -1168,16 +1168,35 @@ export default function StudentDashboard() {
         return;
       }
       await submitComplaint(text);
+    } else if (['1', 'inout', 'in out', 'in/out'].includes(t)) {
+      handleButton('1', '🔄 In/Out Request');
+    } else if (['2', 'home', 'home visit', 'leave'].includes(t)) {
+      handleButton('2', '🏠 Home Visit Request');
+    } else if (['parent', 'parent visit', 'visitor', 'visit'].includes(t)) {
+      handleButton('parent_visit', '👨‍👩‍👦 Parent Visit Request');
+    } else if (['3', 'complaint', 'complain', 'maintenance'].includes(t)) {
+      handleButton('3', '🧾 File a Complaint');
+    } else if (['4', 'status', 'my status', 'qr', 'pass', 'gate pass'].includes(t)) {
+      handleButton('4', '📊 View My Status');
+    } else if (['room', 'roommate', 'roommates'].includes(t)) {
+      setShowRoomInfoModal(true);
+      botSay('🛏️ Opened your Room & Roommates info window.');
+    } else if (['attendance', 'present', 'absent'].includes(t)) {
+      if (attendanceStatus?.hasPending) {
+        setAttendancePromptOpenTrigger((prev) => prev + 1);
+      } else {
+        setAttendanceHistoryOpen(true);
+      }
     } else if ([
       STEPS.HV_REASON, STEPS.HV_PLACE, STEPS.HV_LEAVE, STEPS.HV_RETURN,
       STEPS.CPL_PHOTO, STEPS.CPL_TEXT, STEPS.INOUT_OTHER
     ].includes(step)) {
       botSay('You\'re in the middle of a request. Type *menu* for main menu, or use *Restart home visit* if dates are wrong.');
     } else {
-      if (['hi', 'hello'].includes(t)) {
+      if (['hi', 'hello', 'hey', 'start'].includes(t)) {
         goToMainMenu();
       } else {
-        botSay('Type *menu* to see options, or use the buttons above.');
+        botSay('Type *1-4* or *menu* to see options, or tap the buttons above.');
       }
     }
   };
@@ -2189,14 +2208,29 @@ export default function StudentDashboard() {
   const renderBubble = (m) => {
     const isUser = m.sender === USER;
     const bubbleBase = {
-      maxWidth: isMobile ? '92%' : '75%',
-      padding: '10px 14px 6px',
+      maxWidth: isMobile ? '94%' : '78%',
+      padding: '12px 16px 8px',
       borderRadius: isUser ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-      fontSize: 14,
-      lineHeight: 1.55,
-      boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+      fontSize: 14.5,
+      lineHeight: 1.6,
+      boxShadow: theme === 'light' ? '0 2px 8px rgba(15, 23, 42, 0.06)' : '0 4px 18px rgba(0, 0, 0, 0.35)',
       whiteSpace: 'pre-wrap',
       wordBreak: 'break-word',
+      border: isUser
+        ? 'none'
+        : theme === 'light'
+        ? '1.5px solid #cbd5e1'
+        : '1.5px solid rgba(139, 92, 246, 0.35)',
+      background: isUser
+        ? 'linear-gradient(135deg, #6366f1, #4f46e5)'
+        : theme === 'light'
+        ? '#ffffff'
+        : '#151538',
+      color: isUser
+        ? '#ffffff'
+        : theme === 'light'
+        ? '#0f172a'
+        : '#ffffff',
     };
 
     if (m.type === 'qr') {
@@ -2316,22 +2350,25 @@ export default function StudentDashboard() {
       const hasQrActions = m.meta.buttons?.some((btn) => btn.id?.startsWith('qr_'));
       const isInteractiveButtons = isLatestButtons || hasFlowActions || hasQrActions;
       return (
-        <div style={{ alignSelf: 'flex-start', maxWidth: '80%', opacity: isInteractiveButtons ? 1 : 0.5, pointerEvents: isInteractiveButtons ? 'auto' : 'none' }}>
-          {/* Text bubble */}
+        <div style={{ alignSelf: 'flex-start', maxWidth: isMobile ? '100%' : '82%', width: '100%' }}>
+          {/* Text bubble - ALWAYS 100% VISIBLE */}
           <div style={{
             ...bubbleBase,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--glass-border)',
-            color: 'var(--text-primary)',
-            marginBottom: 8,
+            marginBottom: 10,
           }}>
             {formatChatContent(m.content)}
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
+            <div style={{
+              fontSize: 11,
+              color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.65)',
+              textAlign: 'right',
+              marginTop: 4,
+              fontWeight: 600,
+            }}>
               {m.time}
             </div>
           </div>
           {/* Quick-reply buttons */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
             {m.meta.buttons.map((btn) => {
               const isFlowBtn = btn.id?.startsWith('flow_');
               const isQrBtn = btn.id?.startsWith('qr_');
@@ -2343,6 +2380,11 @@ export default function StudentDashboard() {
                   className="chat-quick-reply-btn"
                   onClick={() => canClick && handleButton(btn.id, btn.label)}
                   disabled={loading || !canClick}
+                  style={{
+                    opacity: canClick ? 1 : 0.72,
+                    cursor: canClick ? 'pointer' : 'default',
+                    pointerEvents: canClick ? 'auto' : 'none',
+                  }}
                 >
                   {btn.label}
                 </button>
@@ -2371,32 +2413,37 @@ export default function StudentDashboard() {
           className="chat-date-picker-wrap"
           style={{
             alignSelf: 'flex-start',
-            width: 'min(100%, 320px)',
-            opacity: isActiveDatePicker ? 1 : 0.5,
+            width: 'min(100%, 340px)',
           }}
         >
+          {/* Text bubble - ALWAYS 100% VISIBLE */}
           <div style={{
             ...bubbleBase,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--glass-border)',
-            color: 'var(--text-primary)',
             marginBottom: 10,
             maxWidth: '100%',
           }}>
             {formatChatContent(m.content)}
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
+            <div style={{
+              fontSize: 11,
+              color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.65)',
+              textAlign: 'right',
+              marginTop: 4,
+              fontWeight: 600,
+            }}>
               {m.time}
             </div>
           </div>
-          <ChatDatePicker
-            key={`${m.id}-${pickerStep}-${dateMin}`}
-            label={isReturn ? 'Select return date' : 'Select leave date'}
-            min={dateMin}
-            max={dateMax}
-            isReturnStep={isReturn}
-            disabled={loading || !isActiveDatePicker}
-            onConfirm={(value) => processHomeVisitDate(value, pickerStep, { echoUser: true })}
-          />
+          <div style={{ opacity: isActiveDatePicker ? 1 : 0.72, pointerEvents: isActiveDatePicker ? 'auto' : 'none' }}>
+            <ChatDatePicker
+              key={`${m.id}-${pickerStep}-${dateMin}`}
+              label={isReturn ? 'Select return date' : 'Select leave date'}
+              min={dateMin}
+              max={dateMax}
+              isReturnStep={isReturn}
+              disabled={loading || !isActiveDatePicker}
+              onConfirm={(value) => processHomeVisitDate(value, pickerStep, { echoUser: true })}
+            />
+          </div>
           {isActiveDatePicker && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               {FLOW_RECOVERY_BUTTONS.map((btn) => (
@@ -2424,34 +2471,38 @@ export default function StudentDashboard() {
       return (
         <div style={{
           alignSelf: 'flex-start',
-          width: 'min(100%, 360px)',
-          opacity: isActive ? 1 : 0.65,
-          pointerEvents: isActive ? 'auto' : 'none',
+          width: isMobile ? '100%' : 'min(100%, 380px)',
+          opacity: 1,
         }}>
-          {/* Bot prompt bubble */}
+          {/* Bot prompt bubble - ALWAYS 100% VISIBLE */}
           <div style={{
             ...bubbleBase,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--glass-border)',
-            color: 'var(--text-primary)',
             marginBottom: 10,
           }}>
             {formatChatContent(m.content)}
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
+            <div style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.65)',
+              textAlign: 'right',
+              marginTop: 4,
+            }}>
               {m.time}
             </div>
           </div>
 
           {/* Interactive photo capture card */}
           <div style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--glass-border)',
+            background: theme === 'light' ? '#ffffff' : '#151538',
+            border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(139, 92, 246, 0.35)',
             borderRadius: 16,
             padding: 16,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            boxShadow: theme === 'light' ? '0 4px 16px rgba(0,0,0,0.06)' : '0 8px 24px rgba(0,0,0,0.3)',
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
+            opacity: isActive ? 1 : 0.72,
+            pointerEvents: isActive ? 'auto' : 'none',
           }}>
             {/* If photo is selected: preview */}
             {complaintPhoto ? (
@@ -2460,7 +2511,7 @@ export default function StudentDashboard() {
                   position: 'relative',
                   borderRadius: 12,
                   overflow: 'hidden',
-                  border: '1px solid var(--glass-border)',
+                  border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(139, 92, 246, 0.35)',
                   background: '#000',
                   display: 'flex',
                   alignItems: 'center',
@@ -2496,10 +2547,10 @@ export default function StudentDashboard() {
                     onChange={(e) => setComplaintNote(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '9px 14px',
+                      padding: '10px 14px',
                       borderRadius: 10,
-                      border: '1px solid var(--glass-border)',
-                      background: 'var(--bg-input)',
+                      border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(139, 92, 246, 0.35)',
+                      background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.05)',
                       color: 'var(--text-primary)',
                       fontSize: 13,
                       boxSizing: 'border-box',
@@ -2570,10 +2621,10 @@ export default function StudentDashboard() {
                       onChange={(e) => setComplaintNote(e.target.value)}
                       style={{
                         width: '100%',
-                        padding: '9px 14px',
+                        padding: '10px 14px',
                         borderRadius: 10,
-                        border: '1px solid var(--glass-border)',
-                        background: 'var(--bg-input)',
+                        border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(139, 92, 246, 0.35)',
+                        background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.05)',
                         color: 'var(--text-primary)',
                         fontSize: 13,
                         boxSizing: 'border-box',
@@ -2595,7 +2646,7 @@ export default function StudentDashboard() {
                         gap: 8,
                         padding: '11px 16px',
                         borderRadius: 10,
-                        background: 'var(--primary)',
+                        background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                         color: '#fff',
                         fontWeight: 700,
                         fontSize: 13.5,
@@ -2621,9 +2672,9 @@ export default function StudentDashboard() {
                         gap: 8,
                         padding: '10px 16px',
                         borderRadius: 10,
-                        background: 'transparent',
+                        background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.04)',
                         color: 'var(--text-primary)',
-                        border: '1px solid var(--glass-border)',
+                        border: theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(139, 92, 246, 0.3)',
                         fontWeight: 600,
                         fontSize: 13,
                         cursor: 'pointer',
@@ -2639,7 +2690,7 @@ export default function StudentDashboard() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   paddingTop: 8,
-                  borderTop: '1px solid var(--glass-border)',
+                  borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(139, 92, 246, 0.25)',
                 }}>
                   <button
                     type="button"
@@ -2648,8 +2699,8 @@ export default function StudentDashboard() {
                       botSay('📝 Please type your detailed complaint description:');
                     }}
                     style={{
-                      background: 'none', border: 'none', color: 'var(--text-muted)',
-                      fontSize: 12, cursor: 'pointer', textDecoration: 'underline',
+                      background: 'none', border: 'none', color: 'var(--text-secondary)',
+                      fontSize: 12, cursor: 'pointer', textDecoration: 'underline', fontWeight: 600,
                     }}
                   >
                     ⏩ Skip photo & type text
@@ -2659,8 +2710,8 @@ export default function StudentDashboard() {
                     type="button"
                     onClick={goToMainMenu}
                     style={{
-                      background: 'none', border: 'none', color: 'var(--text-muted)',
-                      fontSize: 12, cursor: 'pointer',
+                      background: 'none', border: 'none', color: 'var(--text-secondary)',
+                      fontSize: 12, cursor: 'pointer', fontWeight: 600,
                     }}
                   >
                     🏠 Main menu
@@ -2673,14 +2724,21 @@ export default function StudentDashboard() {
       );
     }
 
-    // Plain text bubble
+    // Plain text bubble - ALWAYS 100% VISIBLE WITH HIGH CONTRAST
     return (
       <div style={{
         ...bubbleBase,
         alignSelf: isUser ? 'flex-end' : 'flex-start',
-        background: isUser ? 'var(--primary)' : 'var(--bg-card)',
-        border: isUser ? 'none' : '1px solid var(--glass-border)',
-        color: isUser ? '#fff' : 'var(--text-primary)',
+        background: isUser
+          ? 'linear-gradient(135deg, #6366f1, #4f46e5)'
+          : (theme === 'light' ? '#ffffff' : '#151538'),
+        border: isUser
+          ? '1px solid rgba(255, 255, 255, 0.25)'
+          : (theme === 'light' ? '1.5px solid #cbd5e1' : '1.5px solid rgba(139, 92, 246, 0.35)'),
+        color: isUser ? '#ffffff' : (theme === 'light' ? '#0f172a' : '#ffffff'),
+        boxShadow: isUser
+          ? '0 4px 14px rgba(99, 102, 241, 0.25)'
+          : (theme === 'light' ? '0 2px 10px rgba(0,0,0,0.06)' : '0 4px 16px rgba(0,0,0,0.3)'),
       }}>
         {formatChatContent(m.content)}
         {m.meta?.photo && (
@@ -2688,7 +2746,7 @@ export default function StudentDashboard() {
             marginTop: 8,
             borderRadius: 10,
             overflow: 'hidden',
-            border: '1px solid var(--glass-border)',
+            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(139, 92, 246, 0.35)',
             background: 'rgba(0, 0, 0, 0.25)',
             maxHeight: 220,
             display: 'flex',
@@ -2708,11 +2766,14 @@ export default function StudentDashboard() {
           </div>
         )}
         <div style={{
-          fontSize: 10, marginTop: 4, textAlign: 'right',
-          color: isUser ? 'rgba(255,255,255,0.6)' : 'var(--text-muted)',
+          fontSize: 11,
+          fontWeight: 600,
+          marginTop: 6,
+          textAlign: 'right',
+          color: isUser ? 'rgba(255, 255, 255, 0.88)' : (theme === 'light' ? '#64748b' : '#94a3b8'),
         }}>
           {m.time}
-          {isUser && <span style={{ marginLeft: 4 }}>✓✓</span>}
+          {isUser && <span style={{ marginLeft: 4, color: '#a5f3fc', fontWeight: 700 }}>✓✓</span>}
         </div>
       </div>
     );
@@ -2891,14 +2952,14 @@ export default function StudentDashboard() {
         {isMobile ? (
           <div style={{
             padding: '8px 12px',
-            background: 'var(--bg-card)',
-            borderBottom: '1px solid var(--glass-border)',
+            background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
+            borderBottom: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid var(--glass-border)',
             boxShadow: 'var(--shadow-sm)',
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
           }}>
-            {/* Mobile Row 1: Bot info (left) & Show QR Pass + Theme Toggle (right) */}
+            {/* Mobile Row 1: Bot info (left) & Student pill + Theme toggle + Logout (right) */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -2929,10 +2990,18 @@ export default function StudentDashboard() {
                   />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 14.5, color: 'var(--text-primary)', letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{
+                    fontWeight: 800,
+                    fontSize: 14,
+                    color: 'var(--text-primary)',
+                    letterSpacing: '0.01em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
                     HEIMDALL Bot
                   </div>
-                  <div style={{ fontSize: 11, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
+                  <div style={{ fontSize: 11, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 5px #10b981' }} />
                     Online
                   </div>
@@ -2940,168 +3009,39 @@ export default function StudentDashboard() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {/* Attendance Status & Geofence Verification Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (attendanceStatus?.hasPending) {
-                      setAttendancePromptOpenTrigger((prev) => prev + 1);
-                    } else {
-                      setAttendanceHistoryOpen(true);
-                    }
-                  }}
-                  style={{
-                    background: attendanceStatus?.hasPending
-                      ? 'linear-gradient(135deg, #4f46e5, #06b6d4)'
-                      : attendanceStatus?.todayRecord?.status === 'present'
-                      ? 'rgba(16, 185, 129, 0.14)'
-                      : attendanceStatus?.todayRecord?.status === 'absent'
-                      ? 'rgba(239, 68, 68, 0.14)'
-                      : (theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)'),
-                    color: attendanceStatus?.hasPending
-                      ? '#ffffff'
-                      : attendanceStatus?.todayRecord?.status === 'present'
-                      ? '#10b981'
-                      : attendanceStatus?.todayRecord?.status === 'absent'
-                      ? '#ef4444'
-                      : 'var(--text-primary)',
-                    border: attendanceStatus?.hasPending
-                      ? 'none'
-                      : attendanceStatus?.todayRecord?.status === 'present'
-                      ? '1px solid rgba(16, 185, 129, 0.4)'
-                      : attendanceStatus?.todayRecord?.status === 'absent'
-                      ? '1px solid rgba(239, 68, 68, 0.4)'
-                      : (theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)'),
-                    fontWeight: 700,
-                    padding: '5px 10px',
-                    fontSize: 11.5,
-                    borderRadius: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    cursor: 'pointer',
-                    boxShadow: attendanceStatus?.hasPending ? '0 0 14px rgba(79, 70, 229, 0.65)' : 'none',
-                    animation: attendanceStatus?.hasPending ? 'pulse 1.6s infinite' : 'none',
-                    flexShrink: 0,
-                  }}
-                  title="Hostel Night Attendance Status — Tap to Verify or View Records"
-                >
-                  <span>
-                    {attendanceStatus?.hasPending
-                      ? '📍'
-                      : attendanceStatus?.todayRecord?.status === 'present'
-                      ? '✅'
-                      : attendanceStatus?.todayRecord?.status === 'absent'
-                      ? '❌'
-                      : '📋'}
+                {/* Student pill */}
+                <div style={{
+                  padding: '4px 8px',
+                  borderRadius: 99,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: theme === 'light' ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.18)',
+                  color: 'var(--primary-light)',
+                  border: theme === 'light' ? '1px solid rgba(99,102,241,0.25)' : '1px solid rgba(99,102,241,0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  maxWidth: 105,
+                }}>
+                  <StudentAvatar student={user} size={17} style={{ flexShrink: 0 }} />
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {user?.name ? user.name.split(' ')[0] : 'Student'}
                   </span>
-                  <span>
-                    {attendanceStatus?.hasPending
-                      ? 'Mark Attendance'
-                      : attendanceStatus?.todayRecord?.status === 'present'
-                      ? 'Present'
-                      : attendanceStatus?.todayRecord?.status === 'absent'
-                      ? 'Absent'
-                      : 'Attendance'}
-                  </span>
-                </button>
-
-                {/* Parent Visit Notification / Status Button */}
-                {pendingVisitorRequests.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
-                    style={{
-                      background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
-                      color: '#ffffff',
-                      border: 'none',
-                      fontWeight: 800,
-                      padding: '5px 10px',
-                      fontSize: 11.5,
-                      borderRadius: 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      cursor: 'pointer',
-                      boxShadow: '0 0 14px rgba(245, 158, 11, 0.65)',
-                      animation: 'pulse 1.6s infinite',
-                    }}
-                    title="Parent/Visitor waiting at gate for approval"
-                  >
-                    <span>🔔</span>
-                    <span>Parent Visit ({pendingVisitorRequests.length})</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowParentVisitInfoModal(true)}
-                    style={{
-                      background: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
-                      color: 'var(--text-primary)',
-                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)',
-                      fontWeight: 700,
-                      padding: '5px 10px',
-                      fontSize: 11.5,
-                      borderRadius: 10,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      cursor: 'pointer',
-                    }}
-                    title="Parent / Visitor Gate Pass & Clearance Status"
-                  >
-                    <span>👨‍👩‍👦</span>
-                    <span>Parent Visits</span>
-                  </button>
-                )}
-
-                {/* View Status / Active QR Pass Button */}
-                <button
-                  onClick={handleQuickViewQR}
-                  disabled={qrQuickLoading}
-                  title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
-                  aria-label="View Active QR Pass"
-                  className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
-                  style={{ padding: '6px 12px', fontSize: 12, gap: 5 }}
-                >
-                  <MdQrCode2
-                    size={18}
-                    style={{
-                      animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
-                    {activePasses.length > 0 ? 'Show QR Pass' : 'Gate Pass QR'}
-                  </span>
-                  {activePasses.length > 0 && (
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: '#ffffff',
-                        boxShadow: '0 0 6px #ffffff',
-                        display: 'inline-block',
-                        marginLeft: 2,
-                      }}
-                    />
-                  )}
-                </button>
+                </div>
 
                 {/* Theme Toggle */}
                 <button
                   onClick={toggleTheme}
                   style={{
-                    background: 'var(--bg-input, rgba(255, 255, 255, 0.05))',
-                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
-                    color: 'var(--text-secondary, #cbd5e1)',
+                    background: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
+                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.15)',
+                    color: 'var(--text-primary)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: 32,
-                    height: 32,
+                    width: 30,
+                    height: 30,
                     borderRadius: '50%',
                     transition: 'all 0.2s ease',
                     flexShrink: 0,
@@ -3109,58 +3049,216 @@ export default function StudentDashboard() {
                   aria-label="Toggle theme"
                   title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
                 >
-                  {theme === 'light' ? <MdDarkMode size={16} /> : <MdLightMode size={16} />}
+                  {theme === 'light' ? <MdDarkMode size={15} /> : <MdLightMode size={15} />}
+                </button>
+
+                {/* Logout Button */}
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(239,68,68,0.35)',
+                    background: 'rgba(239,68,68,0.08)',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Logout"
+                >
+                  <MdLogout size={14} />
                 </button>
               </div>
             </div>
 
-            {/* Mobile Row 2: Student part (left) & Logout button (right) */}
+            {/* Mobile Row 2: 3-column action grid (Attendance | Gate Pass QR | Parent Visits) */}
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 6,
               paddingTop: 6,
-              borderTop: '1px solid var(--glass-border)',
+              borderTop: theme === 'light' ? '1px solid #e2e8f0' : '1px solid var(--glass-border)',
             }}>
-              <div style={{
-                padding: '4px 10px',
-                borderRadius: 99,
-                fontSize: 11.5,
-                fontWeight: 700,
-                background: 'rgba(99,102,241,0.12)',
-                color: 'var(--primary-light)',
-                border: '1px solid rgba(99,102,241,0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                minWidth: 0,
-              }}>
-                <StudentAvatar student={user} size={20} style={{ flexShrink: 0 }} />
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  🎓 {user?.name ? `${user.name.split(' ')[0]} (Student)` : 'Student'}
-                </span>
-              </div>
-
+              {/* 1. Attendance Status & Verification Button */}
               <button
-                onClick={handleLogout}
+                type="button"
+                onClick={() => {
+                  if (attendanceStatus?.hasPending) {
+                    setAttendancePromptOpenTrigger((prev) => prev + 1);
+                  } else {
+                    setAttendanceHistoryOpen(true);
+                  }
+                }}
                 style={{
-                  padding: '5px 12px',
-                  borderRadius: 99,
-                  fontSize: 11.5,
+                  background: attendanceStatus?.hasPending
+                    ? 'linear-gradient(135deg, #4f46e5, #06b6d4)'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.16)')
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.16)')
+                    : (theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)'),
+                  color: attendanceStatus?.hasPending
+                    ? '#ffffff'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? (theme === 'light' ? '#047857' : '#34d399')
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? (theme === 'light' ? '#b91c1c' : '#f87171')
+                    : 'var(--text-primary)',
+                  border: attendanceStatus?.hasPending
+                    ? 'none'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? '1.5px solid #10b981'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '1.5px solid #ef4444'
+                    : (theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.2)'),
                   fontWeight: 700,
-                  border: '1px solid rgba(239,68,68,0.35)',
-                  background: 'rgba(239,68,68,0.08)',
-                  color: '#f87171',
-                  cursor: 'pointer',
+                  height: 36,
+                  padding: '0 4px',
+                  fontSize: 11,
+                  borderRadius: 10,
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: 4,
-                  flexShrink: 0,
+                  cursor: 'pointer',
+                  boxShadow: attendanceStatus?.hasPending ? '0 0 14px rgba(79, 70, 229, 0.65)' : 'none',
+                  animation: attendanceStatus?.hasPending ? 'pulse 1.6s infinite' : 'none',
+                  width: '100%',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                title="Hostel Night Attendance Status — Tap to Verify or View Records"
+              >
+                <span>
+                  {attendanceStatus?.hasPending
+                    ? '📍'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? '✅'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '❌'
+                    : '📋'}
+                </span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {attendanceStatus?.hasPending
+                    ? 'Attendance'
+                    : attendanceStatus?.todayRecord?.status === 'present'
+                    ? 'Present'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? 'Absent'
+                    : 'Attendance'}
+                </span>
+              </button>
+
+              {/* 2. Gate Pass QR Button */}
+              <button
+                onClick={handleQuickViewQR}
+                disabled={qrQuickLoading}
+                title={activePasses.length > 0 ? "Active Gate Pass Ready — Click to View QR" : "Show Gate Pass QR / Status"}
+                aria-label="View Active QR Pass"
+                className={`student-qr-gatepass-btn ${activePasses.length > 0 ? 'active' : 'idle'}`}
+                style={{
+                  height: 36,
+                  padding: '0 4px',
+                  fontSize: 11,
+                  gap: 4,
+                  width: '100%',
+                  justifyContent: 'center',
+                  borderRadius: 10,
                 }}
               >
-                <MdLogout size={13} /> Logout
+                <MdQrCode2
+                  size={15}
+                  style={{
+                    animation: qrQuickLoading ? 'spin 1s linear infinite' : 'none',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {activePasses.length > 0 ? 'Show Pass' : 'Gate Pass'}
+                </span>
+                {activePasses.length > 0 && (
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: '#ffffff',
+                      boxShadow: '0 0 6px #ffffff',
+                      display: 'inline-block',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
               </button>
+
+              {/* 3. Parent Visits Button */}
+              {pendingVisitorRequests.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveVisitorModal(pendingVisitorRequests[0])}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 800,
+                    height: 36,
+                    padding: '0 4px',
+                    fontSize: 11,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    cursor: 'pointer',
+                    boxShadow: '0 0 14px rgba(245, 158, 11, 0.65)',
+                    animation: 'pulse 1.6s infinite',
+                    width: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title="Parent/Visitor waiting at gate for approval"
+                >
+                  <span>🔔</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Visits ({pendingVisitorRequests.length})
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowParentVisitInfoModal(true)}
+                  style={{
+                    background: theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)',
+                    color: 'var(--text-primary)',
+                    border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.2)',
+                    fontWeight: 700,
+                    height: 36,
+                    padding: '0 4px',
+                    fontSize: 11,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    cursor: 'pointer',
+                    width: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title="Parent / Visitor Gate Pass & Clearance Status"
+                >
+                  <span>👨‍👩‍👦</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Visits</span>
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -3545,55 +3643,79 @@ export default function StudentDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input bar */}
-        {[STEPS.INOUT_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.CPL_TEXT].includes(step) && (
+        {/* Always-accessible Chat Input Bar */}
+        <div style={{
+          padding: isMobile ? '8px 10px' : '12px 24px',
+          background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
+          borderTop: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid var(--glass-border)',
+          boxShadow: theme === 'light' ? '0 -2px 10px rgba(0,0,0,0.03)' : 'none',
+        }}>
+          <form onSubmit={handleSend} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              id="chatbot-input"
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
+                step === STEPS.HV_PLACE
+                  ? 'Type destination place, or menu to go back...' :
+                step === STEPS.INOUT_OTHER
+                  ? 'Type destination, or menu to go back...' :
+                step === STEPS.CPL_PHOTO
+                  ? 'Optional: type room number or notes for photo...' :
+                step === STEPS.CPL_TEXT ? 'Describe complaint, or menu / cancel...' :
+                'Type a message, 1-4, or menu...'
+              }
+              style={{
+                flex: 1,
+                padding: isMobile ? '10px 14px' : '11px 18px',
+                borderRadius: 24,
+                border: theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(139, 92, 246, 0.35)',
+                background: theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.06)',
+                color: 'var(--text-primary)',
+                fontSize: 14,
+                outline: 'none',
+                transition: 'all 0.15s ease',
+              }}
+              disabled={loading}
+            />
+            <button
+              id="chatbot-send"
+              type="submit"
+              disabled={loading || !input.trim()}
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: '50%',
+                border: 'none',
+                background: loading || !input.trim()
+                  ? (theme === 'light' ? '#cbd5e1' : 'rgba(99,102,241,0.25)')
+                  : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s',
+                flexShrink: 0,
+                boxShadow: loading || !input.trim() ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
+              }}
+              title="Send message"
+            >
+              <MdSend size={18} style={{ marginLeft: 2 }} />
+            </button>
+          </form>
           <div style={{
-            padding: isMobile ? '10px 10px' : '12px 24px',
-            background: 'var(--bg-card)',
-            borderTop: '1px solid var(--glass-border)',
+            fontSize: 11,
+            color: theme === 'light' ? '#64748b' : '#94a3b8',
+            textAlign: 'center',
+            marginTop: 5,
+            fontWeight: 500,
           }}>
-            <form onSubmit={handleSend} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input
-                id="chatbot-input"
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
-                  step === STEPS.HV_PLACE
-                    ? 'Type destination place, or menu to go back...' :
-                  step === STEPS.INOUT_OTHER
-                    ? 'Type destination, or menu to go back...' :
-                  step === STEPS.CPL_PHOTO
-                    ? 'Optional: type room number or notes for photo...' :
-                  step === STEPS.CPL_TEXT   ? 'Describe complaint, or menu / cancel...' :
-                  'Type a message...'
-                }
-                style={{
-                  flex: 1, padding: '11px 18px', borderRadius: 24,
-                  border: '1px solid var(--glass-border)',
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-primary)', fontSize: 14, outline: 'none',
-                }}
-                disabled={loading}
-                autoFocus
-              />
-              <button id="chatbot-send" type="submit" disabled={loading || !input.trim()}
-                style={{
-                  width: 44, height: 44, borderRadius: '50%', border: 'none',
-                  background: loading || !input.trim() ? 'rgba(99,102,241,0.3)' : 'var(--primary)',
-                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s', flexShrink: 0,
-                }}>
-                <MdSend size={18} style={{ marginLeft: 2 }} />
-              </button>
-            </form>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 6 }}>
-              Type <strong>menu</strong> anytime to return to the main menu
-            </div>
+            Type <strong style={{ color: 'var(--text-primary)' }}>1-4</strong> or <strong style={{ color: 'var(--text-primary)' }}>menu</strong> anytime for quick options
           </div>
-        )}
+        </div>
       </div>
 
       {/* ── QR Zoom Modal ── */}
