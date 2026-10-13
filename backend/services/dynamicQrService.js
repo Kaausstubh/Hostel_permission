@@ -85,7 +85,7 @@ const issueDynamicPassToken = async (student, passInfo, options = {}) => {
     token,
     `dyn_${sId}_${Date.now()}`,
     {
-      errorCorrectionLevel: 'H',
+      errorCorrectionLevel: 'M',
       width: 512,
       margin: 4,
     }
@@ -120,7 +120,7 @@ const verifyDynamicPassToken = (token) => {
     return {
       valid: false,
       code: 'EXPIRED_OR_LEGACY',
-      error: 'Static QR code rejected. Anti-replay security requires a live dynamic pass from the student dashboard.',
+      error: 'Static QR code rejected by dynamic validator.',
     };
   }
 
@@ -157,7 +157,7 @@ const verifyDynamicPassToken = (token) => {
         valid: false,
         code: 'EXPIRED',
         expired: true,
-        error: 'QR code expired. Student must present a live pass from the dashboard.',
+        error: 'QR token expired (> 20s old). Student must present a live pass from the dashboard.',
       };
     }
     return {

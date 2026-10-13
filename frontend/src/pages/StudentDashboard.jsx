@@ -2240,25 +2240,25 @@ export default function StudentDashboard() {
     if (m.type === 'qr') {
       const pass = getPassDisplay(m.meta);
       return (
-        <div style={{ maxWidth: 210, alignSelf: 'flex-start' }}>
+        <div style={{ maxWidth: 270, width: '100%', alignSelf: 'flex-start' }}>
           <div style={{
             background: 'var(--bg-card)',
-            borderRadius: 14,
+            borderRadius: 16,
             overflow: 'hidden',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+            boxShadow: '0 4px 18px rgba(0, 0, 0, 0.09)',
             border: '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
           }}>
             {/* Header */}
             <div style={{
-              padding: '10px 12px',
+              padding: '11px 14px',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: 9,
               borderBottom: '1px solid var(--border-color, rgba(148, 163, 184, 0.2))',
             }}>
               <div style={{
-                width: 28,
-                height: 28,
+                width: 30,
+                height: 30,
                 borderRadius: 8,
                 background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                 display: 'flex',
@@ -2266,23 +2266,23 @@ export default function StudentDashboard() {
                 justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <MdQrCode2 size={16} color="#fff" />
+                <MdQrCode2 size={18} color="#fff" />
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {pass.cardTitle}
                 </div>
-                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {pass.cardSubtitle}
                 </div>
               </div>
             </div>
 
-            {/* QR image - Compact & Attractive */}
+            {/* QR image - Big, prominent & chunky Version 1 */}
             <div
               data-sensitive
               style={{
-                padding: '12px 10px',
+                padding: '12px 14px',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -2294,9 +2294,9 @@ export default function StudentDashboard() {
               {m.meta.qrDataUrl ? (
                 <div style={{
                   background: '#ffffff',
-                  padding: 8,
-                  borderRadius: 10,
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                  padding: 10,
+                  borderRadius: 12,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.1)',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2306,8 +2306,8 @@ export default function StudentDashboard() {
                     src={m.meta.qrDataUrl}
                     alt="Gate pass QR code"
                     style={{
-                      width: 130,
-                      height: 130,
+                      width: 200,
+                      height: 200,
                       borderRadius: 4,
                       display: 'block',
                       imageRendering: 'pixelated',
@@ -2316,21 +2316,21 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <div style={{
-                  width: 130,
-                  height: 130,
+                  width: 200,
+                  height: 200,
                   background: 'var(--bg-input)',
-                  borderRadius: 10,
+                  borderRadius: 12,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#8696a0',
-                  fontSize: 11,
+                  fontSize: 12,
                 }}>
                   Loading QR...
                 </div>
               )}
-              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'center' }}>
-                Tap to enlarge • Live pass
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+                Tap to enlarge • Gate pass active
               </div>
             </div>
 
@@ -2338,7 +2338,7 @@ export default function StudentDashboard() {
             <div
               style={{
                 width: '100%',
-                padding: '8px 10px',
+                padding: '9px 12px',
                 borderTop: '1px solid var(--border-color, rgba(148, 163, 184, 0.2))',
                 background: pass.instructionType === 'OUT'
                   ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.18)')
@@ -2350,16 +2350,16 @@ export default function StudentDashboard() {
                   : pass.instructionType === 'IN'
                   ? (theme === 'light' ? '#065f46' : '#6ee7b7')
                   : (theme === 'light' ? '#312e81' : '#c7d2fe'),
-                fontSize: 11,
+                fontSize: 11.5,
                 fontWeight: 700,
                 textAlign: 'center',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 4,
+                gap: 5,
                 lineHeight: 1.3,
-                borderBottomLeftRadius: 14,
-                borderBottomRightRadius: 14,
+                borderBottomLeftRadius: 16,
+                borderBottomRightRadius: 16,
               }}
             >
               <span>{pass.instruction}</span>
@@ -3933,10 +3933,10 @@ export default function StudentDashboard() {
                     </span>
                     <span>
                       {isRotatingQr
-                        ? 'Refreshing secure token…'
+                        ? 'Verifying pass status…'
                         : isHomeVisit
-                        ? `Approved Home Visit • Rotating in ${qrCountdown}s`
-                        : `Daily Pass (Valid 15 Mins) • Rotating in ${qrCountdown}s`}
+                        ? 'Approved Home Visit • Gate Pass Active'
+                        : 'Daily Pass (Valid 15 Mins) • Gate Pass Active'}
                     </span>
                   </div>
 

@@ -122,10 +122,101 @@ const homeVisitPayloadFromRecord = (visit) => ({
   },
 });
 
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /** Resolve compact HV-*, IO-*, JWT, or DB token into a scan payload */
 const resolveScanPayload = async (token) => {
-  // 1. Dynamic short-lived token (primary security path)
-  const dynamicCheck = verifyDynamicPassToken(token);
+  const trimmed = String(token || '').trim();
+
+  // 1. Direct resolution for compact IO-* pass tokens
+  if (/^IO-/i.test(trimmed)) {
+    let gatePass = await GatePass.findOne({
+      qr_token: trimmed,
+      status: { $in: ['PENDING', 'OUTSIDE'] },
+    }).lean();
+
+    if (!gatePass) {
+      gatePass = await GatePass.findOne({
+        qr_token: new RegExp(`^${escapeRegex(trimmed)}$`, 'i'),
+        status: { $in: ['PENDING', 'OUTSIDE'] },
+      }).lean();
+    }
+
+    if (gatePass) {
+      if (gatePass.status === 'PENDING') {
+        const DAILY_PASS_VALIDITY_MS = 15 * 60 * 1000;
+        const createdAtTime = new Date(gatePass.createdAt || Date.now()).getTime();
+        const validUntilTime = gatePass.valid_until
+          ? new Date(gatePass.valid_until).getTime()
+          : createdAtTime + DAILY_PASS_VALIDITY_MS;
+        if (Date.now() > validUntilTime) {
+          await GatePass.updateOne({ _id: gatePass._id }, { status: 'EXPIRED' }).catch(() => {});
+          return {
+            error: 'Daily gate pass expired (valid for 15 minutes). Student must generate a new QR code to go out.',
+            code: 'EXPIRED',
+          };
+        }
+      }
+
+      return {
+        payload: {
+          type: 'inout_request',
+          student_id: gatePass.student_id.toString(),
+          pass_kind: 'inout',
+          pass_id: gatePass._id.toString(),
+          master_token: gatePass.qr_token,
+          scan_type: gatePass.status === 'OUTSIDE' ? 'IN' : 'OUT',
+          jti: `io_${gatePass._id}_${Date.now()}`,
+        },
+      };
+    }
+
+    // Check InOutLog if returning IN
+    const unreturnedLog = await InOutLog.findOne({
+      qr_token: trimmed,
+      status: 'OUT',
+      returned: false,
+    }).lean();
+
+    if (unreturnedLog) {
+      return {
+        payload: {
+          type: 'inout_request',
+          student_id: unreturnedLog.student_id.toString(),
+          pass_kind: 'inout',
+          pass_id: unreturnedLog._id.toString(),
+          master_token: unreturnedLog.qr_token,
+          scan_type: 'IN',
+          jti: `io_log_${unreturnedLog._id}_${Date.now()}`,
+        },
+      };
+    }
+
+    return { error: 'Gate pass not found, already completed, or expired.', code: 'INVALID' };
+  }
+
+  // 2. Direct resolution for compact HV-* pass tokens
+  if (/^HV-/i.test(trimmed)) {
+    const visit = await findHomeVisitByScanToken(trimmed);
+    if (visit) {
+      return {
+        payload: {
+          type: 'home_visit',
+          student_id: (visit.student_id?._id || visit.student_id).toString(),
+          visit_id: visit._id.toString(),
+          pass_kind: 'home_visit',
+          pass_id: visit._id.toString(),
+          master_token: visit.qr_token,
+          scan_type: visit.qr_used_out ? 'HOME IN' : 'HOME OUT',
+          jti: `hv_${visit._id}_${visit.qr_used_out ? 'in' : 'out'}_${Date.now()}`,
+        },
+      };
+    }
+    return { error: 'Home visit pass not found or not approved.', code: 'INVALID' };
+  }
+
+  // 3. Dynamic short-lived token (JWT)
+  const dynamicCheck = verifyDynamicPassToken(trimmed);
   if (!dynamicCheck.valid) {
     return { error: dynamicCheck.error, code: dynamicCheck.code };
   }
@@ -147,7 +238,7 @@ const resolveScanPayload = async (token) => {
     };
   }
 
-  // 2. Fallback for test/legacy signed JWTs
+  // 4. Fallback for test/legacy signed JWTs
   return {
     payload: {
       ...payload,

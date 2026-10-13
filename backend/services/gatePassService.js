@@ -22,7 +22,7 @@ const createCompactToken = () => `IO-${crypto.randomBytes(8).toString('base64url
  */
 const renderPassQR = async (token, studentId) => {
   return renderQRValue(token, `inout_pass_${studentId}_${Date.now()}`, {
-    errorCorrectionLevel: 'H',
+    errorCorrectionLevel: 'M',
     width: 512,
     margin: 4,
   });

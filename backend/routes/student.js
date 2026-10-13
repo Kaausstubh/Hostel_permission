@@ -29,6 +29,7 @@ const {
   issueHomeVisitGatePass,
   isLegacyHomeJwtToken,
   createHomeVisitCompactToken,
+  getHomeVisitPassData,
 } = require('../services/homeVisitQrService');
 const {
   INOUT_REQUEST_EXPIRY,
@@ -162,13 +163,6 @@ router.get('/status', async (req, res) => {
 
     let pendingInOutRequest = null;
     if (activePassInfo) {
-      const dynPass = await issueDynamicPassToken(req.user, {
-        passKind: 'inout',
-        passId: activePassInfo.pass._id,
-        masterToken: activePassInfo.token,
-        scanType: activePassInfo.scanType,
-      });
-
       pendingInOutRequest = {
         requestId: studentId.toString(),
         requestType: 'inout_request',
@@ -183,13 +177,12 @@ router.get('/status', async (req, res) => {
         reason: activePassInfo.pass.reason || unreturnedOut?.reason || '',
         scanType: activePassInfo.scanType,
         status: activePassInfo.status,
-        qrDataUrl: dynPass.qrDataUrl,
-        qrPublicUrl: dynPass.qrPublicUrl,
-        token: dynPass.token,
-        qrToken: dynPass.token,
-        expiresAt: dynPass.expiresAt,
-        expiresInSeconds: dynPass.expiresInSeconds,
-        refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+        qrDataUrl: activePassInfo.qrDataUrl,
+        qrPublicUrl: activePassInfo.qrPublicUrl,
+        token: activePassInfo.token,
+        qrToken: activePassInfo.token,
+        expiresAt: activePassInfo.validUntil,
+        expiresInSeconds: activePassInfo.expiresInSeconds,
       };
     }
 
@@ -199,21 +192,11 @@ router.get('/status', async (req, res) => {
       // If student already scanned OUT, keep QR valid for return scan regardless of return_date passed
       if (!visit.qr_used_out && visit.return_date < today) return null;
 
-      const scanType = visit.qr_used_out ? 'HOME IN' : 'HOME OUT';
-      const dynPass = await issueDynamicPassToken(req.user, {
-        passKind: 'home_visit',
-        passId: visit._id,
-        masterToken: visit.qr_token,
-        scanType,
-      });
-
+      const hvData = await getHomeVisitPassData(visit);
       return {
         ...visit,
-        qr_token: dynPass.token,
-        qrDataUrl: dynPass.qrDataUrl,
-        expiresAt: dynPass.expiresAt,
-        expiresInSeconds: dynPass.expiresInSeconds,
-        refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+        qr_token: hvData?.token || visit.qr_token,
+        qrDataUrl: hvData?.qrDataUrl,
       };
     };
 
@@ -278,12 +261,7 @@ router.get('/active-qr-pass', async (req, res) => {
     if (activeHomeVisit && (activeHomeVisit.qr_used_out || activeHomeVisit.return_date >= today)) {
       const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
       const scanType = scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT';
-      const dynPass = await issueDynamicPassToken(user, {
-        passKind: 'home_visit',
-        passId: activeHomeVisit._id,
-        masterToken: activeHomeVisit.qr_token,
-        scanType,
-      });
+      const hvData = await getHomeVisitPassData(activeHomeVisit);
 
       return res.json({
         success: true,
@@ -291,12 +269,9 @@ router.get('/active-qr-pass', async (req, res) => {
         passKind: 'home_visit',
         scanType,
         scanPhase,
-        token: dynPass.token,
-        qrToken: dynPass.token,
-        qrDataUrl: dynPass.qrDataUrl,
-        expiresAt: dynPass.expiresAt,
-        expiresInSeconds: dynPass.expiresInSeconds,
-        refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+        token: hvData?.token || activeHomeVisit.qr_token,
+        qrToken: hvData?.token || activeHomeVisit.qr_token,
+        qrDataUrl: hvData?.qrDataUrl,
         homeVisit: activeHomeVisit,
         student: {
           name: user.name,
@@ -310,13 +285,6 @@ router.get('/active-qr-pass', async (req, res) => {
     // 2. Check for active daily In/Out pass (PENDING or OUTSIDE)
     const activeInOut = await getActivePassForStudent(studentId, user);
     if (activeInOut) {
-      const dynPass = await issueDynamicPassToken(user, {
-        passKind: 'inout',
-        passId: activeInOut.pass._id,
-        masterToken: activeInOut.token,
-        scanType: activeInOut.scanType,
-      });
-
       return res.json({
         success: true,
         hasActivePass: true,
@@ -325,12 +293,10 @@ router.get('/active-qr-pass', async (req, res) => {
         status: activeInOut.status,
         validUntil: activeInOut.validUntil || activeInOut.pass.valid_until,
         passExpiresInSeconds: activeInOut.expiresInSeconds,
-        token: dynPass.token,
-        qrToken: dynPass.token,
-        qrDataUrl: dynPass.qrDataUrl,
-        expiresAt: dynPass.expiresAt,
-        expiresInSeconds: dynPass.expiresInSeconds,
-        refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+        token: activeInOut.token,
+        qrToken: activeInOut.token,
+        qrDataUrl: activeInOut.qrDataUrl,
+        qrPublicUrl: activeInOut.qrPublicUrl,
         pass: activeInOut.pass,
         place: activeInOut.pass.place || '',
         reason: activeInOut.pass.reason || '',
@@ -380,12 +346,7 @@ router.post('/get-or-create-pass', async (req, res) => {
       } else {
         const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
         const scanType = scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT';
-        const dynPass = await issueDynamicPassToken(user, {
-          passKind: 'home_visit',
-          passId: activeHomeVisit._id,
-          masterToken: activeHomeVisit.qr_token,
-          scanType,
-        });
+        const hvData = await getHomeVisitPassData(activeHomeVisit);
 
         return res.json({
           success: true,
@@ -393,12 +354,9 @@ router.post('/get-or-create-pass', async (req, res) => {
           passKind: 'home_visit',
           scanType,
           scanPhase,
-          token: dynPass.token,
-          qrToken: dynPass.token,
-          qrDataUrl: dynPass.qrDataUrl,
-          expiresAt: dynPass.expiresAt,
-          expiresInSeconds: dynPass.expiresInSeconds,
-          refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+          token: hvData?.token || activeHomeVisit.qr_token,
+          qrToken: hvData?.token || activeHomeVisit.qr_token,
+          qrDataUrl: hvData?.qrDataUrl,
           homeVisit: activeHomeVisit,
           student: {
             name: user.name,
@@ -413,13 +371,6 @@ router.post('/get-or-create-pass', async (req, res) => {
     // 2. Check for active daily In/Out pass (PENDING or OUTSIDE)
     const activeInOut = await getActivePassForStudent(studentId, user);
     if (activeInOut) {
-      const dynPass = await issueDynamicPassToken(user, {
-        passKind: 'inout',
-        passId: activeInOut.pass._id,
-        masterToken: activeInOut.token,
-        scanType: activeInOut.scanType,
-      });
-
       return res.json({
         success: true,
         hasActivePass: true,
@@ -428,13 +379,10 @@ router.post('/get-or-create-pass', async (req, res) => {
         status: activeInOut.status,
         validUntil: activeInOut.validUntil || activeInOut.pass.valid_until,
         passExpiresInSeconds: activeInOut.expiresInSeconds,
-        token: dynPass.token,
-        qrToken: dynPass.token,
-        qrDataUrl: dynPass.qrDataUrl,
-        qrPublicUrl: dynPass.qrPublicUrl,
-        expiresAt: dynPass.expiresAt,
-        expiresInSeconds: dynPass.expiresInSeconds,
-        refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+        token: activeInOut.token,
+        qrToken: activeInOut.token,
+        qrDataUrl: activeInOut.qrDataUrl,
+        qrPublicUrl: activeInOut.qrPublicUrl,
         pass: activeInOut.pass,
         student: {
           name: user.name,
@@ -503,13 +451,6 @@ router.post('/request-inout', async (req, res) => {
       );
     }
 
-    const dynPass = await issueDynamicPassToken(user, {
-      passKind: 'inout',
-      passId: activePass.pass._id,
-      masterToken: activePass.token,
-      scanType: activePass.scanType,
-    });
-
     res.json({
       success: true,
       message: `In/Out pass ready for ${activePass.scanType}`,
@@ -527,16 +468,15 @@ router.post('/request-inout', async (req, res) => {
         scanType: activePass.scanType,
         status: activePass.status,
       },
-      qrDataUrl: dynPass.qrDataUrl,
-      qrPublicUrl: dynPass.qrPublicUrl,
-      token: dynPass.token,
-      qrToken: dynPass.token,
-      expiresAt: dynPass.expiresAt,
-      expiresInSeconds: dynPass.expiresInSeconds,
-      refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
+      qrDataUrl: activePass.qrDataUrl,
+      qrPublicUrl: activePass.qrPublicUrl,
+      token: activePass.token,
+      qrToken: activePass.token,
+      expiresAt: activePass.validUntil || activePass.pass.valid_until,
+      expiresInSeconds: activePass.expiresInSeconds || 15 * 60,
       passValidityMinutes: 15,
       validUntil: activePass.validUntil || activePass.pass.valid_until,
-      expiresIn: '15 minutes (live rotating pass)',
+      expiresIn: '15 minutes',
       student: {
         name: user.name,
         rollNo: user.rollNo,

@@ -128,7 +128,7 @@ const issueHomeVisitGatePass = async (visit) => {
 
   const visitId = visit._id.toString();
   const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(token, `hv_${visitId}`, {
-    errorCorrectionLevel: 'H',
+    errorCorrectionLevel: 'M',
     width: 512,
     margin: 4,
   });
@@ -138,6 +138,23 @@ const issueHomeVisitGatePass = async (visit) => {
   const withToken = { ...visit, qr_token: token };
   await syncHomeVisitActiveQR(withToken, token);
 
+  return { token, qrDataUrl, qrPublicUrl, qrFilename };
+};
+
+/** Get or render pass data (token, qrDataUrl) for an approved home visit */
+const getHomeVisitPassData = async (visit) => {
+  if (visit.overall_status !== 'approved' || visit.qr_used_in) return null;
+  let token = visit.qr_token;
+  if (!token || isLegacyHomeJwtToken(token)) {
+    return issueHomeVisitGatePass(visit);
+  }
+  const visitId = visit._id.toString();
+  const { qrDataUrl, qrPublicUrl, qrFilename } = await renderQRValue(token, `hv_${visitId}`, {
+    errorCorrectionLevel: 'M',
+    width: 512,
+    margin: 4,
+  });
+  await syncHomeVisitActiveQR(visit, token);
   return { token, qrDataUrl, qrPublicUrl, qrFilename };
 };
 
@@ -262,6 +279,7 @@ module.exports = {
   createHomeVisitCompactToken,
   syncHomeVisitActiveQR,
   ensureHomeVisitQrToken,
+  getHomeVisitPassData,
   issueHomeVisitGatePass,
   listPendingHomeVisitPasses,
   migrateAllLegacyHomeVisitQrs,
