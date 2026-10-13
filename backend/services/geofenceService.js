@@ -1,7 +1,10 @@
 /**
  * Geofence Service
- * Robust server-side point-in-polygon and geodesic buffer distance calculations.
- * Completely zero external dependencies, highly performant and deterministic.
+ * Authoritative campus hostel coordinates:
+ * - BH2 (Krishna): 18°45'47.1"N 73°41'57.7"E (18.7630833, 73.6993611), radius 30m
+ * - BH1 (Brahmaputra): 18°45'50.8"N 73°41'57.4"E (18.7641111, 73.6992778), radius 30m
+ * - GH1 (Indrayani): 18°45'54.4"N 73°41'56.8"E (18.7651111, 73.6991111), radius 30m
+ * - GH2 (Sindhu): 18°45'54.4"N 73°41'56.8"E (18.7651111, 73.6991111), radius 30m
  */
 
 const HostelGeofence = require('../models/HostelGeofence');
@@ -9,6 +12,68 @@ const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
 const EARTH_RADIUS_METERS = 6371000;
+
+// Authoritative building center coordinates and strict 30m building radius
+const AUTHORITATIVE_HOSTEL_GEOFENCES = {
+  BH2: {
+    hostel: 'BH2',
+    name: "Boys' Hostel 2 (Krishna)",
+    // 18°45'47.1"N 73°41'57.7"E
+    center: { lat: 18.7630833, lng: 73.6993611 },
+    radius_m: 30, // Precise building footprint
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
+  },
+  BH1: {
+    hostel: 'BH1',
+    name: "Boys' Hostel 1 (Brahmaputra)",
+    // 18°45'50.8"N 73°41'57.4"E
+    center: { lat: 18.7641111, lng: 73.6992778 },
+    radius_m: 30, // Precise building footprint
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
+  },
+  GH1: {
+    hostel: 'GH1',
+    name: "Girls' Hostel 1 (Indrayani)",
+    // 18°45'54.4"N 73°41'56.8"E
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30, // Precise building footprint
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
+  },
+  GH2: {
+    hostel: 'GH2',
+    name: "Girls' Hostel 2 (Sindhu)",
+    // 18°45'54.4"N 73°41'56.8"E
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30, // Precise building footprint
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
+  },
+  GH: {
+    hostel: 'GH',
+    name: "Girls' Hostel (GH)",
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
+  },
+};
+
+/**
+ * Normalizes user/request hostel names to canonical hostel keys
+ */
+const normalizeHostelCode = (raw) => {
+  if (!raw) return 'BH2';
+  const str = String(raw).toUpperCase().trim();
+  if (str.includes('BH1') || str.includes('BRAHMAPUTRA')) return 'BH1';
+  if (str.includes('BH2') || str.includes('KRISHNA')) return 'BH2';
+  if (str.includes('GH1') || str.includes('INDRAYANI')) return 'GH1';
+  if (str.includes('GH2') || str.includes('SINDHU')) return 'GH2';
+  if (str === 'GH' || str.includes('GIRLS')) return 'GH1';
+  return str;
+};
 
 /**
  * Convert lat/lng to radians
@@ -30,9 +95,6 @@ const haversineDistanceMeters = (lat1, lng1, lat2, lng2) => {
 
 /**
  * Standard Ray-Casting algorithm for point-in-polygon test.
- * @param {{lat: number, lng: number}} point
- * @param {Array<{lat: number, lng: number}>} polygon
- * @returns {boolean} true if strictly inside
  */
 const isPointInPolygon = (point, polygon) => {
   if (!polygon || polygon.length < 3) return false;
@@ -56,14 +118,10 @@ const isPointInPolygon = (point, polygon) => {
 /**
  * Projects points locally onto a metric Cartesian plane centered at centroid
  * to calculate exact minimum distance from point to polygon perimeter.
- * @param {{lat: number, lng: number}} point
- * @param {Array<{lat: number, lng: number}>} polygon
- * @returns {number} distance in meters to nearest edge
  */
 const distanceToPolygonMeters = (point, polygon) => {
   if (!polygon || polygon.length < 2) return Infinity;
 
-  // Origin for equirectangular flat projection
   const originLat = point.lat;
   const cosLat = Math.cos(toRad(originLat));
 
@@ -79,19 +137,16 @@ const distanceToPolygonMeters = (point, polygon) => {
     const a = toXY(polygon[j]);
     const b = toXY(polygon[i]);
 
-    // Distance from pt to segment a-b
     const abx = b.x - a.x;
     const aby = b.y - a.y;
     const segLengthSq = abx * abx + aby * aby;
 
     let dist;
     if (segLengthSq === 0) {
-      // Segment is a single point
       const dx = pt.x - a.x;
       const dy = pt.y - a.y;
       dist = Math.hypot(dx, dy);
     } else {
-      // Projection factor t of pt onto line a-b
       const t = Math.max(0, Math.min(1, ((pt.x - a.x) * abx + (pt.y - a.y) * aby) / segLengthSq));
       const projX = a.x + t * abx;
       const projY = a.y + t * aby;
@@ -107,155 +162,133 @@ const distanceToPolygonMeters = (point, polygon) => {
 };
 
 /**
- * Validates whether GPS coordinates are inside a hostel's geofence,
- * accounting for indoor GPS drift buffer and accuracy threshold.
+ * Validates whether GPS coordinates are inside a hostel building's exact geofence.
  *
  * @param {string} hostel
  * @param {{lat: number, lng: number, accuracy: number}} coords
  * @returns {Promise<{
  *   valid: boolean,
  *   reason?: string,
+ *   hostel: string,
+ *   hostelName: string,
  *   strictlyInside: boolean,
- *   withinBuffer: boolean,
+ *   distanceToCenterMeters: number,
  *   distanceToEdgeMeters: number,
- *   accuracy: number
+ *   radiusMeters: number,
+ *   accuracy: number,
+ *   message: string
  * }>}
  */
 const verifyHostelGeofence = async (hostel, coords, overrideGeofence = null) => {
   const { lat, lng, accuracy } = coords || {};
 
-  if (typeof lat !== 'number' || typeof lng !== 'number') {
+  const normHostel = normalizeHostelCode(hostel);
+  const fallbackGeofence = AUTHORITATIVE_HOSTEL_GEOFENCES[normHostel] || AUTHORITATIVE_HOSTEL_GEOFENCES.BH2;
+
+  if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) {
     return {
       valid: false,
       reason: 'INVALID_COORDINATES',
+      hostel: normHostel,
+      hostelName: fallbackGeofence.name,
       strictlyInside: false,
       withinBuffer: false,
+      distanceToCenterMeters: Infinity,
       distanceToEdgeMeters: Infinity,
+      radiusMeters: fallbackGeofence.radius_m,
       accuracy: accuracy || null,
+      message: 'Invalid or missing GPS coordinates from device.',
     };
   }
 
-  let geofence = overrideGeofence;
-  if (!geofence && mongoose.connection.readyState === 1) {
+  let dbGeofence = overrideGeofence;
+  if (!dbGeofence && mongoose.connection.readyState === 1) {
     try {
-      const hUpper = (hostel || '').toUpperCase();
-      geofence = await HostelGeofence.findOne({ hostel: hUpper, active: true }).lean();
-      if (!geofence && (hUpper === 'GH1' || hUpper === 'GH2')) {
-        geofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
+      dbGeofence = await HostelGeofence.findOne({ hostel: normHostel, active: true }).lean();
+      if (!dbGeofence && (normHostel === 'GH1' || normHostel === 'GH2')) {
+        dbGeofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
       }
     } catch (err) {
-      logger.warn('[Geofence] Failed to query hostel geofence:', err.message);
+      logger.warn('[Geofence] Failed to query hostel geofence from DB:', err.message);
     }
   }
 
-  const hasCenter = geofence && geofence.center && typeof geofence.center.lat === 'number';
-  const hasPolygon = geofence && Array.isArray(geofence.polygon) && geofence.polygon.length >= 3;
+  // Use authoritative constants if DB has no geofence or outdated center
+  const hasDbCenter = dbGeofence?.center && typeof dbGeofence.center.lat === 'number';
+  const activeGeofence = hasDbCenter ? dbGeofence : fallbackGeofence;
 
-  if (!geofence || (!hasCenter && !hasPolygon)) {
-    logger.warn('[Geofence] No active geofence configured for hostel', { hostel });
-    return {
-      valid: true,
-      reason: 'NO_GEOFENCE_CONFIGURED',
-      strictlyInside: true,
-      withinBuffer: true,
-      distanceToEdgeMeters: 0,
-      accuracy,
-    };
-  }
+  const targetCenter = activeGeofence.center || fallbackGeofence.center;
+  const radiusMeters = activeGeofence.radius_m ?? 30; // Strict 30m building radius
+  const bufferMeters = activeGeofence.buffer_m ?? 0;
+  const accuracyThreshold = activeGeofence.accuracy_threshold_m ?? 45; // Max 45m GPS accuracy allowed
 
-  const bufferMeters = geofence.buffer_m ?? 0;
-  const accuracyThreshold = geofence.accuracy_threshold_m ?? 50;
-  const radiusMeters = geofence.radius_m ?? 50;
-
-  // 1. Accuracy Check
+  // 1. Accuracy Check: reject cellular/IP coarse drift (> 45m)
   if (typeof accuracy === 'number' && accuracy > accuracyThreshold) {
+    logger.warn('[Geofence] Rejected due to low GPS accuracy:', { accuracy, accuracyThreshold, hostel: normHostel });
     return {
       valid: false,
       reason: 'LOW_GPS_ACCURACY',
+      hostel: normHostel,
+      hostelName: activeGeofence.name || fallbackGeofence.name,
       strictlyInside: false,
       withinBuffer: false,
+      distanceToCenterMeters: null,
       distanceToEdgeMeters: null,
+      radiusMeters,
       accuracy,
+      message: `GPS accuracy (±${Math.round(accuracy)}m) is too low to verify you are inside ${activeGeofence.name || normHostel} building (requires ±${accuracyThreshold}m or better). Please enable High Accuracy GPS on your device.`,
     };
   }
 
-  // 2. Center + Radius Check (50m circle around hostel center)
-  if (hasCenter) {
-    const distToCenter = haversineDistanceMeters(lat, lng, geofence.center.lat, geofence.center.lng);
-    const strictlyInside = distToCenter <= radiusMeters;
-    const withinBuffer = distToCenter <= radiusMeters + bufferMeters;
+  // 2. Exact Great-Circle distance to building center
+  const distToCenter = haversineDistanceMeters(lat, lng, targetCenter.lat, targetCenter.lng);
+  const allowedRadius = radiusMeters + bufferMeters;
+  const strictlyInside = distToCenter <= radiusMeters;
+  const withinAllowedBoundary = distToCenter <= allowedRadius;
 
-    if (strictlyInside) {
-      return {
-        valid: true,
-        strictlyInside: true,
-        withinBuffer: true,
-        distanceToEdgeMeters: Math.max(0, distToCenter - radiusMeters),
-        distanceToCenterMeters: Math.round(distToCenter * 10) / 10,
-        accuracy,
-      };
-    }
+  logger.info('[Geofence] Evaluation result:', {
+    hostel: normHostel,
+    studentCoords: { lat, lng, accuracy },
+    targetCenter,
+    distToCenterMeters: Math.round(distToCenter * 10) / 10,
+    radiusMeters,
+    withinAllowedBoundary,
+  });
 
-    if (withinBuffer) {
-      return {
-        valid: true,
-        strictlyInside: false,
-        withinBuffer: true,
-        distanceToEdgeMeters: Math.round((distToCenter - radiusMeters) * 10) / 10,
-        distanceToCenterMeters: Math.round(distToCenter * 10) / 10,
-        accuracy,
-      };
-    }
-
+  if (withinAllowedBoundary) {
     return {
-      valid: false,
-      reason: 'OUTSIDE_GEOFENCE',
-      strictlyInside: false,
-      withinBuffer: false,
-      distanceToEdgeMeters: Math.round((distToCenter - radiusMeters) * 10) / 10,
+      valid: true,
+      hostel: normHostel,
+      hostelName: activeGeofence.name || fallbackGeofence.name,
+      strictlyInside,
+      withinBuffer: true,
       distanceToCenterMeters: Math.round(distToCenter * 10) / 10,
-      accuracy,
+      distanceToEdgeMeters: 0,
+      radiusMeters,
+      accuracy: accuracy || null,
+      message: `Verified inside ${activeGeofence.name || normHostel} building! Distance: ${Math.round(distToCenter)}m from center (allowed: ${radiusMeters}m). Attendance marked PRESENT.`,
     };
   }
 
-  // 3. Point-in-polygon check fallback
-  const strictlyInside = isPointInPolygon({ lat, lng }, geofence.polygon);
-  const distanceToEdge = distanceToPolygonMeters({ lat, lng }, geofence.polygon);
-
-  if (strictlyInside) {
-    return {
-      valid: true,
-      strictlyInside: true,
-      withinBuffer: true,
-      distanceToEdgeMeters: distanceToEdge,
-      accuracy,
-    };
-  }
-
-  // 4. Absorbing drift with buffer
-  const withinBuffer = distanceToEdge <= bufferMeters;
-  if (withinBuffer) {
-    return {
-      valid: true,
-      strictlyInside: false,
-      withinBuffer: true,
-      distanceToEdgeMeters: distanceToEdge,
-      accuracy,
-    };
-  }
-
+  const distanceOutside = Math.round((distToCenter - radiusMeters) * 10) / 10;
   return {
     valid: false,
     reason: 'OUTSIDE_GEOFENCE',
+    hostel: normHostel,
+    hostelName: activeGeofence.name || fallbackGeofence.name,
     strictlyInside: false,
     withinBuffer: false,
-    distanceToEdgeMeters: distanceToEdge,
-    accuracy,
+    distanceToCenterMeters: Math.round(distToCenter * 10) / 10,
+    distanceToEdgeMeters: distanceOutside,
+    radiusMeters,
+    accuracy: accuracy || null,
+    message: `Device is outside ${activeGeofence.name || normHostel} building (${Math.round(distToCenter)}m away, ${Math.round(distanceOutside)}m outside the ${radiusMeters}m building boundary). Attendance marked ABSENT.`,
   };
 };
 
-
 module.exports = {
+  AUTHORITATIVE_HOSTEL_GEOFENCES,
+  normalizeHostelCode,
   isPointInPolygon,
   distanceToPolygonMeters,
   haversineDistanceMeters,

@@ -406,13 +406,32 @@ export default function StudentAttendancePrompt({
                 border: '1px solid rgba(99, 102, 241, 0.2)',
                 borderRadius: 14,
                 padding: '12px 16px',
-                marginBottom: 18,
+                marginBottom: 16,
                 fontSize: 12.5,
                 lineHeight: 1.5,
                 color: 'var(--text-secondary)',
               }}
             >
-              📍 <strong>Automatic Geofencing Check:</strong> If your device is located inside the hostel boundary, attendance is instantly recorded as <strong>PRESENT</strong>. If outside, it is recorded as <strong>ABSENT</strong>. No fingerprint required.
+              📍 <strong>Accurate Building Geofencing Check:</strong> Attendance is marked <strong>PRESENT</strong> only when your device is physically inside your hostel building (within 30m of building center). If you are outside the building, attendance is marked <strong>ABSENT</strong>.
+            </div>
+
+            {/* Target Building Spec */}
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                marginBottom: 14,
+                padding: '8px 12px',
+                borderRadius: 10,
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>Target: <strong>{pendingRequest?.hostel || user?.hostel || 'Hostel'}</strong> (Room {pendingRequest?.roomNo || user?.roomNo})</span>
+              <span>Allowed Radius: <strong>30 meters</strong></span>
             </div>
 
             {/* Result Status Display */}
@@ -453,13 +472,13 @@ export default function StudentAttendancePrompt({
                     {verificationResult.message}
                   </div>
                   {verificationResult.accuracy && (
-                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                    <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>
                       Verified with GPS Accuracy: ±{verificationResult.accuracy}m
                     </div>
                   )}
-                  {verificationResult.distanceMeters > 0 && (
-                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
-                      Distance to hostel edge: {verificationResult.distanceMeters}m
+                  {verificationResult.distanceMeters !== undefined && verificationResult.distanceMeters !== null && (
+                    <div style={{ fontSize: 11.5, opacity: 0.95, marginTop: 4, fontWeight: 700 }}>
+                      Distance to hostel center: {verificationResult.distanceMeters}m {verificationResult.type === 'present' ? '(Inside 30m building boundary)' : '(Outside 30m boundary)'}
                     </div>
                   )}
                 </div>

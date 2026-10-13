@@ -29,71 +29,51 @@ const AttendanceRecord = require('../models/AttendanceRecord');
 const StudentDevice = require('../models/StudentDevice');
 const AttendanceAuditLog = require('../models/AttendanceAuditLog');
 
-// Realistic campus hostel geofence polygons (approx. 60m x 40m bounding quadrilaterals)
+// Authoritative campus hostel geofence boundaries (strict 30m radius around building center)
 const DEFAULT_GEOFENCES = [
   {
-    hostel: 'BH1',
-    name: "Boys' Hostel 1 (BH1)",
-    polygon: [
-      { lat: 18.53050, lng: 73.85600 },
-      { lat: 18.53120, lng: 73.85600 },
-      { lat: 18.53120, lng: 73.85680 },
-      { lat: 18.53050, lng: 73.85680 },
-    ],
-    buffer_m: 25,
-    accuracy_threshold_m: 50,
+    hostel: 'BH2',
+    name: "Boys' Hostel 2 (Krishna)",
+    center: { lat: 18.7630833, lng: 73.6993611 }, // 18°45'47.1"N 73°41'57.7"E
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
     active: true,
   },
   {
-    hostel: 'BH2',
-    name: "Boys' Hostel 2 (BH2)",
-    polygon: [
-      { lat: 18.53150, lng: 73.85600 },
-      { lat: 18.53220, lng: 73.85600 },
-      { lat: 18.53220, lng: 73.85680 },
-      { lat: 18.53150, lng: 73.85680 },
-    ],
-    buffer_m: 25,
-    accuracy_threshold_m: 50,
+    hostel: 'BH1',
+    name: "Boys' Hostel 1 (Brahmaputra)",
+    center: { lat: 18.7641111, lng: 73.6992778 }, // 18°45'50.8"N 73°41'57.4"E
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
     active: true,
   },
   {
     hostel: 'GH',
     name: "Girls' Hostel (GH)",
-    polygon: [
-      { lat: 18.53050, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85800 },
-      { lat: 18.53050, lng: 73.85800 },
-    ],
-    buffer_m: 25,
-    accuracy_threshold_m: 50,
+    center: { lat: 18.7651111, lng: 73.6991111 }, // 18°45'54.4"N 73°41'56.8"E
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
     active: true,
   },
   {
     hostel: 'GH1',
     name: "Girls' Hostel 1 (Indrayani)",
-    polygon: [
-      { lat: 18.53050, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85800 },
-      { lat: 18.53050, lng: 73.85800 },
-    ],
-    buffer_m: 25,
-    accuracy_threshold_m: 50,
+    center: { lat: 18.7651111, lng: 73.6991111 }, // 18°45'54.4"N 73°41'56.8"E
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
     active: true,
   },
   {
     hostel: 'GH2',
     name: "Girls' Hostel 2 (Sindhu)",
-    polygon: [
-      { lat: 18.53050, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85720 },
-      { lat: 18.53120, lng: 73.85800 },
-      { lat: 18.53050, lng: 73.85800 },
-    ],
-    buffer_m: 25,
-    accuracy_threshold_m: 50,
+    center: { lat: 18.7651111, lng: 73.6991111 }, // 18°45'54.4"N 73°41'56.8"E
+    radius_m: 30,
+    buffer_m: 0,
+    accuracy_threshold_m: 45,
     active: true,
   },
 ];

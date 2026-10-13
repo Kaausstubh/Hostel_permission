@@ -29,43 +29,48 @@ function generateCirclePolygon(centerLat, centerLng, radiusMeters, points = 16) 
 const HOSTEL_COORDINATES = [
   {
     hostel: 'BH2',
-    name: 'Boys Hostel 2',
-    center: { lat: 18.763092, lng: 73.699231 },
-    radius_m: 50,
+    name: "Boys' Hostel 2 (Krishna)",
+    // 18°45'47.1"N 73°41'57.7"E
+    center: { lat: 18.7630833, lng: 73.6993611 },
+    radius_m: 30,
     buffer_m: 0,
-    accuracy_threshold_m: 50,
+    accuracy_threshold_m: 45,
   },
   {
     hostel: 'BH1',
-    name: 'Boys Hostel 1',
-    center: { lat: 18.764126, lng: 73.699223 },
-    radius_m: 50,
+    name: "Boys' Hostel 1 (Brahmaputra)",
+    // 18°45'50.8"N 73°41'57.4"E
+    center: { lat: 18.7641111, lng: 73.6992778 },
+    radius_m: 30,
     buffer_m: 0,
-    accuracy_threshold_m: 50,
+    accuracy_threshold_m: 45,
   },
   {
     hostel: 'GH',
-    name: 'Girls Hostel',
-    center: { lat: 18.765075, lng: 73.699101 },
-    radius_m: 50,
+    name: "Girls' Hostel (GH)",
+    // 18°45'54.4"N 73°41'56.8"E
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30,
     buffer_m: 0,
-    accuracy_threshold_m: 50,
+    accuracy_threshold_m: 45,
   },
   {
     hostel: 'GH1',
     name: "Girls' Hostel 1 (Indrayani)",
-    center: { lat: 18.765075, lng: 73.699101 },
-    radius_m: 50,
+    // 18°45'54.4"N 73°41'56.8"E
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30,
     buffer_m: 0,
-    accuracy_threshold_m: 50,
+    accuracy_threshold_m: 45,
   },
   {
     hostel: 'GH2',
     name: "Girls' Hostel 2 (Sindhu)",
-    center: { lat: 18.765075, lng: 73.699101 },
-    radius_m: 50,
+    // 18°45'54.4"N 73°41'56.8"E
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 30,
     buffer_m: 0,
-    accuracy_threshold_m: 50,
+    accuracy_threshold_m: 45,
   },
 ];
 

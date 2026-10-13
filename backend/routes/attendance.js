@@ -697,18 +697,18 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
       });
     }
 
-    // Check 5: GPS Geofence Verification (no biometric/fingerprint required)
+    // Check 5: GPS Geofence Verification (strict building radius)
     const hasCoords = typeof gps_lat === 'number' && typeof gps_lng === 'number' && !isNaN(gps_lat) && !isNaN(gps_lng);
     let geoResult = null;
     if (hasCoords) {
-      geoResult = await verifyHostelGeofence(request.hostel, {
+      geoResult = await verifyHostelGeofence(request.hostel || req.user.hostel, {
         lat: Number(gps_lat),
         lng: Number(gps_lng),
         accuracy: Number(gps_accuracy || 10),
       });
     }
 
-    const isInsideGeofence = Boolean(hasCoords && geoResult && geoResult.valid);
+    const isInsideGeofence = Boolean(hasCoords && geoResult && geoResult.valid === true);
     const now = new Date();
     const todayDate = now.toISOString().slice(0, 10);
     const { getIO } = require('../services/socketService');
@@ -716,6 +716,8 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
 
     if (isInsideGeofence) {
       // ── INSIDE GEOFENCE: MARK PRESENT (APPROVED) ──
+      const remarkText = geoResult?.message || `Detected inside hostel building (Accuracy ±${Math.round(gps_accuracy || 10)}m)`;
+
       if (!resp) {
         resp = await RequestResponse.create({
           request_id: request._id,
@@ -728,6 +730,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
           gps_accuracy: Number(gps_accuracy || 10),
           inside_geofence: true,
           flags: [],
+          remark: remarkText,
         });
       } else {
         resp.status = 'approved';
@@ -738,6 +741,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         resp.gps_accuracy = Number(gps_accuracy || 10);
         resp.inside_geofence = true;
         resp.flags = [];
+        resp.remark = remarkText;
         await resp.save();
       }
 
@@ -754,7 +758,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
             status: 'present',
             method: 'self_approved',
             verified_by: req.user._id,
-            remark: `Detected inside hostel geofence (Accuracy ±${Math.round(gps_accuracy || 10)}m)`,
+            remark: remarkText,
           },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -771,26 +775,28 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         });
       }
 
-      logger.info('[Attendance] Student verified inside geofence -> PRESENT', {
+      logger.info('[Attendance] Student verified inside building -> PRESENT', {
         studentId: req.user._id,
         roomNo: request.roomNo,
         hostel: request.hostel,
+        distToCenterMeters: geoResult?.distanceToCenterMeters,
       });
 
       return res.json({
         success: true,
         status: 'present',
         code: 'PRESENT',
-        message: 'Verified inside hostel geofence! Attendance marked PRESENT.',
+        message: geoResult?.message || 'Verified inside hostel building! Attendance marked PRESENT.',
         accuracy: Math.round(gps_accuracy || 10),
+        distanceMeters: geoResult?.distanceToCenterMeters || 0,
         approvedAt: now.toISOString(),
       });
     } else {
       // ── OUTSIDE GEOFENCE OR NO COORDS: MARK ABSENT ──
-      const distanceAway = Math.round(geoResult?.distanceToEdgeMeters || 0);
-      const reasonMsg = hasCoords
-        ? `Device is outside hostel geofence boundary${distanceAway > 0 ? ` (${distanceAway}m away)` : ''}`
-        : 'GPS location not available';
+      const distanceAway = Math.round(geoResult?.distanceToCenterMeters || geoResult?.distanceToEdgeMeters || 0);
+      const reasonMsg = geoResult?.message || (hasCoords
+        ? `Device is outside hostel building (${distanceAway}m away, max allowed is 30m)`
+        : 'GPS location not available');
 
       if (!resp) {
         resp = await RequestResponse.create({
@@ -802,7 +808,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
           gps_lng: hasCoords ? Number(gps_lng) : null,
           gps_accuracy: hasCoords ? Number(gps_accuracy) : null,
           inside_geofence: false,
-          flags: [hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION'],
+          flags: [hasCoords ? (geoResult?.reason || 'OUTSIDE_GEOFENCE') : 'NO_LOCATION'],
           remark: reasonMsg,
         });
       } else {
@@ -814,8 +820,9 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
           resp.gps_accuracy = Number(gps_accuracy);
         }
         resp.inside_geofence = false;
-        if (!resp.flags.includes(hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION')) {
-          resp.flags.push(hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION');
+        const flag = hasCoords ? (geoResult?.reason || 'OUTSIDE_GEOFENCE') : 'NO_LOCATION';
+        if (!resp.flags.includes(flag)) {
+          resp.flags.push(flag);
         }
         resp.remark = reasonMsg;
         await resp.save();
@@ -851,19 +858,21 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         });
       }
 
-      logger.info('[Attendance] Student outside geofence / no coords -> ABSENT', {
+      logger.info('[Attendance] Student outside building / low accuracy -> ABSENT', {
         studentId: req.user._id,
         roomNo: request.roomNo,
         hostel: request.hostel,
         distanceAway,
+        reason: geoResult?.reason || 'NO_LOCATION',
       });
 
       return res.json({
         success: true,
         status: 'absent',
-        code: hasCoords ? 'OUTSIDE_GEOFENCE' : 'NO_LOCATION',
-        message: `${reasonMsg}. Attendance marked ABSENT.`,
+        code: geoResult?.reason || 'ABSENT',
+        message: reasonMsg,
         distanceMeters: distanceAway,
+        accuracy: hasCoords ? Math.round(gps_accuracy) : null,
       });
     }
   } catch (err) {
