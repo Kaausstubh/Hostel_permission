@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import Navbar from '../components/Navbar';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useTheme } from '../context/ThemeContext';
@@ -729,16 +730,18 @@ export default function RoomAllocation({ embedded = false }) {
     toast.success(`Copied ${selected.length} roll numbers to clipboard!`);
   };
 
-  return (
+  const pageContent = (
     <div
       className={`room-allocation-page ${embedded ? 'embedded' : ''}`}
       style={{
-        padding: embedded ? '0' : '22px 28px',
+        padding: embedded ? '0' : '0 0 60px 0',
         maxWidth: 1650,
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
         gap: 20,
+        width: '100%',
+        minHeight: 'auto',
       }}
     >
       {/* ──────────────────────────────────────────────────────────────────────────
@@ -748,7 +751,7 @@ export default function RoomAllocation({ embedded = false }) {
       <div
         className="card"
         style={{
-          padding: '22px 24px',
+          padding: '20px 24px',
           background: 'var(--bg-card)',
           borderRadius: 20,
           border: '1px solid var(--glass-border)',
@@ -756,6 +759,8 @@ export default function RoomAllocation({ embedded = false }) {
           display: 'flex',
           flexDirection: 'column',
           gap: 18,
+          overflow: 'visible',
+          flexShrink: 0,
         }}
       >
         {/* Title & Quick Actions */}
@@ -1097,13 +1102,15 @@ export default function RoomAllocation({ embedded = false }) {
       <div
         className="card"
         style={{
-          padding: '16px 20px',
+          padding: '18px 20px',
           background: 'var(--bg-card)',
           borderRadius: 18,
           border: '1px solid var(--glass-border)',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
+          overflow: 'visible',
+          flexShrink: 0,
         }}
       >
         {/* Top: View Tabs */}
@@ -1337,6 +1344,38 @@ export default function RoomAllocation({ embedded = false }) {
               <option value="available">Available (Has Vacancy)</option>
               <option value="partial">Partially Occupied</option>
               <option value="full">Full (4/4 Occupied)</option>
+            </select>
+          </div>
+
+          {/* Sort By Filter */}
+          <div>
+            <select
+              className="form-select"
+              value={activeTab === 'hierarchy-rooms' ? roomSortBy : studentSortBy}
+              onChange={(e) => {
+                if (activeTab === 'hierarchy-rooms') {
+                  setRoomSortBy(e.target.value);
+                } else {
+                  setStudentSortBy(e.target.value);
+                }
+              }}
+              style={{ width: '100%', height: 40, borderRadius: 10, fontSize: 12 }}
+            >
+              {activeTab === 'hierarchy-rooms' ? (
+                <>
+                  <option value="default">Sort: Default Order</option>
+                  <option value="vacancies_desc">Sort: Vacancies (High to Low)</option>
+                  <option value="occupancy_desc">Sort: Occupancy (High to Low)</option>
+                  <option value="room_asc">Sort: Room Number (Ascending)</option>
+                </>
+              ) : (
+                <>
+                  <option value="name_asc">Sort: Student Name (A → Z)</option>
+                  <option value="name_desc">Sort: Student Name (Z → A)</option>
+                  <option value="room_asc">Sort: Room Number</option>
+                  <option value="roll_asc">Sort: Roll / MIS No</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -2973,6 +3012,28 @@ export default function RoomAllocation({ embedded = false }) {
           }
         }
       `}</style>
+    </div>
+  );
+
+  if (embedded) {
+    return pageContent;
+  }
+
+  return (
+    <div className="fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Navbar title="Room Allocation Management" />
+      <div
+        className="page-area"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: '24px 28px 80px',
+        }}
+      >
+        {pageContent}
+      </div>
     </div>
   );
 }
