@@ -21,6 +21,7 @@ import {
   MdLock,
   MdLockOpen,
   MdFilterList,
+  MdBolt,
 } from 'react-icons/md';
 import AttendanceRoomDetailsModal from '../components/AttendanceRoomDetailsModal';
 import Navbar from '../components/Navbar';
@@ -46,6 +47,7 @@ export default function AttendanceFloorRound() {
 
   // Request loading tracking by room
   const [actionLoading, setActionLoading] = useState({});
+  const [requestingAll, setRequestingAll] = useState(false);
 
   const fetchRooms = async (silent = false) => {
     try {
@@ -111,6 +113,25 @@ export default function AttendanceFloorRound() {
       toast.error(err.response?.data?.message || 'Failed to send request');
     } finally {
       setActionLoading((prev) => ({ ...prev, [roomNo]: false }));
+    }
+  };
+
+  // Handle 1-Click Request All Rooms on Floor
+  const handleRequestAllRooms = async () => {
+    try {
+      setRequestingAll(true);
+      const res = await api.post(`/attendance/rounds/${roundId}/request-all`);
+      if (res.data?.success) {
+        toast.success(
+          `⚡ Attendance requested for ${res.data.requestedRoomsCount} rooms (${res.data.totalStudentsNotified} students)! Students can now open app to mark attendance.`,
+          { duration: 6000 }
+        );
+        fetchRooms(true);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to request all rooms');
+    } finally {
+      setRequestingAll(false);
     }
   };
 
@@ -297,31 +318,59 @@ export default function AttendanceFloorRound() {
             </span>
           </div>
 
-          {/* Filter Chips */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-            {['All', 'Pending', 'Needs review', 'Completed', 'Skipped'].map((tab) => {
-              const active = filter === tab;
-              return (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setFilter(tab)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 99,
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    border: active ? '1px solid var(--primary)' : '1px solid var(--border-color)',
-                    background: active ? 'var(--bg-card-hover)' : 'transparent',
-                    color: active ? 'var(--primary-light)' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {tab}
-                </button>
-              );
-            })}
+          {/* Filter Chips & 1-Click Request All Button */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+              {['All', 'Pending', 'Needs review', 'Completed', 'Skipped'].map((tab) => {
+                const active = filter === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setFilter(tab)}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: 99,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      border: active ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+                      background: active ? 'var(--bg-card-hover)' : 'transparent',
+                      color: active ? 'var(--primary-light)' : 'var(--text-muted)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
+
+            {round?.status === 'active' && (
+              <button
+                type="button"
+                onClick={handleRequestAllRooms}
+                disabled={requestingAll}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: requestingAll ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <MdBolt size={16} />
+                {requestingAll ? 'Requesting All…' : '1-Click Request All Rooms'}
+              </button>
+            )}
           </div>
         </div>
       </div>

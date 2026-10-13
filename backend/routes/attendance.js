@@ -23,6 +23,7 @@ const {
 } = require('../services/deviceService');
 const {
   verifyHostelGeofence,
+  normalizeHostelCode,
 } = require('../services/geofenceService');
 const {
   getHostelsAndFloors,
@@ -31,6 +32,8 @@ const {
   getRoomDetails,
   requestRoomAttendance,
   resendRoomRequest,
+  requestAllRoomsInRound,
+  requestEntireHostelAttendance,
   skipRoom,
   reopenRoom,
   completeRound,
@@ -160,6 +163,75 @@ router.post('/requests/:id/resend', protect, authorize('warden', 'admin'), async
     res.json({ success: true, message: 'Attendance request resent', ...result });
   } catch (err) {
     logger.error('[Attendance] Error resending request', { error: err.message });
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ── 1-Click Request All Routes ───────────────────────────────────────────────
+router.post('/rounds/:id/request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const result = await requestAllRoomsInRound({
+      roundId: req.params.id,
+      staffUser: req.user,
+    });
+    res.json({
+      success: true,
+      message: `Requested attendance for ${result.requestedRoomsCount} rooms (${result.totalStudentsNotified} students)`,
+      ...result,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error requesting all rooms in round', { error: err.message });
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/rounds/quick-request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { hostel, floor, session_name } = req.body;
+    if (!hostel || !floor) {
+      return res.status(400).json({ success: false, message: 'Hostel and floor are required' });
+    }
+
+    const { round, resumed } = await startOrResumeRound({
+      hostel,
+      floor,
+      sessionName: session_name || 'Night Attendance',
+      staffUser: req.user,
+    });
+
+    const result = await requestAllRoomsInRound({
+      roundId: round._id,
+      staffUser: req.user,
+    });
+
+    res.json({
+      success: true,
+      round,
+      resumed,
+      message: `Round started & attendance requested for all ${result.requestedRoomsCount} rooms on Floor ${floor} (${result.totalStudentsNotified} students)`,
+      ...result,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error in quick-request-all round', { error: err.message });
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/hostels/:hostel/request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+  try {
+    const { session_name } = req.body;
+    const result = await requestEntireHostelAttendance({
+      hostel: req.params.hostel,
+      sessionName: session_name || 'Night Attendance',
+      staffUser: req.user,
+    });
+    res.json({
+      success: true,
+      message: `1-Click request broadcasted across entire hostel ${result.hostel}: ${result.totalRoomsRequested} rooms, ${result.totalStudentsNotified} students notified`,
+      ...result,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error in entire hostel request-all', { error: err.message });
     res.status(400).json({ success: false, message: err.message });
   }
 });
@@ -509,6 +581,7 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
     }
 
     const cleanHostel = req.user.hostel.toUpperCase();
+    const normHostel = normalizeHostelCode(req.user.hostel);
     const cleanRoomNo = req.user.roomNo.trim().toUpperCase();
     const now = new Date();
     const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -518,14 +591,40 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
       date: todayDate,
     }).populate('verified_by', 'name role').lean();
 
-    const request = await RoomAttendanceRequest.findOne({
-      hostel: cleanHostel,
-      roomNo: cleanRoomNo,
-      status: 'open',
-      expires_at: { $gt: now },
-    })
-      .populate('round_id', 'date session_name hostel floor')
-      .lean();
+    // 1. Check if student has an active RequestResponse created for this student
+    const activeStudentResp = await RequestResponse.findOne({
+      student_id: req.user._id,
+      status: { $in: ['pending', 'flagged'] },
+    }).populate('request_id');
+
+    let request = null;
+    if (
+      activeStudentResp &&
+      activeStudentResp.request_id &&
+      activeStudentResp.request_id.status === 'open' &&
+      new Date(activeStudentResp.request_id.expires_at) > now
+    ) {
+      request = await RoomAttendanceRequest.findById(activeStudentResp.request_id._id)
+        .populate('round_id', 'date session_name hostel floor')
+        .lean();
+    }
+
+    // 2. Fallback to room + hostel query
+    if (!request) {
+      const hostelRegex = new RegExp(`^${normHostel}`, 'i');
+      request = await RoomAttendanceRequest.findOne({
+        $or: [
+          { hostel: normHostel },
+          { hostel: cleanHostel },
+          { hostel: hostelRegex },
+        ],
+        roomNo: cleanRoomNo,
+        status: 'open',
+        expires_at: { $gt: now },
+      })
+        .populate('round_id', 'date session_name hostel floor')
+        .lean();
+    }
 
     if (!request) {
       return res.json({

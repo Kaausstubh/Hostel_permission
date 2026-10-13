@@ -922,6 +922,124 @@ const completeRound = async ({ roundId, staffUser }) => {
   return { round, completedSummary };
 };
 
+/**
+ * Request attendance for ALL occupied rooms in a round in 1 click.
+ */
+const requestAllRoomsInRound = async ({ roundId, staffUser }) => {
+  const round = await AttendanceRound.findById(roundId);
+  if (!round) throw new Error('Attendance round not found');
+  if (round.status !== 'active') throw new Error('Cannot request attendance on a completed round');
+
+  const summary = await getRoundRoomsSummary(roundId);
+  // Eligible rooms: non-vacant, occupantCount > 0, and not skipped
+  const eligibleRooms = (summary.rooms || []).filter(
+    (r) => !r.isVacant && r.occupantCount > 0 && r.status !== 'Skipped'
+  );
+
+  if (eligibleRooms.length === 0) {
+    throw new Error('No occupied rooms found on this floor to request attendance for');
+  }
+
+  const results = [];
+  for (const r of eligibleRooms) {
+    try {
+      const res = await requestRoomAttendance({
+        roundId: round._id,
+        roomNo: r.roomNo,
+        staffUser,
+      });
+      results.push({ roomNo: r.roomNo, success: true, count: r.occupantCount });
+    } catch (err) {
+      logger.warn(`[Attendance] Auto-request room ${r.roomNo} skipped: ${err.message}`);
+      results.push({ roomNo: r.roomNo, success: false, error: err.message });
+    }
+  }
+
+  const successfulRooms = results.filter((r) => r.success);
+  const totalStudentsNotified = successfulRooms.reduce((sum, r) => sum + (r.count || 0), 0);
+
+  const io = getIO();
+  if (io) {
+    io.of('/dashboard').emit('room_attendance_updated', {
+      roundId: round._id,
+      allRequested: true,
+      successfulRoomsCount: successfulRooms.length,
+    });
+  }
+
+  logger.info('[Attendance] 1-Click requested all rooms on floor round', {
+    roundId: round._id,
+    floor: round.floor,
+    hostel: round.hostel,
+    successfulRooms: successfulRooms.length,
+    totalStudentsNotified,
+  });
+
+  return {
+    roundId: round._id,
+    totalRoomsTargeted: eligibleRooms.length,
+    requestedRoomsCount: successfulRooms.length,
+    totalStudentsNotified,
+    results,
+  };
+};
+
+/**
+ * Request attendance for the ENTIRE hostel (all floors) in 1 click.
+ */
+const requestEntireHostelAttendance = async ({ hostel, sessionName, staffUser }) => {
+  const normHostel = hostel ? hostel.trim().toUpperCase() : 'BH1';
+  const allHostels = await getHostelsAndFloors(staffUser);
+  const targetHostel = allHostels.find((h) => h.hostel.toUpperCase() === normHostel);
+  const floors = targetHostel?.floors || ['1', '2', '3', '4'];
+
+  const floorResults = [];
+  let totalRooms = 0;
+  let totalStudents = 0;
+
+  for (const fl of floors) {
+    try {
+      const { round } = await startOrResumeRound({
+        hostel: normHostel,
+        floor: fl,
+        sessionName: sessionName || 'Night Attendance',
+        staffUser,
+      });
+
+      const res = await requestAllRoomsInRound({
+        roundId: round._id,
+        staffUser,
+      });
+
+      floorResults.push({
+        floor: fl,
+        roundId: round._id,
+        success: true,
+        roomsCount: res.requestedRoomsCount,
+        studentsCount: res.totalStudentsNotified,
+      });
+
+      totalRooms += res.requestedRoomsCount;
+      totalStudents += res.totalStudentsNotified;
+    } catch (err) {
+      logger.warn(`[Attendance] 1-Click entire hostel round request error on floor ${fl}: ${err.message}`);
+      floorResults.push({
+        floor: fl,
+        success: false,
+        error: err.message,
+      });
+    }
+  }
+
+  return {
+    hostel: normHostel,
+    floorsTargeted: floors.length,
+    totalRoomsRequested: totalRooms,
+    totalStudentsNotified: totalStudents,
+    floorResults,
+  };
+};
+
 module.exports = {
   parseFloorFromRoom,
   getHostelsAndFloors,
@@ -930,6 +1048,8 @@ module.exports = {
   getRoomDetails,
   requestRoomAttendance,
   resendRoomRequest,
+  requestAllRoomsInRound,
+  requestEntireHostelAttendance,
   skipRoom,
   reopenRoom,
   completeRound,
