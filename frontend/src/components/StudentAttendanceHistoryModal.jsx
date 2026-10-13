@@ -134,11 +134,28 @@ export default function StudentAttendanceHistoryModal({ onClose = () => {} }) {
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {record.date}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                        📅 {record.formattedDate || record.date}
                       </span>
-                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {(record.time || record.createdAt) && (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: 'var(--primary-light)',
+                            background: 'rgba(99, 102, 241, 0.12)',
+                            padding: '1px 8px',
+                            borderRadius: 6,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          ⏰ {record.time || new Date(record.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
                         {record.session}
                       </span>
                     </div>

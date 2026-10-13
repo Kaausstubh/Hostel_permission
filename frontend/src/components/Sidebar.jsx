@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 
 const wardenNav = [
   { to: '/dashboard',           icon: <MdDashboard />,    label: 'Overview' },
-  { to: '/rooms-3d',            icon: <MdMeetingRoom />,   label: 'Hostel 3D Rooms' },
+  { to: '/allocations',         icon: <MdMeetingRoom />,   label: 'Room Allocation' },
   { to: '/attendance',          icon: <MdMeetingRoom />,   label: 'Floor Attendance' },
   { to: '/attendance/reports',  icon: <MdAssessment />,   label: 'Attendance Reports' },
   { to: '/students',            icon: <MdPeople />,       label: 'Students Directory' },

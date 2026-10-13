@@ -20,6 +20,10 @@ import {
   MdRefresh,
   MdMeetingRoom,
   MdMyLocation,
+  MdAccessTime,
+  MdEventNote,
+  MdKeyboardArrowDown,
+  MdKeyboardArrowUp,
 } from 'react-icons/md';
 
 export default function StudentAttendancePrompt({
@@ -134,13 +138,30 @@ export default function StudentAttendancePrompt({
         });
 
         const data = res.data;
+        const nowStr = new Date().toISOString();
+        const timeStr = data.time || new Date().toLocaleTimeString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+        });
+        const dateStr = data.formattedDate || new Date().toLocaleDateString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        });
+
         if (data?.status === 'present' || data?.code === 'PRESENT') {
           setVerificationResult({
             type: 'present',
             message: data.message || 'Inside hostel geofence! Attendance marked PRESENT.',
             accuracy: data.accuracy ?? Math.round(coords.accuracy),
+            time: timeStr,
+            formattedDate: dateStr,
+            markedAt: data.markedAt || nowStr,
           });
-          toast.success('Attendance Marked: PRESENT! (Inside hostel geofence)', {
+          toast.success(`Attendance Marked: PRESENT at ${timeStr} IST! (Inside hostel geofence)`, {
             icon: '🟢',
             duration: 5000,
           });
@@ -149,15 +170,19 @@ export default function StudentAttendancePrompt({
           setTodayRecord((prev) => ({
             ...prev,
             status: 'present',
-            date: new Date().toISOString().slice(0, 10),
+            date: nowStr.slice(0, 10),
+            formattedDate: dateStr,
+            time: timeStr,
+            markedAt: data.markedAt || nowStr,
             roomNo: targetReq.roomNo,
+            method: 'self_approved',
           }));
 
           // Trigger browser notification if supported
           if ('Notification' in window && Notification.permission === 'granted') {
             try {
               new Notification('Attendance Marked: PRESENT', {
-                body: `Room ${targetReq.roomNo}: Verified inside hostel geofence!`,
+                body: `Room ${targetReq.roomNo}: Verified inside hostel geofence at ${timeStr}!`,
                 icon: '/favicon.ico',
               });
             } catch (_) {}
@@ -175,8 +200,11 @@ export default function StudentAttendancePrompt({
             type: 'absent',
             message: data.message || 'Outside hostel geofence. Attendance marked ABSENT.',
             distanceMeters: data.distanceMeters,
+            time: timeStr,
+            formattedDate: dateStr,
+            markedAt: data.markedAt || nowStr,
           });
-          toast.error('Attendance Marked: ABSENT (Outside hostel geofence)', {
+          toast.error(`Attendance Marked: ABSENT at ${timeStr} IST (Outside hostel boundary)`, {
             icon: '🔴',
             duration: 6000,
           });
@@ -184,14 +212,19 @@ export default function StudentAttendancePrompt({
           setTodayRecord((prev) => ({
             ...prev,
             status: 'absent',
-            date: new Date().toISOString().slice(0, 10),
+            date: nowStr.slice(0, 10),
+            formattedDate: dateStr,
+            time: timeStr,
+            markedAt: data.markedAt || nowStr,
             roomNo: targetReq.roomNo,
+            method: 'self_approved',
+            remark: data.message || 'Outside hostel geofence',
           }));
 
           if ('Notification' in window && Notification.permission === 'granted') {
             try {
               new Notification('Attendance Marked: ABSENT', {
-                body: `Device outside hostel geofence (${data.distanceMeters || 0}m away)`,
+                body: `Device outside hostel geofence (${data.distanceMeters || 0}m away) at ${timeStr}`,
                 icon: '/favicon.ico',
               });
             } catch (_) {}
@@ -259,82 +292,294 @@ export default function StudentAttendancePrompt({
     detectAndMarkAttendance();
   };
 
-  if (!pendingRequest || pendingRequest.alreadyApproved) return null;
+  const hasActivePending = Boolean(pendingRequest && !pendingRequest.alreadyApproved);
+  const isPresentToday = todayRecord?.status === 'present';
+  const isAbsentToday = todayRecord?.status === 'absent';
+  const todayDateFormatted = new Date(Date.now() + 5.5 * 3600 * 1000).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 
   return (
     <>
-      {/* Floating In-App Top Notification Banner */}
-      <div
-        className="student-attendance-banner"
-        onClick={handleOpenPrompt}
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 45,
-          background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-          color: '#fff',
-          padding: '11px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          boxShadow: '0 4px 20px rgba(79, 70, 229, 0.35)',
-          backdropFilter: 'blur(10px)',
-          animation: 'slideDown 0.3s ease',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.22)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-            }}
-          >
-            <MdGpsFixed />
-          </div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.01em' }}>
-              Hostel Attendance Requested: Room {pendingRequest.roomNo}!
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.92, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>📍 Tap to detect geofence &amp; mark attendance</span>
-              <span style={{ opacity: 0.75 }}>•</span>
-              <span style={{ fontWeight: 700, background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 99 }}>
-                {remainingSeconds}s remaining
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenPrompt();
-          }}
+      {/* ── REAL-TIME ATTENDANCE STATUS & NOTIFICATION BANNER ── */}
+      {hasActivePending ? (
+        /* State 1: Active Attendance Request In Progress */
+        <div
+          className="student-attendance-banner active-prompt"
+          onClick={handleOpenPrompt}
           style={{
-            background: '#fff',
-            color: '#4f46e5',
-            border: 'none',
-            borderRadius: 99,
-            padding: '7px 16px',
-            fontSize: 12.5,
-            fontWeight: 800,
+            position: 'sticky',
+            top: 0,
+            zIndex: 45,
+            background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
+            color: '#fff',
+            padding: '11px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             cursor: 'pointer',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
-            transition: 'all 0.15s ease',
+            boxShadow: '0 4px 20px rgba(79, 70, 229, 0.35)',
+            backdropFilter: 'blur(10px)',
+            animation: 'slideDown 0.3s ease',
           }}
         >
-          Detect &amp; Mark Attendance
-        </button>
-      </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.22)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              }}
+            >
+              <MdGpsFixed />
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.01em' }}>
+                Hostel Attendance Requested: Room {pendingRequest?.roomNo || user?.roomNo}!
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.92, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span>📍 Tap to detect geofence &amp; mark attendance</span>
+                <span style={{ opacity: 0.75 }}>•</span>
+                <span style={{ fontWeight: 700, background: 'rgba(0,0,0,0.2)', padding: '1px 6px', borderRadius: 99 }}>
+                  {remainingSeconds}s remaining
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenPrompt();
+            }}
+            style={{
+              background: '#fff',
+              color: '#4f46e5',
+              border: 'none',
+              borderRadius: 99,
+              padding: '7px 16px',
+              fontSize: 12.5,
+              fontWeight: 800,
+              cursor: 'pointer',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Detect &amp; Mark Attendance
+          </button>
+        </div>
+      ) : isPresentToday ? (
+        /* State 2: Marked PRESENT Today */
+        <div
+          className="student-attendance-banner present-status"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 44,
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(5, 150, 105, 0.22) 100%)',
+            borderBottom: '1.5px solid rgba(16, 185, 129, 0.45)',
+            color: 'var(--text-primary)',
+            padding: '10px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                background: 'rgba(16, 185, 129, 0.22)',
+                color: '#10b981',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+              }}
+            >
+              <MdCheckCircle />
+            </div>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>Today's Attendance: MARKED PRESENT</span>
+                <span style={{ fontSize: 11, background: 'rgba(16, 185, 129, 0.18)', padding: '2px 8px', borderRadius: 99, fontWeight: 700 }}>
+                  Verified
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span>📅 {todayRecord?.formattedDate || todayRecord?.date || todayDateFormatted}</span>
+                <span>•</span>
+                <span>⏰ Marked at <strong>{todayRecord?.time || 'Recorded'} IST</strong></span>
+                <span>•</span>
+                <span>Room {todayRecord?.roomNo || user?.roomNo || 'Assigned'} (Hostel Geofence Verified)</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            style={{
+              background: 'rgba(16, 185, 129, 0.16)',
+              color: '#10b981',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              borderRadius: 99,
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            📋 View Attendance Records
+          </button>
+        </div>
+      ) : isAbsentToday ? (
+        /* State 3: Marked ABSENT Today */
+        <div
+          className="student-attendance-banner absent-status"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 44,
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(220, 38, 38, 0.22) 100%)',
+            borderBottom: '1.5px solid rgba(239, 68, 68, 0.45)',
+            color: 'var(--text-primary)',
+            padding: '10px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.22)',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+              }}
+            >
+              <MdCancel />
+            </div>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>Today's Attendance: MARKED ABSENT</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span>📅 {todayRecord?.formattedDate || todayRecord?.date || todayDateFormatted}</span>
+                <span>•</span>
+                <span>⏰ Recorded at <strong>{todayRecord?.time || 'Night Round'} IST</strong></span>
+                <span>•</span>
+                <span>{todayRecord?.remark || 'Outside hostel geofence or missed round'}</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            style={{
+              background: 'rgba(239, 68, 68, 0.16)',
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: 99,
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            📋 View Attendance Records
+          </button>
+        </div>
+      ) : (
+        /* State 4: Unmarked Today (Informs student at any login hour) */
+        <div
+          className="student-attendance-banner unmarked-status"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 44,
+            background: 'var(--bg-card, rgba(30, 41, 59, 0.65))',
+            borderBottom: '1px solid var(--glass-border, rgba(255,255,255,0.12))',
+            color: 'var(--text-primary)',
+            padding: '9px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                background: 'rgba(99, 102, 241, 0.14)',
+                color: '#6366f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+              }}
+            >
+              <MdAccessTime />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>Today's Attendance: NOT MARKED YET</span>
+                <span style={{ fontSize: 10.5, opacity: 0.85, background: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', padding: '1px 7px', borderRadius: 99, fontWeight: 700 }}>
+                  Round Scheduled 9:00 PM – 11:30 PM
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                📅 {todayDateFormatted} · Attendance verification activates during hostel night rounds. You will be prompted here when staff opens your room.
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            style={{
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-color, rgba(255,255,255,0.16))',
+              borderRadius: 99,
+              padding: '5px 13px',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            📋 Records &amp; History
+          </button>
+        </div>
+      )}
+
 
       {/* Geofence Detection Modal */}
       {modalOpen && (

@@ -573,23 +573,114 @@ router.post('/geofences/verify', protect, async (req, res) => {
   }
 });
 
+// Helper: Format record timestamp to Indian Standard Time (IST) 12-hour clock
+function formatRecordTime(ts) {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+// Helper: Format record date to e.g. "13 Oct 2026"
+function formatRecordDate(ts, fallbackDate) {
+  if (ts) {
+    const d = new Date(ts);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+  }
+  if (fallbackDate) {
+    const parts = String(fallbackDate).split('-');
+    if (parts.length === 3) {
+      const d = new Date(`${fallbackDate}T00:00:00Z`);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-IN', {
+          timeZone: 'UTC',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        });
+      }
+    }
+  }
+  return fallbackDate || null;
+}
+
 // ── Student: Pending Attendance Request Check ────────────────────────────────
 router.get('/pending', protect, authorize('student'), async (req, res) => {
   try {
+    const now = new Date();
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+
     if (!req.user.hostel || !req.user.roomNo) {
-      return res.json({ success: true, hasPending: false, reason: 'NO_ROOM_ALLOCATED' });
+      return res.json({
+        success: true,
+        hasPending: false,
+        reason: 'NO_ROOM_ALLOCATED',
+        todayStatus: {
+          isMarked: false,
+          status: 'unallocated',
+          date: todayDate,
+          formattedDate: formatRecordDate(now, todayDate),
+          message: 'No room currently assigned. Please contact hostel administration.',
+        },
+      });
     }
 
     const cleanHostel = req.user.hostel.toUpperCase();
     const normHostel = normalizeHostelCode(req.user.hostel);
     const cleanRoomNo = req.user.roomNo.trim().toUpperCase();
-    const now = new Date();
-    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
 
     const todayRecord = await AttendanceRecord.findOne({
       student_id: req.user._id,
       date: todayDate,
     }).populate('verified_by', 'name role').lean();
+
+    const formattedToday = todayRecord ? {
+      id: todayRecord._id,
+      status: todayRecord.status,
+      date: todayRecord.date,
+      formattedDate: formatRecordDate(todayRecord.createdAt || todayRecord.updatedAt, todayRecord.date),
+      time: formatRecordTime(todayRecord.createdAt || todayRecord.updatedAt),
+      markedAt: todayRecord.createdAt || todayRecord.updatedAt,
+      session: todayRecord.session,
+      roomNo: todayRecord.roomNo,
+      method: todayRecord.method,
+      remark: todayRecord.remark,
+      verifiedBy: todayRecord.verified_by?.name || (todayRecord.method === 'self_approved' ? 'Self (GPS Geofence)' : 'Staff Verified'),
+    } : null;
+
+    const todayStatus = todayRecord ? {
+      isMarked: true,
+      status: todayRecord.status,
+      date: todayRecord.date,
+      formattedDate: formatRecordDate(todayRecord.createdAt || todayRecord.updatedAt, todayRecord.date),
+      time: formatRecordTime(todayRecord.createdAt || todayRecord.updatedAt),
+      markedAt: todayRecord.createdAt || todayRecord.updatedAt,
+      roomNo: todayRecord.roomNo,
+      method: todayRecord.method,
+      remark: todayRecord.remark,
+      verifiedBy: todayRecord.verified_by?.name || (todayRecord.method === 'self_approved' ? 'Self (GPS Geofence)' : 'Staff Verified'),
+    } : {
+      isMarked: false,
+      status: 'unmarked',
+      date: todayDate,
+      formattedDate: formatRecordDate(now, todayDate),
+      time: null,
+      markedAt: null,
+      roomNo: req.user.roomNo,
+      message: 'Attendance for today has not been marked yet. Verification will activate when staff opens the night round.',
+    };
 
     // 1. Check if student has an active RequestResponse created for this student
     const activeStudentResp = await RequestResponse.findOne({
@@ -630,16 +721,8 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
       return res.json({
         success: true,
         hasPending: false,
-        todayRecord: todayRecord ? {
-          id: todayRecord._id,
-          status: todayRecord.status,
-          date: todayRecord.date,
-          session: todayRecord.session,
-          roomNo: todayRecord.roomNo,
-          method: todayRecord.method,
-          remark: todayRecord.remark,
-          verifiedBy: todayRecord.verified_by?.name || 'Self (GPS Geofence)',
-        } : null,
+        todayRecord: formattedToday,
+        todayStatus,
       });
     }
 
@@ -657,16 +740,8 @@ router.get('/pending', protect, authorize('student'), async (req, res) => {
     res.json({
       success: true,
       hasPending: true,
-      todayRecord: todayRecord ? {
-        id: todayRecord._id,
-        status: todayRecord.status,
-        date: todayRecord.date,
-        session: todayRecord.session,
-        roomNo: todayRecord.roomNo,
-        method: todayRecord.method,
-        remark: todayRecord.remark,
-        verifiedBy: todayRecord.verified_by?.name || 'Self (GPS Geofence)',
-      } : null,
+      todayRecord: formattedToday,
+      todayStatus,
       request: {
         id: request._id,
         roomNo: request.roomNo,
@@ -809,7 +884,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
 
     const isInsideGeofence = Boolean(hasCoords && geoResult && geoResult.valid === true);
     const now = new Date();
-    const todayDate = now.toISOString().slice(0, 10);
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     const { getIO } = require('../services/socketService');
     const io = getIO();
 
@@ -889,6 +964,10 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         accuracy: Math.round(gps_accuracy || 10),
         distanceMeters: geoResult?.distanceToCenterMeters || 0,
         approvedAt: now.toISOString(),
+        markedAt: now.toISOString(),
+        date: todayDate,
+        formattedDate: formatRecordDate(now, todayDate),
+        time: formatRecordTime(now),
       });
     } else {
       // ── OUTSIDE GEOFENCE OR NO COORDS: MARK ABSENT ──
@@ -972,6 +1051,10 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
         message: reasonMsg,
         distanceMeters: distanceAway,
         accuracy: hasCoords ? Math.round(gps_accuracy) : null,
+        markedAt: now.toISOString(),
+        date: todayDate,
+        formattedDate: formatRecordDate(now, todayDate),
+        time: formatRecordTime(now),
       });
     }
   } catch (err) {
@@ -995,13 +1078,16 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
       records: records.map((r) => ({
         id: r._id,
         date: r.date,
+        formattedDate: formatRecordDate(r.createdAt || r.updatedAt, r.date),
+        time: formatRecordTime(r.createdAt || r.updatedAt),
+        markedAt: r.createdAt || r.updatedAt,
         session: r.session,
         hostel: r.hostel,
         roomNo: r.roomNo,
         status: r.status,
         method: r.method,
         remark: r.remark,
-        verifiedBy: r.verified_by?.name || 'Automated Self-Approval',
+        verifiedBy: r.verified_by?.name || (r.method === 'self_approved' ? 'Self (GPS Geofence)' : 'Staff Verified'),
         createdAt: r.createdAt,
       })),
     });

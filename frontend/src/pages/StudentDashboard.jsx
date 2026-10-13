@@ -3182,12 +3182,12 @@ export default function StudentDashboard() {
                 </span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {attendanceStatus?.hasPending
-                    ? 'Attendance'
+                    ? `Verify (${attendanceStatus?.pendingRequest?.remainingSeconds || 60}s)`
                     : attendanceStatus?.todayRecord?.status === 'present'
-                    ? 'Present'
+                    ? `Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
-                    ? 'Absent'
-                    : 'Attendance'}
+                    ? `Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    : 'Not Marked'}
                 </span>
               </button>
 
@@ -3398,12 +3398,12 @@ export default function StudentDashboard() {
                 </span>
                 <span>
                   {attendanceStatus?.hasPending
-                    ? 'Mark Attendance (Active)'
+                    ? `Mark Attendance (${attendanceStatus?.pendingRequest?.remainingSeconds || 60}s)`
                     : attendanceStatus?.todayRecord?.status === 'present'
-                    ? 'Attendance: Present'
+                    ? `✅ Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
-                    ? 'Attendance: Absent'
-                    : 'Attendance Records'}
+                    ? `❌ Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    : '📋 Not Marked Yet'}
                 </span>
               </button>
 

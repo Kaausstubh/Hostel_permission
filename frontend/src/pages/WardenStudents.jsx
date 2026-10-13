@@ -5,12 +5,11 @@ import toast from 'react-hot-toast';
 import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline, MdRefresh } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
-import { getHostelLabel } from '../utils/hostel';
-import HostelRooms3D from './HostelRooms3D';
+import RoomAllocation from './RoomAllocation';
 
 export default function WardenStudents() {
   const { user } = useAuth();
-  const [bh2ViewMode, setBh2ViewMode] = useState('3d'); // '3d' | 'table'
+  const [bh2ViewMode, setBh2ViewMode] = useState('rooms'); // 'rooms' | 'table'
   const [students, setStudents] = useState(() => {
     try {
       const cached = sessionStorage.getItem('heimdall_warden_students');
@@ -354,8 +353,8 @@ export default function WardenStudents() {
                   Hostel BH-2 (Krishna) Allocation Console
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {bh2ViewMode === '3d'
-                    ? 'Interactive 3D Room Grid with live vacancy tracker, room allocations & student management'
+                  {bh2ViewMode === 'rooms'
+                    ? 'Room Allocation Grid with live vacancy tracker, bed assignments & student management'
                     : 'Tabular directory list of BH-2 students'}
                 </div>
               </div>
@@ -363,11 +362,11 @@ export default function WardenStudents() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
                 type="button"
-                className={`btn btn-sm ${bh2ViewMode === '3d' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setBh2ViewMode('3d')}
+                className={`btn btn-sm ${bh2ViewMode === 'rooms' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setBh2ViewMode('rooms')}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
               >
-                <span>🏢 3D Room Grid & Vacancies</span>
+                <span>🏢 Room Allocation &amp; Vacancies</span>
               </button>
               <button
                 type="button"
@@ -381,9 +380,9 @@ export default function WardenStudents() {
           </div>
         )}
 
-        {selectedHostel === 'BH2' && bh2ViewMode === '3d' ? (
+        {selectedHostel === 'BH2' && bh2ViewMode === 'rooms' ? (
           <div className="fade-in">
-            <HostelRooms3D embedded={true} />
+            <RoomAllocation embedded={true} />
           </div>
         ) : (
           <div className="card">

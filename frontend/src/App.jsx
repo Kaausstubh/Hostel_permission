@@ -53,7 +53,7 @@ const AttendanceReports    = lazyWithRetry(() => import('./pages/AttendanceRepor
 const AttendanceSummary    = lazyWithRetry(() => import('./pages/AttendanceSummary'));
 const VisitorManagement   = lazyWithRetry(() => import('./pages/VisitorManagement'));
 const VisitorPassRequest   = lazyWithRetry(() => import('./pages/VisitorPassRequest'));
-const HostelRooms3D        = lazyWithRetry(() => import('./pages/HostelRooms3D'));
+const RoomAllocation       = lazyWithRetry(() => import('./pages/RoomAllocation'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -191,8 +191,17 @@ function AppRoutes() {
             <AppLayout><WardenDashboard /></AppLayout>
           </ProtectedRoute>
         } />
-        <Route path="/allocations" element={<Navigate to="/rooms-3d" replace />} />
-        <Route path="/allocations/*" element={<Navigate to="/rooms-3d" replace />} />
+        <Route path="/allocations" element={
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'admin']}>
+            <AppLayout><RoomAllocation /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/rooms" element={
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'admin']}>
+            <AppLayout><RoomAllocation /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/allocations/*" element={<Navigate to="/allocations" replace />} />
         <Route path="/attendance" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><AttendanceRoundSetup /></AppLayout>
@@ -213,11 +222,7 @@ function AppRoutes() {
             <AppLayout><AttendanceSummary /></AppLayout>
           </ProtectedRoute>
         } />
-        <Route path="/rooms-3d" element={
-          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'admin']}>
-            <AppLayout><HostelRooms3D /></AppLayout>
-          </ProtectedRoute>
-        } />
+        <Route path="/rooms-3d" element={<Navigate to="/allocations" replace />} />
         <Route path="/students" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><WardenStudents /></AppLayout>

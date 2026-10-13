@@ -24,6 +24,27 @@ function getFloorForRoom(roomNumber) {
   return 'General';
 }
 
+// Helper: Infer Student Department & Academic Year from MIS / Email
+function inferDepartmentAndYear(rollNo, email) {
+  const r = String(rollNo || '').trim();
+  const e = String(email || '').trim().toLowerCase();
+  let department = 'Computer Science & Engineering (CSE)';
+  if (r.startsWith('12') || e.includes('ece')) {
+    department = 'Electronics & Communication Engineering (ECE)';
+  } else if (r.startsWith('11') || e.includes('cse')) {
+    department = 'Computer Science & Engineering (CSE)';
+  } else {
+    department = 'Engineering';
+  }
+
+  let year = 'B.Tech';
+  if (r.startsWith('1125') || r.startsWith('1225')) year = '2nd Year';
+  else if (r.startsWith('1124') || r.startsWith('1224')) year = '3rd Year';
+  else if (r.startsWith('1123') || r.startsWith('1223')) year = '4th Year';
+  else if (r.startsWith('1126') || r.startsWith('1226')) year = '1st Year';
+  return { department, year };
+}
+
 // Floor sorting weight
 const FLOOR_ORDER = {
   'Basement': 0,
@@ -360,27 +381,25 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
 
     students.forEach((s) => {
       const rNum = s.roomNo ? String(s.roomNo).trim() : null;
+      const { department, year } = inferDepartmentAndYear(s.rollNo, s.email);
+      const studentObj = {
+        _id: s._id,
+        name: s.name,
+        rollNo: s.rollNo || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        studentPhoto: s.studentPhoto || s.picture || null,
+        department,
+        year,
+      };
+
       if (!rNum || rNum === 'null' || rNum === 'undefined') {
-        unassignedStudents.push({
-          _id: s._id,
-          name: s.name,
-          rollNo: s.rollNo || '',
-          email: s.email || '',
-          phone: s.phone || '',
-          studentPhoto: s.studentPhoto || s.picture || null,
-        });
+        unassignedStudents.push(studentObj);
       } else {
         if (!roomStudentsMap.has(rNum)) {
           roomStudentsMap.set(rNum, []);
         }
-        roomStudentsMap.get(rNum).push({
-          _id: s._id,
-          name: s.name,
-          rollNo: s.rollNo || '',
-          email: s.email || '',
-          phone: s.phone || '',
-          studentPhoto: s.studentPhoto || s.picture || null,
-        });
+        roomStudentsMap.get(rNum).push(studentObj);
       }
     });
 
@@ -457,6 +476,8 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
                 email: student.email || '',
                 phone: student.phone || '',
                 studentPhoto: student.studentPhoto || null,
+                department: student.department,
+                year: student.year,
               }
             : null,
         });
@@ -488,8 +509,10 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       filteredRooms = filteredRooms.filter((r) => r.floor === floorFilter);
     }
 
-    if (statusFilter === 'vacant' || statusFilter === 'has_vacancy') {
+    if (statusFilter === 'available' || statusFilter === 'vacant' || statusFilter === 'has_vacancy') {
       filteredRooms = filteredRooms.filter((r) => r.vacancies > 0);
+    } else if (statusFilter === 'partial' || statusFilter === 'partially_occupied') {
+      filteredRooms = filteredRooms.filter((r) => r.occupancy > 0 && r.occupancy < r.capacity);
     } else if (statusFilter === 'full') {
       filteredRooms = filteredRooms.filter((r) => r.isFull);
     } else if (statusFilter === 'empty') {
@@ -749,6 +772,39 @@ router.put('/:roomNumber/capacity', protect, authorize('warden', 'admin', 'hoste
     });
   } catch (error) {
     logger.error('[Rooms API] Update capacity error', { error: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+// ─── POST /api/rooms/create-room ──────────────────────────────────────────────
+// Create a new room in a hostel
+router.post('/create-room', protect, authorize('warden', 'admin', 'hostel_staff'), async (req, res) => {
+  try {
+    const { roomNumber, hostel = 'BH2', floor, capacity = 4 } = req.body;
+    if (!roomNumber) {
+      return res.status(400).json({ success: false, message: 'Room number is required' });
+    }
+    const cleanRoom = String(roomNumber).trim().toUpperCase();
+    const cleanHostel = String(hostel).trim().toUpperCase();
+    const cleanFloor = floor || getFloorForRoom(cleanRoom);
+    const numCap = Math.max(1, Math.min(10, parseInt(capacity, 10) || 4));
+
+    const existing = await Room.findOne({ hostelCode: cleanHostel, roomNumber: cleanRoom });
+    if (existing) {
+      return res.status(400).json({ success: false, message: `Room ${cleanRoom} already exists in ${cleanHostel}` });
+    }
+
+    const room = await Room.create({
+      hostelCode: cleanHostel,
+      roomNumber: cleanRoom,
+      floor: cleanFloor,
+      capacity: numCap,
+      isActive: true,
+    });
+
+    await invalidateLogsCache();
+
+    res.json({ success: true, message: `Room ${cleanRoom} created successfully in ${cleanHostel}`, room });
+  } catch (error) {
+    logger.error('[Rooms API] Create room error', { error: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
