@@ -944,7 +944,7 @@ export default function SecurityDashboard() {
       setScanTone('error');
       setScannerStatus(msg);
       if (code === 'EXPIRED') {
-        toast.error(`⚠️ EXPIRED PASS: Stored screenshot older than 20s rejected.`, { duration: 5000, id: 'scan-expired-alert' });
+        toast.error(`⚠️ EXPIRED PASS: Code is expired. Student must present the live pass.`, { duration: 5000, id: 'scan-expired-alert' });
       } else if (code === 'ALREADY_USED') {
         toast.error(`🛑 REPLAY DETECTED: This QR token was already used.`, { duration: 5000, id: 'scan-replay-alert' });
       } else if (err.response?.status === 409) {
@@ -1787,7 +1787,7 @@ export default function SecurityDashboard() {
                       }}>
                         <strong style={{ color: 'var(--text-primary)' }}>Guard Instructions: </strong>
                         {isExpired
-                          ? 'Instruct the student to unlock their personal phone, open their live Heimdall Student Dashboard, and present the live rotating pass directly. Stored screenshots older than 20 seconds are strictly rejected.'
+                          ? 'Instruct the student to unlock their personal phone, open their live Heimdall Student Dashboard, and present the live rotating pass directly.'
                           : isAlreadyUsed
                           ? 'This QR pass has already been scanned at the gate. Check if someone previously scanned this pass or if an impersonation attempt is occurring.'
                           : isRevoked

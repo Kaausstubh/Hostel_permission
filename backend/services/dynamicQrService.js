@@ -157,7 +157,7 @@ const verifyDynamicPassToken = (token) => {
         valid: false,
         code: 'EXPIRED',
         expired: true,
-        error: 'QR code expired (> 20s old). Screenshots are rejected — student must present a live pass from the dashboard.',
+        error: 'QR code expired. Student must present a live pass from the dashboard.',
       };
     }
     return {

@@ -802,8 +802,12 @@ export default function StudentDashboard() {
 
   const pushQrMessage = useCallback((meta = {}) => {
     const id = ++msgIdRef.current;
-    push(makeMsg(id, BOT, '', 'qr', meta));
-  }, [push]);
+    // Strictly at most ONE active QR pass card in the chat stream!
+    setMessages((prev) => [
+      ...prev.filter((m) => m.type !== 'qr'),
+      makeMsg(id, BOT, '', 'qr', meta),
+    ]);
+  }, []);
 
   const handleVisitorResponse = useCallback(async (action) => {
     if (!activeVisitorModal || visitorActionLoading) return;
@@ -2236,47 +2240,63 @@ export default function StudentDashboard() {
     if (m.type === 'qr') {
       const pass = getPassDisplay(m.meta);
       return (
-        <div style={{ maxWidth: 280, alignSelf: 'flex-start' }}>
+        <div style={{ maxWidth: 210, alignSelf: 'flex-start' }}>
           <div style={{
             background: 'var(--bg-card)',
-            borderRadius: 16, overflow: 'hidden',
-            boxShadow: 'var(--shadow-md)',
-            border: '1px solid var(--glass-border)',
+            borderRadius: 14,
+            overflow: 'hidden',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+            border: '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
           }}>
             {/* Header */}
             <div style={{
-              padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10,
-              borderBottom: '1px solid var(--glass-border)',
+              padding: '10px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              borderBottom: '1px solid var(--border-color, rgba(148, 163, 184, 0.2))',
             }}>
               <div style={{
-                width: 36, height: 36, borderRadius: 8,
+                width: 28,
+                height: 28,
+                borderRadius: 8,
                 background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
               }}>
-                <MdQrCode2 size={20} color="#fff" />
+                <MdQrCode2 size={16} color="#fff" />
               </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
-                  🛡️ {pass.cardTitle}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {pass.cardTitle}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {pass.cardSubtitle}
                 </div>
               </div>
             </div>
 
-            {/* QR image */}
-            <div data-sensitive style={{
-              padding: 16, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', gap: 10,
-              cursor: 'zoom-in',
-            }} onClick={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}>
+            {/* QR image - Compact & Attractive */}
+            <div
+              data-sensitive
+              style={{
+                padding: '12px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'zoom-in',
+              }}
+              onClick={() => setZoomedQR({ dataUrl: m.meta.qrDataUrl, ...pass })}
+            >
               {m.meta.qrDataUrl ? (
                 <div style={{
                   background: '#ffffff',
-                  padding: 12,
-                  borderRadius: 14,
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.18)',
+                  padding: 8,
+                  borderRadius: 10,
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2286,21 +2306,31 @@ export default function StudentDashboard() {
                     src={m.meta.qrDataUrl}
                     alt="Gate pass QR code"
                     style={{
-                      width: 210,
-                      height: 210,
-                      borderRadius: 0,
+                      width: 130,
+                      height: 130,
+                      borderRadius: 4,
                       display: 'block',
                       imageRendering: 'pixelated',
                     }}
                   />
                 </div>
               ) : (
-                <div style={{ width: 200, height: 200, background: 'var(--bg-input)',
-                  borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#8696a0', fontSize: 12 }}>Loading QR...</div>
+                <div style={{
+                  width: 130,
+                  height: 130,
+                  background: 'var(--bg-input)',
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#8696a0',
+                  fontSize: 11,
+                }}>
+                  Loading QR...
+                </div>
               )}
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
-                {pass.hint}
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'center' }}>
+                Tap to enlarge • Live pass
               </div>
             </div>
 
@@ -2308,8 +2338,8 @@ export default function StudentDashboard() {
             <div
               style={{
                 width: '100%',
-                padding: '12px 14px',
-                borderTop: '1px solid var(--glass-border, rgba(255, 255, 255, 0.08))',
+                padding: '8px 10px',
+                borderTop: '1px solid var(--border-color, rgba(148, 163, 184, 0.2))',
                 background: pass.instructionType === 'OUT'
                   ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.18)')
                   : pass.instructionType === 'IN'
@@ -2320,17 +2350,16 @@ export default function StudentDashboard() {
                   : pass.instructionType === 'IN'
                   ? (theme === 'light' ? '#065f46' : '#6ee7b7')
                   : (theme === 'light' ? '#312e81' : '#c7d2fe'),
-                fontSize: 13,
-                fontWeight: 800,
+                fontSize: 11,
+                fontWeight: 700,
                 textAlign: 'center',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
-                lineHeight: 1.35,
-                borderBottomLeftRadius: 16,
-                borderBottomRightRadius: 16,
-                boxShadow: theme === 'light' ? 'inset 0 1px 0 rgba(0,0,0,0.04)' : 'none',
+                gap: 4,
+                lineHeight: 1.3,
+                borderBottomLeftRadius: 14,
+                borderBottomRightRadius: 14,
               }}
             >
               <span>{pass.instruction}</span>
@@ -3941,7 +3970,7 @@ export default function StudentDashboard() {
                     />
                   </div>
 
-                  {/* Security limitation notice */}
+                  {/* Security notice without screenshot clues */}
                   <div style={{
                     fontSize: 11,
                     color: theme === 'light' ? '#64748b' : 'rgba(255, 255, 255, 0.55)',
@@ -3950,8 +3979,8 @@ export default function StudentDashboard() {
                     lineHeight: 1.35,
                   }}>
                     {isHomeVisit
-                      ? '🏡 One-time generated pass for approved home visit. Dynamic token refreshes every 20s. Screenshots are rejected.'
-                      : '🔒 Daily pass is valid for 15 minutes. Dynamic token refreshes every 20s. Present this live screen directly to the security guard.'}
+                      ? '🏡 One-time pass for approved home visit. Present this live screen directly to the security guard.'
+                      : '🔒 Daily pass is valid for 15 minutes. Present this live screen directly to the security guard.'}
                   </div>
                 </>
               );

@@ -485,13 +485,23 @@ router.post('/request-inout', async (req, res) => {
       });
     }
 
-    // When going OUT, force generation of a BRAND NEW unique pass and QR code based on selected info!
-    const activePass = await getOrCreateActivePass(
-      studentId,
-      { place: scanType === 'OUT' ? place : (existingOut?.place || place) },
-      user,
-      { forceNew: scanType === 'OUT' }
-    );
+    // Strictly ONE pass valid at a single time for any student.
+    // If an active, unconsumed pass exists, reuse it so the same code is displayed!
+    let activePass = await getActivePassForStudent(studentId, user);
+
+    if (activePass && activePass.pass && activePass.pass.status === 'PENDING') {
+      if (place && activePass.pass.place !== place) {
+        await GatePass.updateOne({ _id: activePass.pass._id }, { place });
+        activePass.pass.place = place;
+      }
+    } else {
+      activePass = await getOrCreateActivePass(
+        studentId,
+        { place: scanType === 'OUT' ? place : (existingOut?.place || place) },
+        user,
+        { forceNew: false }
+      );
+    }
 
     const dynPass = await issueDynamicPassToken(user, {
       passKind: 'inout',
@@ -526,7 +536,7 @@ router.post('/request-inout', async (req, res) => {
       refreshIntervalSeconds: dynPass.refreshIntervalSeconds,
       passValidityMinutes: 15,
       validUntil: activePass.validUntil || activePass.pass.valid_until,
-      expiresIn: '15 minutes (with 20s anti-screenshot dynamic rotation)',
+      expiresIn: '15 minutes (live rotating pass)',
       student: {
         name: user.name,
         rollNo: user.rollNo,
