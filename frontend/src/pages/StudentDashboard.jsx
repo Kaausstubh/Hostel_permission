@@ -59,8 +59,14 @@ function formatChatContent(text) {
   if (typeof text !== 'string') return text;
   if (!text) return null;
 
+  // Clean any bracketed notes from validity text (e.g. "(with 20s anti-screenshot dynamic rotation)")
+  const cleanedText = text
+    .replace(/\s*\([^)]*anti-screenshot[^)]*\)/gi, '')
+    .replace(/\s*\([^)]*dynamic rotation[^)]*\)/gi, '')
+    .replace(/\s*\([^)]*rotation[^)]*\)/gi, '');
+
   // Split by *bold* tokens
-  const boldParts = text.split(/(\*[^*\r\n]+\*)/g);
+  const boldParts = cleanedText.split(/(\*[^*\r\n]+\*)/g);
   return boldParts.map((bPart, bIdx) => {
     if (bPart.startsWith('*') && bPart.endsWith('*') && bPart.length > 2) {
       return (
@@ -1211,10 +1217,11 @@ export default function StudentDashboard() {
     setLoading(true);
     try {
       const res = await api.post('/student/request-inout', { place });
-      const { scan_type, student, expiresIn, qrDataUrl, token, qrToken } = res.data;
+      const rawExpires = expiresIn || '15 minutes';
+      const cleanExpires = String(rawExpires).replace(/\s*\(.*?\)/g, '').trim() || '15 minutes';
 
       botSay(
-        `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n📍 Going to: *${place || 'Not specified'}*\n🔄 Type: *${scan_type}*\n⏰ Valid: ${expiresIn}\n\nShow the QR below at the gate.`,
+        `✅ *In/Out Request Sent!*\n\n👤 ${student.name}\n🏢 ${student.hostel || 'N/A'}\n📍 Going to: *${place || 'Not specified'}*\n🔄 Type: *${scan_type}*\n⏰ Valid: ${cleanExpires}\n\nShow the QR below at the gate.`,
       );
       pushQrMessage({ qrDataUrl, scanType: scan_type, student, passKind: 'inout', place });
 
