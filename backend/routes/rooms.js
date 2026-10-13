@@ -59,10 +59,13 @@ function compareRooms(a, b) {
 }
 
 /**
- * Helper: Sync / Seed initial PDF data for BH-1, BH-2, or specified hostel
+ * Helper: Sync / Seed initial PDF data for BH-2 (Krishna Hostel)
  */
-async function syncPdfDataHelper(targetHostel = 'BH1') {
-  const hostelCode = String(targetHostel || 'BH1').trim().toUpperCase();
+async function syncPdfDataHelper(targetHostel = 'BH2') {
+  const hostelCode = String(targetHostel || 'BH2').trim().toUpperCase();
+  if (hostelCode !== 'BH2') {
+    throw new Error(`The official PDF data is strictly for BH-2 (Krishna Hostel). Cannot seed into ${hostelCode}.`);
+  }
   const filePath = path.join(__dirname, '../data/bh2InitialData.json');
   if (!fs.existsSync(filePath)) {
     throw new Error('Hostel student allocation data file not found at ' + filePath);
@@ -249,22 +252,25 @@ async function syncPdfDataHelper(targetHostel = 'BH1') {
  */
 async function ensureDefaultRoomsForHostel(hostelCode) {
   try {
-    if (hostelCode.startsWith('BH')) {
-      await syncPdfDataHelper(hostelCode);
+    if (hostelCode === 'BH2') {
+      await syncPdfDataHelper('BH2');
       return;
     }
 
+    // Default physical rooms template for campus hostels (BH1, GH1, GH2)
+    // 25 rooms per floor across Ground (G01-G25), 1st (101-125), 2nd (201-225), 3rd (301-325)
+    // All created with capacity 4 beds and 0 occupants, awaiting allocation.
     const floors = [
-      { name: 'Ground Floor', prefix: '', start: 1, end: 15, pad: 2 },
+      { name: 'Ground Floor', prefix: 'G', start: 1, end: 25, pad: 2 },
       { name: '1st Floor', prefix: '1', start: 1, end: 25, pad: 2 },
       { name: '2nd Floor', prefix: '2', start: 1, end: 25, pad: 2 },
-      { name: '3rd Floor', prefix: '3', start: 1, end: 20, pad: 2 },
+      { name: '3rd Floor', prefix: '3', start: 1, end: 25, pad: 2 },
     ];
 
     const roomDefs = [];
     for (const fl of floors) {
       for (let i = fl.start; i <= fl.end; i++) {
-        const rNum = fl.prefix ? `${fl.prefix}${String(i).padStart(fl.pad, '0')}` : String(i);
+        const rNum = `${fl.prefix}${String(i).padStart(fl.pad, '0')}`;
         roomDefs.push({
           hostelCode,
           roomNumber: rNum,
@@ -284,14 +290,20 @@ async function ensureDefaultRoomsForHostel(hostelCode) {
 }
 
 // ─── POST /api/rooms/sync-pdf ─────────────────────────────────────────────────
-// Warden/Admin/Hostel Staff endpoint to import/sync all PDF data into selected hostel (defaults to BH1)
+// Warden/Admin/Hostel Staff endpoint to import/sync all PDF data into BH-2 (Krishna Hostel)
 router.post('/sync-pdf', protect, authorize('warden', 'admin', 'hostel_staff'), async (req, res) => {
   try {
-    const targetHostel = String(req.body.hostel || req.query.hostel || 'BH1').trim().toUpperCase();
-    const result = await syncPdfDataHelper(targetHostel);
+    const targetHostel = String(req.body.hostel || req.query.hostel || 'BH2').trim().toUpperCase();
+    if (targetHostel !== 'BH2') {
+      return res.status(400).json({
+        success: false,
+        message: 'The official PDF roster is exclusively for BH-2 (Krishna Hostel). Other hostels (BH-1, GH-1, GH-2) have their own separate rosters and cannot be overwritten with BH-2 students.',
+      });
+    }
+    const result = await syncPdfDataHelper('BH2');
     res.json({
       success: true,
-      message: `Successfully synced ${result.allocated} students into ${result.allocatedHostel} across ${result.roomsCreatedOrUpdated} verified rooms. (${result.requiresReview} records flagged for review).`,
+      message: `Successfully synced ${result.allocated} students into BH-2 across ${result.roomsCreatedOrUpdated} verified rooms. (${result.requiresReview} records flagged for review).`,
       summary: result,
     });
   } catch (error) {
@@ -301,26 +313,27 @@ router.post('/sync-pdf', protect, authorize('warden', 'admin', 'hostel_staff'), 
 });
 
 // ─── GET /api/rooms ───────────────────────────────────────────────────────────
-// Get 3D Room Grid and student occupancy for hostel (defaults to BH1)
+// Get 3D Room Grid and student occupancy for hostel (defaults to BH2)
 router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff', 'student'), async (req, res) => {
   try {
-    const hostel = String(req.query.hostel || 'BH1').trim().toUpperCase();
+    const hostel = String(req.query.hostel || 'BH2').trim().toUpperCase();
     const floorFilter = req.query.floor ? String(req.query.floor).trim() : 'All';
     const search = req.query.search ? String(req.query.search).trim() : '';
     const statusFilter = req.query.status ? String(req.query.status).trim().toLowerCase() : 'all';
 
-    // Auto-seed BH-1 or BH-2 if not fully populated (needs all 105 rooms and >= 300 students)
-    if (['BH1', 'BH2'].includes(hostel)) {
-      const roomsCount = await Room.countDocuments({ hostelCode: hostel });
-      const studentCount = await User.countDocuments({ hostel, role: 'student', roomNo: { $ne: null } });
+    // Auto-seed ONLY BH-2 from the Krishna PDF list if not fully populated
+    if (hostel === 'BH2') {
+      const roomsCount = await Room.countDocuments({ hostelCode: 'BH2' });
+      const studentCount = await User.countDocuments({ hostel: 'BH2', role: 'student', roomNo: { $ne: null } });
       if (roomsCount < 100 || studentCount < 300) {
         try {
-          await syncPdfDataHelper(hostel);
+          await syncPdfDataHelper('BH2');
         } catch (e) {
-          logger.warn(`[Rooms API] Auto-sync initial data warning for ${hostel}: ` + e.message);
+          logger.warn(`[Rooms API] Auto-sync initial data warning for BH2: ` + e.message);
         }
       }
-    } else if (['GH1', 'GH2'].includes(hostel)) {
+    } else {
+      // For BH1, GH1, GH2: Ensure default rooms exist if not yet configured (empty rooms, 0 students)
       const existingRoomsCount = await Room.countDocuments({ hostelCode: hostel });
       if (existingRoomsCount === 0) {
         await ensureDefaultRoomsForHostel(hostel);

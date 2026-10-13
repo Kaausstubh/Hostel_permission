@@ -81,7 +81,7 @@ const sortRoomsNatural = (a, b) => {
 };
 
 export const HOSTEL_OPTIONS_CONFIG = [
-  { id: 'BH1', name: 'Brahmaputra', code: 'BH-1', type: "Boys' Hostel 1", icon: '🏢', color: '#3b82f6', subtitle: 'Brahmaputra Residence (394 Students)' },
+  { id: 'BH1', name: 'Brahmaputra', code: 'BH-1', type: "Boys' Hostel 1", icon: '🏢', color: '#3b82f6', subtitle: 'Brahmaputra Residence' },
   { id: 'BH2', name: 'Krishna',     code: 'BH-2', type: "Boys' Hostel 2", icon: '🏢', color: '#6366f1', subtitle: 'Krishna Residence (394 Students)' },
   { id: 'GH1', name: 'Indrayani',   code: 'GH-1', type: "Girls' Hostel 1", icon: '🏢', color: '#ec4899', subtitle: 'Indrayani Residence' },
   { id: 'GH2', name: 'Sindhu',      code: 'GH-2', type: "Girls' Hostel 2", icon: '🏢', color: '#f43f5e', subtitle: 'Sindhu Residence' },
@@ -89,7 +89,7 @@ export const HOSTEL_OPTIONS_CONFIG = [
 
 export default function HostelRooms3D({ embedded = false }) {
   const { theme } = useTheme();
-  const [hostel, setHostel] = useState('BH1');
+  const [hostel, setHostel] = useState('BH2');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -338,7 +338,7 @@ export default function HostelRooms3D({ embedded = false }) {
       floorCounts[r.floor] = (floorCounts[r.floor] || 0) + 1;
     });
 
-    if (['BH1', 'BH2'].includes(hostel)) {
+    if (hostel === 'BH2') {
       return [
         { label: `All Floors (${totalRooms})`, value: 'All', icon: '🏢' },
         { label: `Basement (B01-B13) (${floorCounts['Basement'] || 0})`, value: 'Basement', icon: '🔻' },
@@ -353,13 +353,23 @@ export default function HostelRooms3D({ embedded = false }) {
     const icons = { 'Basement': '🔻', 'Ground Floor': '🚪', '1st Floor': '1️⃣', '2nd Floor': '2️⃣', '3rd Floor': '3️⃣', '4th Floor': '4️⃣' };
     const sortedFloors = Object.keys(floorCounts).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
 
+    if (sortedFloors.length > 0) {
+      return [
+        { label: `All Floors (${totalRooms})`, value: 'All', icon: '🏢' },
+        ...sortedFloors.map((fl) => ({
+          label: `${fl} (${floorCounts[fl] || 0})`,
+          value: fl,
+          icon: icons[fl] || '🏢',
+        })),
+      ];
+    }
+
     return [
       { label: `All Floors (${totalRooms})`, value: 'All', icon: '🏢' },
-      ...sortedFloors.map((fl) => ({
-        label: `${fl} (${floorCounts[fl] || 0})`,
-        value: fl,
-        icon: icons[fl] || '🏢',
-      })),
+      { label: `Ground Floor (0)`, value: 'Ground Floor', icon: '🚪' },
+      { label: `1st Floor (0)`, value: '1st Floor', icon: '1️⃣' },
+      { label: `2nd Floor (0)`, value: '2nd Floor', icon: '2️⃣' },
+      { label: `3rd Floor (0)`, value: '3rd Floor', icon: '3️⃣' },
     ];
   }, [hostel, data?.rooms]);
 
@@ -423,8 +433,8 @@ export default function HostelRooms3D({ embedded = false }) {
       });
     }
 
-    // 2. Official PDF student list fallback for BH1 / BH2 (if DB not fully synced)
-    if (['BH1', 'BH2'].includes(hostel)) {
+    // 2. Official PDF student list fallback strictly for BH-2 Krishna (if DB not fully synced)
+    if (hostel === 'BH2') {
       hostelStudentsData.forEach((pdfSt) => {
         const misKey = pdfSt.mis ? String(pdfSt.mis).toLowerCase() : null;
         if (!misKey || !seenMis.has(misKey)) {
@@ -439,7 +449,7 @@ export default function HostelRooms3D({ embedded = false }) {
             year: pdfSt.year || getYearFromMis(pdfSt.mis),
             phone: '—',
             email: `${pdfSt.mis}@cse.iiitp.ac.in`,
-            hostel: currentHostel.code,
+            hostel: 'BH-2',
             source: 'pdf-official',
           });
         }
@@ -788,7 +798,7 @@ export default function HostelRooms3D({ embedded = false }) {
                 <span>{exportingExcel ? 'Exporting...' : `Download Excel Sheet (.xlsx)`}</span>
               </button>
 
-              {['BH1', 'BH2'].includes(hostel) && (
+              {hostel === 'BH2' && (
                 <button
                   type="button"
                   onClick={handleSyncPdf}
@@ -807,10 +817,10 @@ export default function HostelRooms3D({ embedded = false }) {
                     gap: 8,
                     boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                   }}
-                  title={`Sync / Upload all 394 students from the official PDF list into ${currentHostel.code}`}
+                  title="Sync / Upload all 394 students from the official PDF list into BH-2 (Krishna Hostel)"
                 >
                   <span>📥</span>
-                  <span>{syncingPdf ? 'Syncing PDF...' : `Sync All PDF Students (394)`}</span>
+                  <span>{syncingPdf ? 'Syncing PDF...' : 'Sync All PDF Students (394)'}</span>
                 </button>
               )}
 
@@ -1115,10 +1125,18 @@ export default function HostelRooms3D({ embedded = false }) {
               border: '1px solid var(--border-color)',
             }}
           >
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-            <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>No rooms matched your criteria</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-              Try adjusting your search query or floor selection.
+            <div style={{ fontSize: 40, marginBottom: 12 }}>
+              {!data?.rooms || data.rooms.length === 0 ? '🏢' : '🔍'}
+            </div>
+            <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>
+              {!data?.rooms || data.rooms.length === 0
+                ? `No rooms currently configured for ${currentHostel.name} (${currentHostel.code})`
+                : 'No rooms matched your criteria'}
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
+              {!data?.rooms || data.rooms.length === 0
+                ? `Rooms for ${currentHostel.code} will appear here once allocated or initialized.`
+                : 'Try adjusting your search query or floor selection.'}
             </p>
           </div>
         ) : (
@@ -1716,10 +1734,20 @@ export default function HostelRooms3D({ embedded = false }) {
               <tbody>
                 {paginatedRosterStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
-                      <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>No students match your filter criteria</div>
-                      <div style={{ fontSize: 13, marginTop: 4 }}>Try clearing the search or switching the floor/year filter.</div>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 42, marginBottom: 10 }}>
+                        {allHostelStudents.length === 0 ? '📋' : '🔍'}
+                      </div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {allHostelStudents.length === 0
+                          ? `No students currently assigned to ${currentHostel.name} (${currentHostel.code})`
+                          : 'No students match your filter criteria'}
+                      </div>
+                      <div style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>
+                        {allHostelStudents.length === 0
+                          ? `Students registered or allocated to ${currentHostel.code} will appear here. Krishna (BH-2) currently holds all 394 verified campus student records.`
+                          : 'Try clearing the search or switching the floor/year filter.'}
+                      </div>
                     </td>
                   </tr>
                 ) : (
