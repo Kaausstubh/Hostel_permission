@@ -804,14 +804,61 @@ export default function RoomAllocation({ embedded = false }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
               type="button"
-              className="btn btn-sm btn-secondary"
+              className="btn btn-sm"
               onClick={() => handleExportExcel(false)}
               disabled={loading || filteredStudents.length === 0}
-              title="Export current allocation results to Excel"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              title={
+                filteredStudents.length === 0
+                  ? 'No student records match current filters to export'
+                  : `Export ${filteredStudents.length} student allocation records to Excel (.xlsx)`
+              }
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                fontWeight: 700,
+                fontSize: 12.5,
+                padding: '7px 15px',
+                borderRadius: 99,
+                background:
+                  filteredStudents.length > 0 && !loading
+                    ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)'
+                    : 'var(--bg-input, rgba(255,255,255,0.06))',
+                color: filteredStudents.length > 0 && !loading ? '#ffffff' : 'var(--text-muted)',
+                border:
+                  filteredStudents.length > 0 && !loading
+                    ? '1px solid rgba(16, 185, 129, 0.45)'
+                    : '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                boxShadow:
+                  filteredStudents.length > 0 && !loading
+                    ? '0 3px 12px rgba(16, 185, 129, 0.35)'
+                    : 'none',
+                cursor: filteredStudents.length > 0 && !loading ? 'pointer' : 'not-allowed',
+                transition: 'all 0.2s ease',
+              }}
             >
-              <MdDownload size={17} />
+              <MdDownload
+                size={17}
+                style={{
+                  color: filteredStudents.length > 0 && !loading ? '#ffffff' : 'var(--text-muted)',
+                }}
+              />
               <span>Export Excel (.xlsx)</span>
+              {filteredStudents.length > 0 && !loading && (
+                <span
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    color: '#ffffff',
+                    padding: '1px 7px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    marginLeft: 2,
+                  }}
+                >
+                  {filteredStudents.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -1427,12 +1474,36 @@ export default function RoomAllocation({ embedded = false }) {
 
               <button
                 type="button"
-                className="btn btn-sm btn-secondary"
+                className="btn btn-sm"
                 onClick={() => handleExportExcel(true)}
-                style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}
+                style={{
+                  fontSize: 12,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontWeight: 700,
+                  padding: '6px 13px',
+                  borderRadius: 99,
+                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+                }}
               >
-                <MdDownload size={14} />
+                <MdDownload size={15} />
                 <span>Export Selected (.xlsx)</span>
+                <span
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    color: '#ffffff',
+                    padding: '1px 6px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
+                >
+                  {selectedStudentIds.size}
+                </span>
               </button>
 
               <button
