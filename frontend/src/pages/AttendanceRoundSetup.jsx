@@ -28,7 +28,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Brahmaputra Building',
     coords: "18°45'50.8\"N 73°41'57.4\"E",
     studentCount: 0,
-    floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'BH2',
@@ -36,7 +36,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Krishna Building',
     coords: "18°45'47.1\"N 73°41'57.7\"E",
     studentCount: 0,
-    floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH1',
@@ -44,7 +44,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Indrayani Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
-    floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH2',
@@ -52,7 +52,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Sindhu Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
-    floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
 ];
 
@@ -63,7 +63,7 @@ export default function AttendanceRoundSetup() {
   // Instant render with default 4 hostels
   const [hostels, setHostels] = useState(DEFAULT_HOSTELS);
   const [selectedHostel, setSelectedHostel] = useState('BH2');
-  const [selectedFloor, setSelectedFloor] = useState('Ground Floor');
+  const [selectedFloor, setSelectedFloor] = useState('All Floors');
   const [sessionName, setSessionName] = useState('Night Attendance');
   const [submitting, setSubmitting] = useState(false);
   const [requestingHostel, setRequestingHostel] = useState(false);
@@ -95,7 +95,16 @@ export default function AttendanceRoundSetup() {
 
       const merged = DEFAULT_HOSTELS.map((st) => {
         const found = loadedHostels.find((lh) => lh.hostel === st.hostel);
-        return found ? { ...st, ...found, studentCount: found.studentCount || st.studentCount } : st;
+        if (!found) return st;
+        const combinedFloors = Array.from(
+          new Set(['All Floors', ...(st.floors || []), ...(found.floors || [])])
+        );
+        return {
+          ...st,
+          ...found,
+          floors: combinedFloors,
+          studentCount: found.studentCount || st.studentCount,
+        };
       });
 
       setHostels(merged);
@@ -119,7 +128,7 @@ export default function AttendanceRoundSetup() {
   }, []);
 
   const currentHostelObj = hostels.find((h) => h.hostel === selectedHostel) || hostels[0];
-  const availableFloors = currentHostelObj?.floors || ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+  const availableFloors = currentHostelObj?.floors || ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
   // Ensure selected floor is valid for current hostel
   useEffect(() => {
@@ -143,8 +152,9 @@ export default function AttendanceRoundSetup() {
       });
 
       if (res.data?.success) {
+        const floorLabel = selectedFloor.toLowerCase().includes('all') ? 'All Floors' : `Floor ${selectedFloor}`;
         toast.success(
-          `⚡ Attendance requested for ${res.data.requestedRoomsCount} rooms on ${selectedFloor} (${res.data.totalStudentsNotified} students)!`,
+          `⚡ Attendance requested for ${res.data.requestedRoomsCount} rooms on ${floorLabel} (${res.data.totalStudentsNotified} students)!`,
           { duration: 6000 }
         );
         navigate(`/attendance/round/${res.data.round._id}`);
@@ -204,9 +214,17 @@ export default function AttendanceRoundSetup() {
       if (res.data?.success) {
         const roundId = res.data.round._id;
         if (res.data.resumed) {
-          toast.success('Resumed existing active round for this floor');
+          toast.success(
+            selectedFloor.toLowerCase().includes('all')
+              ? 'Resumed existing active round for All Floors'
+              : 'Resumed existing active round for this floor'
+          );
         } else {
-          toast.success('Started attendance round');
+          toast.success(
+            selectedFloor.toLowerCase().includes('all')
+              ? 'Started attendance round for All Floors'
+              : 'Started attendance round'
+          );
         }
         navigate(`/attendance/round/${roundId}`);
       }
@@ -370,12 +388,18 @@ export default function AttendanceRoundSetup() {
 
             {/* Step 2: Select Floor */}
             <div style={{ marginBottom: 24 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>
-                <MdLayers style={{ color: '#06b6d4', fontSize: 18 }} /> Select Floor for Round
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  <MdLayers style={{ color: '#06b6d4', fontSize: 18 }} /> Select Floor for Round
+                </label>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Choose a single floor or &quot;All Floors&quot;
+                </span>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {availableFloors.map((fl) => {
                   const isSelected = selectedFloor === fl;
+                  const isAll = fl.toLowerCase().includes('all');
                   return (
                     <button
                       key={fl}
@@ -384,15 +408,28 @@ export default function AttendanceRoundSetup() {
                       style={{
                         padding: '10px 18px',
                         borderRadius: 10,
-                        border: isSelected ? '2px solid #06b6d4' : '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
-                        background: isSelected ? 'rgba(6, 182, 212, 0.12)' : 'var(--bg-input, rgba(255, 255, 255, 0.7))',
-                        color: isSelected ? '#0891b2' : 'var(--text-primary)',
+                        border: isSelected
+                          ? (isAll ? '2px solid #8b5cf6' : '2px solid #06b6d4')
+                          : '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
+                        background: isSelected
+                          ? (isAll ? 'rgba(139, 92, 246, 0.15)' : 'rgba(6, 182, 212, 0.14)')
+                          : 'var(--bg-input, rgba(255, 255, 255, 0.7))',
+                        color: isSelected
+                          ? (isAll ? '#7c3aed' : '#0891b2')
+                          : 'var(--text-primary)',
                         fontWeight: 700,
                         fontSize: 13.5,
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        boxShadow: isSelected
+                          ? (isAll ? '0 3px 12px rgba(139, 92, 246, 0.25)' : '0 3px 12px rgba(6, 182, 212, 0.2)')
+                          : 'none',
                       }}
                     >
+                      {isAll && <span>🏢</span>}
                       {fl}
                     </button>
                   );
@@ -489,9 +526,9 @@ export default function AttendanceRoundSetup() {
               >
                 <MdBolt size={24} />
                 {submitting ? (
-                  'Requesting All Rooms on Floor…'
+                  'Requesting All Rooms…'
                 ) : (
-                  <>1-Click Request All Attendance ({selectedHostel} · {selectedFloor})</>
+                  <>1-Click Request All Attendance ({selectedHostel} · {selectedFloor.toLowerCase().includes('all') ? 'All Floors' : selectedFloor})</>
                 )}
               </button>
 

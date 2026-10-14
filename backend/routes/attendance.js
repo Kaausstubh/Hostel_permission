@@ -209,7 +209,7 @@ router.post('/rounds/quick-request-all', protect, authorize('warden', 'admin'), 
       success: true,
       round,
       resumed,
-      message: `Round started & attendance requested for all ${result.requestedRoomsCount} rooms on Floor ${floor} (${result.totalStudentsNotified} students)`,
+      message: `Round started & attendance requested for all ${result.requestedRoomsCount} rooms on ${floor.toLowerCase().includes('all') ? 'All Floors' : `Floor ${floor}`} (${result.totalStudentsNotified} students)`,
       ...result,
     });
   } catch (err) {

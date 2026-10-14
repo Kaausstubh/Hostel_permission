@@ -81,6 +81,19 @@ const resolveFloorRooms = async (hostelCode, floorStr) => {
   const allFloors = await HostelFloor.find({ hostel_id: hostel._id, active: true }).sort({ floor_number: 1 });
   const cleanStr = String(floorStr || '').trim().toLowerCase();
 
+  // If All Floors is selected, return all rooms across all floors for this hostel
+  if (cleanStr.includes('all')) {
+    const rooms = await HostelRoom.find({ hostel_id: hostel._id })
+      .sort({ room_number: 1 })
+      .lean();
+    return {
+      hostel,
+      floorDoc: { label: 'All Floors', floor_number: 99 },
+      rooms,
+      isAllFloors: true,
+    };
+  }
+
   let floorDoc = allFloors.find(
     (f) =>
       f.label.toLowerCase() === cleanStr ||
@@ -147,22 +160,22 @@ const getHostelsAndFloors = async (staffUser = null) => {
     {
       code: 'BH1',
       name: "Boys' Hostel 1 (BH1)",
-      floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'BH2',
       name: "Boys' Hostel 2 (BH2)",
-      floors: ['Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH1',
       name: "Girls' Hostel 1 (GH1)",
-      floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH2',
       name: "Girls' Hostel 2 (GH2)",
-      floors: ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
   ];
 
@@ -192,13 +205,16 @@ const getHostelsAndFloors = async (staffUser = null) => {
     }
 
     const matchedConfig = standardConfigs.find((c) => c.code === h.code);
-    const defaultFl = matchedConfig ? matchedConfig.floors : ['1st Floor', '2nd Floor', '3rd Floor'];
+    const defaultFl = matchedConfig ? matchedConfig.floors : ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+    const dbFloorLabels = floors.map((f) => f.label).filter(Boolean);
+    // Combine 'All Floors' + standard campus floors + any DB floor labels (deduplicating)
+    const combinedFloors = Array.from(new Set(['All Floors', ...defaultFl, ...dbFloorLabels]));
 
     hostelMap.set(h.code, {
       hostel: h.code,
       name: matchedConfig?.name || `${h.name} (${h.code})`,
       studentCount: Math.max(allocCount, userCount),
-      floors: floors.length > 0 ? floors.map((f) => f.label) : defaultFl,
+      floors: combinedFloors,
     });
   }
 
@@ -324,7 +340,10 @@ const getRoundRoomsSummary = async (roundId) => {
       .select('_id name rollNo roomNo studentPhoto picture phone')
       .lean();
 
-    const floorStudents = students.filter((s) => parseFloorFromRoom(s.roomNo) === round.floor);
+    const isAllFloors = String(round.floor || '').trim().toLowerCase().includes('all');
+    const floorStudents = isAllFloors
+      ? students
+      : students.filter((s) => parseFloorFromRoom(s.roomNo) === round.floor);
     for (const s of floorStudents) {
       const rNo = (s.roomNo || '').trim().toUpperCase();
       if (!rNo) continue;

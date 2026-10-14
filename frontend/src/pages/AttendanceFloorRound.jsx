@@ -217,7 +217,13 @@ export default function AttendanceFloorRound() {
 
   return (
     <div className="fade-in">
-      <Navbar title={`Floor Round — Floor ${round?.floor ?? ''} (${round?.hostel || 'Hostel'})`} />
+      <Navbar
+        title={
+          round?.floor?.toLowerCase().includes('all')
+            ? `All Floors Round (${round?.hostel || 'Hostel'})`
+            : `Floor Round — Floor ${round?.floor ?? ''} (${round?.hostel || 'Hostel'})`
+        }
+      />
       <div
         className="page-area attendance-floor-page"
         style={{
@@ -260,7 +266,7 @@ export default function AttendanceFloorRound() {
               </button>
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                  {round?.hostel} · Floor {round?.floor}
+                  {round?.hostel} · {round?.floor?.toLowerCase().includes('all') ? 'All Floors' : `Floor ${round?.floor}`}
                 </h2>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   {round?.session_name} · {round?.date} {round?.status === 'completed' && <strong style={{ color: 'var(--success)' }}>(Locked)</strong>}
@@ -703,7 +709,7 @@ export default function AttendanceFloorRound() {
             </div>
 
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-              This will calculate final attendance tallies and lock the round for Floor {round?.floor}. Official attendance records will be saved to the ledger.
+              This will calculate final attendance tallies and lock the round for {round?.floor?.toLowerCase().includes('all') ? 'All Floors' : `Floor ${round?.floor}`}. Official attendance records will be saved to the ledger.
             </p>
 
             <div
