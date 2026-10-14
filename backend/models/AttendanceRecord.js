@@ -61,6 +61,14 @@ const attendanceRecordSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    attempt_count: {
+      type: Number,
+      default: 1,
+    },
+    verification_timestamp: {
+      type: Date,
+      default: Date.now,
+    },
     remark: {
       type: String,
       default: null,

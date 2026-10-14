@@ -1,39 +1,30 @@
 /**
  * StudentAttendancePrompt Component
- * Precision Hostel Geofencing & Automatic Attendance Detection.
+ * One-Time GPS Verification & Server-Authoritative Two-Attempt Attendance.
  *
  * Implements:
- * 1. Configurable, high-precision building geofencing (15-25m radius, Haversine formula).
- * 2. Strict hostel-specific validation:
- *    - BH1 students cannot mark at BH2; BH2 students cannot mark at BH1.
- *    - Student assigned hostel strictly validated against server identity.
- * 3. Automatic attendance for BH2 students (and any hostel with auto_attendance enabled) on app open.
- * 4. Real-time attendance state synchronization (immediate frontend-to-backend-to-DB sync without page reloads).
- * 5. Exact attendance date & time display in IST with seconds (e.g. "13 October 2026", "08:42:17 PM").
- * 6. Clear distinction between NOT MARKED and ABSENT.
- * 7. Low GPS accuracy detection and retry guidance.
+ * 1. Displays GPS verification ONLY when attendance is NOT yet finalized for current session.
+ * 2. Strictly enforces max 2 GPS fetching attempts per student per session on server.
+ * 3. Successful coordinates immediately finalize attendance as PRESENT (inside geofence) or ABSENT (outside).
+ * 4. Failed GPS retrieval (permission denied, timeout, unavailable) counts as an attempt.
+ *    - Attempt 1 failure allows Attempt 2 without prematurely marking absent.
+ *    - Attempt 2 failure finalizes attendance as ABSENT.
+ * 5. Once attendance is finalized (PRESENT or ABSENT):
+ *    - The verification card, button, prompt, and marking controls are COMPLETELY REMOVED from the UI.
+ *    - Clean "Hostel Attendance" section prominently displays status, date, and time.
+ *    - Status persists across page refreshes, logouts, and app reopens.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
-  MdLocationOn,
   MdGpsFixed,
   MdCheckCircle,
   MdCancel,
   MdWarning,
-  MdClose,
-  MdRefresh,
-  MdMeetingRoom,
-  MdMyLocation,
   MdAccessTime,
-  MdInfoOutline,
-  MdKeyboardArrowDown,
-  MdKeyboardArrowUp,
   MdHistory,
-  MdSecurity,
-  MdSignalCellularAlt,
 } from 'react-icons/md';
 
 export default function StudentAttendancePrompt({
@@ -44,9 +35,6 @@ export default function StudentAttendancePrompt({
   externalOpenTrigger = 0,
   onOpenHistory = () => {},
 }) {
-  // Pending room-round request (for legacy staff round roll calls)
-  const [pendingRequest, setPendingRequest] = useState(null);
-
   // Today's definitive attendance session status
   const [todaySession, setTodaySession] = useState({
     hostel: user?.hostel || 'BH2',
@@ -58,97 +46,147 @@ export default function StudentAttendancePrompt({
       year: 'numeric',
     }),
     time: null,
-    status: 'NOT MARKED', // 'PRESENT' | 'NOT MARKED' | 'ABSENT'
-    method: null, // 'Automatic' | 'Manual'
-    verification: 'Pending Presence Verification',
+    status: 'PENDING', // 'PRESENT' | 'ABSENT' | 'PENDING'
+    displayStatus: 'Pending Verification',
+    method: null,
+    verification: 'Pending Verification',
+    isMarked: false,
     confirmedByServer: false,
-    reason: null,
-    autoAttendanceEnabled: true,
-    permittedRadiusMeters: 22,
-    accuracyThresholdMeters: 25,
+    attemptsCount: 0,
+    attemptsRemaining: 2,
+    message: null,
   });
 
-  const [cardExpanded, setCardExpanded] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-
-  // GPS & verification state
   const [verifying, setVerifying] = useState(false);
-  const [gpsData, setGpsData] = useState(null);
   const [gpsError, setGpsError] = useState(null);
-  const [verificationFeedback, setVerificationFeedback] = useState(null);
-
-  const hasAutoVerifiedOnOpenRef = useRef(false);
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
 
-  const remainingSeconds = pendingRequest?.remainingSeconds ?? 0;
+  // ── Handle Server Response for Attendance Status ────────────────────────────
+  const handleVerificationResponse = useCallback(
+    (data) => {
+      if (!data) return;
 
-  // ── Fetch Latest Attendance Status & Active Requests ──────────────────────
+      const isPresent = data.status === 'PRESENT';
+      const isAbsent = data.status === 'ABSENT';
+      const isFinalized = isPresent || isAbsent || Boolean(data.isMarked);
+
+      if (isPresent) {
+        setTodaySession((prev) => ({
+          ...prev,
+          status: 'PRESENT',
+          displayStatus: 'PRESENT',
+          time: data.time || prev.time,
+          date: data.date || prev.date,
+          formattedDate: data.formattedDate || prev.formattedDate,
+          hostel: data.hostel || prev.hostel,
+          hostelName: data.hostelName || prev.hostelName,
+          isMarked: true,
+          confirmedByServer: true,
+          attemptsCount: data.attemptsCount || 1,
+          attemptsRemaining: 0,
+          verification: 'Successful',
+        }));
+
+        toast.success(`🎉 Attendance Marked: PRESENT at ${data.time || 'now'} IST!`, {
+          icon: '🟢',
+          duration: 5000,
+        });
+
+        if (onVerified) onVerified();
+        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: true });
+      } else if (isAbsent) {
+        setTodaySession((prev) => ({
+          ...prev,
+          status: 'ABSENT',
+          displayStatus: 'ABSENT',
+          time: data.time || prev.time,
+          date: data.date || prev.date,
+          formattedDate: data.formattedDate || prev.formattedDate,
+          hostel: data.hostel || prev.hostel,
+          hostelName: data.hostelName || prev.hostelName,
+          isMarked: true,
+          confirmedByServer: true,
+          attemptsCount: 2,
+          attemptsRemaining: 0,
+          verification: data.message || 'Outside Hostel Boundary / Failed Attempts',
+        }));
+
+        toast.error(`Attendance Recorded: ABSENT (${data.message || 'Outside boundary / attempts failed'})`, {
+          icon: '🔴',
+          duration: 6000,
+        });
+
+        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: true });
+      } else {
+        // Still PENDING (Attempt 1 failed)
+        setTodaySession((prev) => ({
+          ...prev,
+          status: 'PENDING',
+          displayStatus: 'Pending Verification',
+          attemptsCount: data.attempt || data.attemptsCount || 1,
+          attemptsRemaining: data.attemptsRemaining || 1,
+          isMarked: false,
+          message: data.message,
+        }));
+
+        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: false });
+      }
+    },
+    [onVerified, onStatusChange]
+  );
+
+  // ── Fetch Latest Attendance Status from Backend ─────────────────────────────
   const fetchAttendanceStatus = useCallback(async () => {
     if (!user || user.role !== 'student') return;
 
     try {
-      // 1. Fetch today's official attendance session record
       const todayRes = await api.get('/attendance/today');
       if (todayRes.data?.success) {
         const d = todayRes.data;
+        const isPresent = d.status === 'PRESENT';
+        const isAbsent = d.status === 'ABSENT';
+        const isMarked = isPresent || isAbsent || Boolean(d.isMarked);
+
         setTodaySession((prev) => ({
           ...prev,
           hostel: d.hostel || user.hostel || 'BH2',
           hostelName: d.hostelName || `${user.hostel || 'BH2'} Hostel`,
-          date: d.date,
-          formattedDate: d.formattedDate,
-          time: d.time,
-          status: d.status, // 'PRESENT' | 'NOT MARKED' | 'ABSENT'
+          date: d.date || prev.date,
+          formattedDate: d.formattedDate || prev.formattedDate,
+          time: d.time || prev.time,
+          status: isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : 'PENDING',
+          displayStatus: isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : 'Pending Verification',
           method: d.method,
           verification: d.verification,
+          isMarked,
           confirmedByServer: Boolean(d.confirmedByServer),
-          reason: d.remark || d.message || null,
-          autoAttendanceEnabled: d.autoAttendanceEnabled !== false,
-          permittedRadiusMeters: d.permittedRadiusMeters || 22,
-          accuracyThresholdMeters: d.accuracyThresholdMeters || 25,
+          attemptsCount: d.attemptsCount || (isMarked ? 2 : 0),
+          attemptsRemaining: isMarked ? 0 : (d.attemptsRemaining ?? 2),
+          message: d.message || null,
         }));
 
         if (onStatusChange) {
           onStatusChange({
             todayStatus: d,
-            isMarked: d.isMarked,
+            isMarked,
           });
         }
       }
-
-      // 2. Fetch active room-level requests (if staff started a night round)
-      const pendingRes = await api.get('/attendance/pending');
-      const reqData = pendingRes.data?.request;
-      const hasActive = Boolean(pendingRes.data?.success && pendingRes.data.hasPending && !reqData?.alreadyApproved);
-
-      if (hasActive) {
-        setPendingRequest(reqData);
-      } else {
-        setPendingRequest(null);
-      }
     } catch {
-      // silent fallback on network hiccup
+      // silent fallback on network glitch
     }
   }, [user, onStatusChange]);
 
-  // Initial load and periodic refresh every 4 seconds
+  // Initial load and periodic refresh every 8 seconds
   useEffect(() => {
     fetchAttendanceStatus();
-    const interval = setInterval(fetchAttendanceStatus, 4000);
+    const interval = setInterval(fetchAttendanceStatus, 8000);
     return () => clearInterval(interval);
   }, [fetchAttendanceStatus]);
 
-  // Socket.IO event listeners for instantaneous push updates
+  // Socket.IO event listeners for live push updates
   useEffect(() => {
     if (!socket) return;
-
-    const handleReq = () => {
-      toast('Hostel staff requested attendance for your room!', {
-        icon: '🏛️',
-        duration: 5000,
-      });
-      fetchAttendanceStatus();
-    };
 
     const handleStudentMarked = (payload) => {
       if (payload?.studentId === user?._id) {
@@ -156,12 +194,10 @@ export default function StudentAttendancePrompt({
       }
     };
 
-    socket.on('attendance_requested', handleReq);
     socket.on('student_attendance_marked', handleStudentMarked);
     socket.on('room_attendance_updated', fetchAttendanceStatus);
 
     return () => {
-      socket.off('attendance_requested', handleReq);
       socket.off('student_attendance_marked', handleStudentMarked);
       socket.off('room_attendance_updated', fetchAttendanceStatus);
     };
@@ -171,168 +207,109 @@ export default function StudentAttendancePrompt({
   useEffect(() => {
     if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
       lastExternalTriggerRef.current = externalOpenTrigger;
-      setCardExpanded(true);
-      executePresenceVerification({ silentOnSuccess: false });
+      executePresenceVerification();
     }
   }, [externalOpenTrigger]);
 
-  // ── Automatic Attendance Evaluation on App Open for BH2 Students ──────────
-  useEffect(() => {
-    if (!user || user.role !== 'student') return;
-    if (hasAutoVerifiedOnOpenRef.current) return;
-
-    // Trigger auto-verification when student opens app if not already marked PRESENT
-    const canAutoVerify =
-      todaySession.status !== 'PRESENT' &&
-      (user.hostel === 'BH2' || todaySession.autoAttendanceEnabled);
-
-    if (canAutoVerify) {
-      hasAutoVerifiedOnOpenRef.current = true;
-      executePresenceVerification({ silentOnSuccess: false, isAutoTrigger: true });
+  // ── Core Geolocation & Attendance Verification Logic ─────────────────────────
+  const executePresenceVerification = useCallback(async () => {
+    if (verifying) return;
+    if (todaySession.isMarked || todaySession.status === 'PRESENT' || todaySession.status === 'ABSENT') {
+      return;
     }
-  }, [user, todaySession.status, todaySession.autoAttendanceEnabled]);
 
-  // ── Core Geolocation & Presence Verification Function ─────────────────────
-  const executePresenceVerification = useCallback(
-    async ({ silentOnSuccess = false, isAutoTrigger = false } = {}) => {
-      if (verifying) return;
+    setVerifying(true);
+    setGpsError(null);
 
-      setVerifying(true);
-      setGpsError(null);
-      setVerificationFeedback(null);
+    // Browser Geolocation API check
+    if (!navigator.geolocation) {
+      const errorMsg = 'Geolocation is not supported by your browser.';
+      setGpsError(errorMsg);
+      toast.error(errorMsg);
 
-      if (!navigator.geolocation) {
-        setGpsError('Geolocation is not supported by your browser.');
+      try {
+        const res = await api.post('/attendance/auto-verify', {
+          fetchFailed: true,
+          code: 'NOT_SUPPORTED',
+          reason: errorMsg,
+        });
+        handleVerificationResponse(res.data);
+      } catch (err) {
+        toast.error(err.response?.data?.message || err.message);
+      } finally {
         setVerifying(false);
-        return;
       }
+      return;
+    }
 
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const coords = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy,
+    // Request device GPS coordinates
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude, accuracy } = position.coords;
+          const res = await api.post('/attendance/auto-verify', {
+            lat: latitude,
+            lng: longitude,
+            accuracy,
             timestamp: position.timestamp || Date.now(),
-          };
+            hostel: user?.hostel,
+          });
 
-          setGpsData(coords);
-
-          try {
-            // Send fresh coordinates to authoritative backend auto-verify endpoint
-            const res = await api.post('/attendance/auto-verify', {
-              lat: coords.lat,
-              lng: coords.lng,
-              accuracy: coords.accuracy,
-              timestamp: coords.timestamp,
-              hostel: user?.hostel,
-            });
-
-            const data = res.data;
-            if (data?.status === 'PRESENT') {
-              setTodaySession((prev) => ({
-                ...prev,
-                hostel: data.hostel,
-                hostelName: data.hostelName,
-                date: data.date,
-                formattedDate: data.formattedDate,
-                time: data.time,
-                status: 'PRESENT',
-                method: data.method || 'Automatic',
-                verification: 'Successful',
-                confirmedByServer: true,
-                reason: data.message,
-              }));
-
-              setVerificationFeedback({
-                type: 'success',
-                message: data.message || `Verified inside ${data.hostelName || 'hostel'}! Attendance marked PRESENT.`,
-                time: data.time,
-                date: data.formattedDate,
-              });
-
-              toast.success(`🎉 Attendance Marked: PRESENT at ${data.time} IST!`, {
-                icon: '🟢',
-                duration: 5000,
-              });
-
-              onVerified();
-              fetchAttendanceStatus();
-            }
-          } catch (err) {
-            const errData = err.response?.data;
-            const code = errData?.code || 'VERIFICATION_FAILED';
-            const msg = errData?.message || err.message || 'Geofence verification failed';
-
-            if (code === 'LOW_GPS_ACCURACY') {
-              setGpsError(msg);
-              setVerificationFeedback({
-                type: 'warning',
-                message: msg,
-                code,
-              });
-              toast.error(msg, { icon: '🛰️', duration: 6000 });
-            } else if (code === 'OUTSIDE_GEOFENCE') {
-              setTodaySession((prev) => ({
-                ...prev,
-                status: 'NOT MARKED',
-                reason: msg,
-                verification: 'Outside Hostel Boundary',
-              }));
-              setVerificationFeedback({
-                type: 'error',
-                message: msg,
-                code,
-                distanceMeters: errData?.distanceMeters,
-              });
-              if (!silentOnSuccess) {
-                toast.error(msg, { icon: '📍', duration: 5000 });
-              }
-            } else if (code === 'CROSS_HOSTEL_FORBIDDEN') {
-              toast.error(msg, { icon: '🚫', duration: 6000 });
-              setVerificationFeedback({
-                type: 'error',
-                message: msg,
-                code,
-              });
-            } else {
-              setGpsError(msg);
-              setVerificationFeedback({
-                type: 'error',
-                message: msg,
-                code,
-              });
-            }
-          } finally {
-            setVerifying(false);
-          }
-        },
-        (error) => {
+          handleVerificationResponse(res.data);
+        } catch (err) {
+          const errData = err.response?.data;
+          const msg = errData?.message || err.message || 'Geofence verification failed';
+          setGpsError(msg);
+          toast.error(msg);
+          fetchAttendanceStatus();
+        } finally {
           setVerifying(false);
-          let message = 'Unable to retrieve device GPS location.';
-          if (error.code === error.PERMISSION_DENIED) {
-            message = 'Location permission was denied. Please allow location access in your browser settings to verify attendance.';
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            message = 'Location signal unavailable. Move near a window or outdoors to acquire GPS satellites.';
-          } else if (error.code === error.TIMEOUT) {
-            message = 'GPS location request timed out. Please try again.';
-          }
-          setGpsError(message);
-          toast.error(message, { icon: '⚠️' });
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    },
-    [user, verifying, onVerified, fetchAttendanceStatus]
-  );
+        }
+      },
+      async (error) => {
+        let code = 'GPS_FETCH_FAILED';
+        let message = 'Unable to retrieve device GPS location.';
+        if (error.code === error.PERMISSION_DENIED) {
+          code = 'PERMISSION_DENIED';
+          message = 'Location permission was denied. Please allow location access in your browser settings.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          code = 'POSITION_UNAVAILABLE';
+          message = 'Location signal unavailable. Move near a window or outdoors to acquire GPS satellites.';
+        } else if (error.code === error.TIMEOUT) {
+          code = 'TIMEOUT';
+          message = 'GPS location request timed out. Please try again.';
+        }
+
+        setGpsError(message);
+        toast.error(message, { icon: '⚠️' });
+
+        // Record failed attempt on the server
+        try {
+          const res = await api.post('/attendance/auto-verify', {
+            fetchFailed: true,
+            code,
+            reason: message,
+          });
+          handleVerificationResponse(res.data);
+        } catch (apiErr) {
+          toast.error(apiErr.response?.data?.message || apiErr.message);
+        } finally {
+          setVerifying(false);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, [verifying, todaySession.isMarked, todaySession.status, user?.hostel, handleVerificationResponse, fetchAttendanceStatus]);
 
   const isPresent = todaySession.status === 'PRESENT';
   const isAbsent = todaySession.status === 'ABSENT';
-  const isNotMarked = !isPresent && !isAbsent;
+  const isFinalized = isPresent || isAbsent || todaySession.isMarked;
 
-  return (
-    <>
-      {/* ── TOP STICKY ATTENDANCE STATUS CARD & NOTIFICATION ── */}
+  // ── CASE 1: FINALIZED ATTENDANCE (PRESENT or ABSENT) ─────────────────────────
+  // Verification component is completely removed from the visible UI.
+  // Clean "Hostel Attendance" section permanently displays final status, date, and time.
+  if (isFinalized) {
+    return (
       <div
         className="hostel-attendance-container"
         style={{
@@ -341,49 +318,170 @@ export default function StudentAttendancePrompt({
           zIndex: 44,
           background: 'var(--bg-card, #1e293b)',
           borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.12)',
           backdropFilter: 'blur(12px)',
+          padding: '10px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 10,
           transition: 'all 0.2s ease',
         }}
       >
-        {/* Compact Header Summary Bar */}
-        <div
-          onClick={() => setCardExpanded((prev) => !prev)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          {/* Prominent Status Icon */}
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: isPresent ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+              color: isPresent ? '#10b981' : '#ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+            }}
+          >
+            {isPresent ? <MdCheckCircle /> : <MdCancel />}
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: 'var(--text-primary, #ffffff)',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                Hostel Attendance
+              </span>
+
+              {/* Status Badge */}
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  padding: '2px 10px',
+                  borderRadius: 99,
+                  background: isPresent ? 'rgba(16, 185, 129, 0.18)' : 'rgba(239, 68, 68, 0.18)',
+                  color: isPresent ? '#10b981' : '#ef4444',
+                  border: isPresent
+                    ? '1px solid rgba(16, 185, 129, 0.35)'
+                    : '1px solid rgba(239, 68, 68, 0.35)',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {todaySession.status}
+              </span>
+
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 99,
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: 'var(--text-muted, #94a3b8)',
+                }}
+              >
+                {todaySession.hostel}
+              </span>
+            </div>
+
+            {/* Date and Time Display */}
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary, #94a3b8)',
+                marginTop: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>📅 {todaySession.formattedDate}</span>
+              {todaySession.time && (
+                <>
+                  <span>•</span>
+                  <span>🕒 {todaySession.time} IST</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Attendance History Trigger (Zero verification controls) */}
+        <button
+          type="button"
+          onClick={onOpenHistory}
           style={{
-            padding: '10px 18px',
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: 'var(--text-secondary, #cbd5e1)',
+            border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+          }}
+        >
+          <MdHistory size={15} />
+          <span>History</span>
+        </button>
+      </div>
+    );
+  }
+
+  // ── CASE 2: PENDING VERIFICATION (Maximum 2 Attempts Available) ───────────────
+  const attemptsCount = todaySession.attemptsCount || 0;
+  const isSecondAttempt = attemptsCount === 1;
+
+  return (
+    <>
+      <div
+        className="hostel-attendance-container"
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 44,
+          background: 'var(--bg-card, #1e293b)',
+          borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.15)',
+          backdropFilter: 'blur(12px)',
+          padding: '10px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          transition: 'all 0.2s ease',
+        }}
+      >
+        <div
+          style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            cursor: 'pointer',
-            userSelect: 'none',
-            background: isPresent
-              ? 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.08) 100%)'
-              : pendingRequest
-              ? 'linear-gradient(90deg, rgba(79, 70, 229, 0.2) 0%, rgba(6, 182, 212, 0.15) 100%)'
-              : 'transparent',
+            flexWrap: 'wrap',
+            gap: 10,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             {/* Status Indicator Icon */}
             <div
               style={{
-                width: 34,
-                height: 34,
+                width: 36,
+                height: 36,
                 borderRadius: '50%',
-                background: isPresent
-                  ? 'rgba(16, 185, 129, 0.22)'
-                  : isAbsent
-                  ? 'rgba(239, 68, 68, 0.22)'
-                  : verifying
-                  ? 'rgba(99, 102, 241, 0.22)'
-                  : 'rgba(245, 158, 11, 0.22)',
-                color: isPresent
-                  ? '#10b981'
-                  : isAbsent
-                  ? '#ef4444'
-                  : verifying
-                  ? '#6366f1'
-                  : '#f59e0b',
+                background: verifying ? 'rgba(99, 102, 241, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                color: verifying ? '#818cf8' : '#f59e0b',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -391,72 +489,56 @@ export default function StudentAttendancePrompt({
                 flexShrink: 0,
               }}
             >
-              {isPresent ? (
-                <MdCheckCircle />
-              ) : isAbsent ? (
-                <MdCancel />
-              ) : verifying ? (
-                <MdGpsFixed className="animate-spin" />
-              ) : (
-                <MdAccessTime />
-              )}
+              {verifying ? <MdGpsFixed className="animate-spin" /> : <MdAccessTime />}
             </div>
 
-            {/* Quick Text Summary */}
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 13.5,
-                  fontWeight: 800,
-                  color: isPresent
-                    ? '#10b981'
-                    : isAbsent
-                    ? '#ef4444'
-                    : 'var(--text-primary, #ffffff)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>HOSTEL ATTENDANCE: {todaySession.status}</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 800,
+                    color: 'var(--text-primary, #ffffff)',
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  Hostel Attendance
+                </span>
+
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    padding: '2px 10px',
+                    borderRadius: 99,
+                    background: 'rgba(245, 158, 11, 0.18)',
+                    color: '#f59e0b',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Pending Verification
+                </span>
+
                 <span
                   style={{
                     fontSize: 11,
+                    fontWeight: 700,
                     padding: '2px 8px',
                     borderRadius: 99,
-                    fontWeight: 700,
-                    background: isPresent
-                      ? 'rgba(16, 185, 129, 0.2)'
-                      : 'rgba(255, 255, 255, 0.1)',
-                    color: isPresent ? '#10b981' : 'var(--text-muted, #94a3b8)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    color: 'var(--text-muted, #94a3b8)',
                   }}
                 >
                   {todaySession.hostel}
                 </span>
-                {todaySession.confirmedByServer && (
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      padding: '2px 7px',
-                      borderRadius: 99,
-                      fontWeight: 700,
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      color: '#10b981',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <MdSecurity size={12} /> Server Confirmed
-                  </span>
-                )}
               </div>
 
+              {/* Date & Attempt Status */}
               <div
                 style={{
-                  fontSize: 11.5,
-                  color: 'var(--text-secondary, #cbd5e1)',
+                  fontSize: 12,
+                  color: 'var(--text-secondary, #94a3b8)',
                   marginTop: 2,
                   display: 'flex',
                   alignItems: 'center',
@@ -465,382 +547,107 @@ export default function StudentAttendancePrompt({
                 }}
               >
                 <span>📅 {todaySession.formattedDate}</span>
-                {todaySession.time && (
-                  <>
-                    <span>•</span>
-                    <span>
-                      Marked at <strong>{todaySession.time} IST</strong>
-                    </span>
-                  </>
-                )}
-                {todaySession.method && (
-                  <>
-                    <span>•</span>
-                    <span>Method: {todaySession.method}</span>
-                  </>
+                {isSecondAttempt && (
+                  <span style={{ color: '#f87171', fontWeight: 600 }}>
+                    • Attempt 1 of 2 failed (1 attempt remaining)
+                  </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Right Header Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Quick Action Button */}
-            {!isPresent && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  executePresenceVerification({ silentOnSuccess: false });
-                }}
-                disabled={verifying}
-                style={{
-                  background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 99,
-                  padding: '6px 14px',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: verifying ? 'wait' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  boxShadow: '0 2px 8px rgba(79, 70, 229, 0.3)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <MdMyLocation size={14} />
-                {verifying ? 'Verifying...' : 'Check Presence'}
-              </button>
-            )}
+          {/* GPS Verification Action Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={executePresenceVerification}
+              disabled={verifying}
+              style={{
+                background: verifying
+                  ? 'rgba(99, 102, 241, 0.3)'
+                  : 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 999,
+                padding: '8px 18px',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: verifying ? 'wait' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <MdGpsFixed className={verifying ? 'animate-spin' : ''} size={16} />
+              <span>
+                {verifying
+                  ? `Verifying GPS (Attempt ${isSecondAttempt ? 2 : 1}/2)...`
+                  : isSecondAttempt
+                  ? 'Retry Presence Check (Attempt 2 of 2)'
+                  : 'Check Presence'}
+              </span>
+            </button>
 
             <button
               type="button"
+              onClick={onOpenHistory}
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted, #94a3b8)',
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-secondary, #cbd5e1)',
+                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+                borderRadius: 8,
+                padding: '7px 12px',
+                fontSize: 12,
+                fontWeight: 600,
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                padding: 4,
               }}
             >
-              {cardExpanded ? <MdKeyboardArrowUp size={22} /> : <MdKeyboardArrowDown size={22} />}
+              History
             </button>
           </div>
         </div>
 
-        {/* ── EXPANDED EXACT ATTENDANCE DETAIL SECTION (Requirement 5 Spec) ── */}
-        {cardExpanded && (
+        {/* Live In-Progress Verification Notice */}
+        {verifying && (
           <div
             style={{
-              padding: '14px 18px 18px',
-              borderTop: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-              background: 'rgba(0, 0, 0, 0.12)',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              color: '#818cf8',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
             }}
           >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 12,
-                marginBottom: 14,
-              }}
-            >
-              {/* Field 1: Hostel */}
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Hostel
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary, #ffffff)', marginTop: 2 }}>
-                  {todaySession.hostel} {todaySession.hostelName ? `(${todaySession.hostelName})` : ''}
-                </div>
-              </div>
+            <MdGpsFixed className="animate-spin" size={15} />
+            <span>
+              Acquiring high-accuracy GPS coordinates to verify {todaySession.hostel} presence (Attempt {isSecondAttempt ? 2 : 1} of 2)...
+            </span>
+          </div>
+        )}
 
-              {/* Field 2: Date */}
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Attendance Date
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary, #ffffff)', marginTop: 2 }}>
-                  {todaySession.formattedDate}
-                </div>
-              </div>
-
-              {/* Field 3: Status */}
-              <div
-                style={{
-                  background: isPresent
-                    ? 'rgba(16, 185, 129, 0.08)'
-                    : isAbsent
-                    ? 'rgba(239, 68, 68, 0.08)'
-                    : 'rgba(245, 158, 11, 0.08)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: isPresent
-                    ? '1px solid rgba(16, 185, 129, 0.3)'
-                    : isAbsent
-                    ? '1px solid rgba(239, 68, 68, 0.3)'
-                    : '1px solid rgba(245, 158, 11, 0.3)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Attendance Status
-                </div>
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 900,
-                    color: isPresent ? '#10b981' : isAbsent ? '#ef4444' : '#f59e0b',
-                    marginTop: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  {todaySession.status}
-                </div>
-              </div>
-
-              {/* Field 4: Exact Marked Time */}
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Exact Marked Time
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary, #ffffff)', marginTop: 2 }}>
-                  {todaySession.time ? `${todaySession.time} IST` : 'Not recorded yet'}
-                </div>
-              </div>
-
-              {/* Field 5: Method */}
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Attendance Method
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary, #ffffff)', marginTop: 2 }}>
-                  {todaySession.method || (todaySession.autoAttendanceEnabled ? 'Automatic (GPS Geofence)' : 'Manual')}
-                </div>
-              </div>
-
-              {/* Field 6: Verification Status */}
-              <div
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255, 255, 255, 0.06)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--text-muted, #94a3b8)', textTransform: 'uppercase', fontWeight: 700 }}>
-                  Verification
-                </div>
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 800,
-                    color: isPresent ? '#10b981' : 'var(--text-secondary, #cbd5e1)',
-                    marginTop: 2,
-                  }}
-                >
-                  {verifying
-                    ? 'Verifying GPS signal...'
-                    : todaySession.verification || (isPresent ? 'Successful' : 'Pending Presence Verification')}
-                </div>
-              </div>
-            </div>
-
-            {/* Verification In-Progress Indicator */}
-            {verifying && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  background: 'rgba(99, 102, 241, 0.12)',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  color: '#818cf8',
-                  fontSize: 12.5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  marginBottom: 12,
-                }}
-              >
-                <MdGpsFixed className="animate-spin" size={18} />
-                <span>
-                  Acquiring high-accuracy GPS coordinates and evaluating {todaySession.hostel} geofence boundary (permitted radius: {todaySession.permittedRadiusMeters}m)...
-                </span>
-              </div>
-            )}
-
-            {/* Rejection / Accuracy / Location Reason Box */}
-            {todaySession.reason && !isPresent && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  color: '#fbbf24',
-                  fontSize: 12.5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 12,
-                }}
-              >
-                <MdInfoOutline size={18} style={{ flexShrink: 0 }} />
-                <span>{todaySession.reason}</span>
-              </div>
-            )}
-
-            {/* GPS Accuracy Warning */}
-            {gpsError && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  color: '#f87171',
-                  fontSize: 12.5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 12,
-                }}
-              >
-                <MdWarning size={18} style={{ flexShrink: 0 }} />
-                <span>{gpsError}</span>
-              </div>
-            )}
-
-            {/* Action Bar */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 10,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => executePresenceVerification({ silentOnSuccess: false })}
-                  disabled={verifying}
-                  style={{
-                    background: isPresent
-                      ? 'rgba(16, 185, 129, 0.18)'
-                      : 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-                    color: isPresent ? '#10b981' : '#fff',
-                    border: isPresent ? '1px solid rgba(16, 185, 129, 0.4)' : 'none',
-                    borderRadius: 10,
-                    padding: '8px 16px',
-                    fontSize: 12.5,
-                    fontWeight: 800,
-                    cursor: verifying ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    boxShadow: isPresent ? 'none' : '0 2px 10px rgba(79, 70, 229, 0.25)',
-                  }}
-                >
-                  <MdRefresh className={verifying ? 'animate-spin' : ''} size={16} />
-                  {verifying
-                    ? 'Verifying Location...'
-                    : isPresent
-                    ? 'Re-verify GPS Presence'
-                    : 'Verify My Presence Now'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onOpenHistory}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: 'var(--text-secondary, #cbd5e1)',
-                    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.15))',
-                    borderRadius: 10,
-                    padding: '8px 16px',
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <MdHistory size={16} />
-                  View Attendance History
-                </button>
-              </div>
-
-              {/* GPS Diagnostic Tag */}
-              {gpsData && (
-                <div
-                  style={{
-                    fontSize: 11.5,
-                    color: 'var(--text-muted, #94a3b8)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <MdSignalCellularAlt size={14} style={{ color: gpsData.accuracy <= 25 ? '#10b981' : '#f59e0b' }} />
-                  <span>
-                    Reported GPS Accuracy: <strong>±{Math.round(gpsData.accuracy)}m</strong>{' '}
-                    {gpsData.accuracy <= 25 ? '(High Precision)' : '(Fair Precision)'}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Platform Limitation Notice (Requirement 3 & 9) */}
-            <div
-              style={{
-                marginTop: 14,
-                padding: '8px 12px',
-                borderRadius: 8,
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px dashed rgba(255, 255, 255, 0.08)',
-                fontSize: 11,
-                color: 'var(--text-muted, #94a3b8)',
-                lineHeight: 1.45,
-              }}
-            >
-              ℹ️ <strong>Mobile Geofence Operation:</strong> Web applications verify location while active in the foreground when you open the portal. Background location tracking when the browser is closed is restricted by OS privacy policies; install the native application package for background geofence services.
-            </div>
+        {/* GPS Failure / Attempt Notice */}
+        {gpsError && !verifying && (
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              color: '#f87171',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <MdWarning size={16} style={{ flexShrink: 0 }} />
+            <span>{gpsError}</span>
           </div>
         )}
       </div>
@@ -852,11 +659,6 @@ export default function StudentAttendancePrompt({
         }
         .animate-spin {
           animation: spin 1s linear infinite;
-        }
-        @media (max-width: 640px) {
-          .hostel-attendance-container {
-            font-size: 13px;
-          }
         }
       `}</style>
     </>
