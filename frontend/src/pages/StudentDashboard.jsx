@@ -3132,7 +3132,7 @@ export default function StudentDashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  if (attendanceStatus?.hasPending) {
+                  if (!attendanceStatus?.isMarked && !attendanceStatus?.todayRecord?.status) {
                     setAttendancePromptOpenTrigger((prev) => prev + 1);
                   } else {
                     setAttendanceHistoryOpen(true);

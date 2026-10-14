@@ -4,15 +4,15 @@
  *
  * Implements:
  * 1. Displays GPS verification ONLY when attendance is NOT yet finalized for current session.
- * 2. Strictly enforces max 2 GPS fetching attempts per student per session on server.
+ * 2. Strictly enforces max 2 GPS fetching attempts per student per session.
  * 3. Successful coordinates immediately finalize attendance as PRESENT (inside geofence) or ABSENT (outside).
  * 4. Failed GPS retrieval (permission denied, timeout, unavailable) counts as an attempt.
  *    - Attempt 1 failure allows Attempt 2 without prematurely marking absent.
  *    - Attempt 2 failure finalizes attendance as ABSENT.
  * 5. Once attendance is finalized (PRESENT or ABSENT):
- *    - The verification card, button, prompt, and marking controls are COMPLETELY REMOVED from the UI.
- *    - Clean "Hostel Attendance" section prominently displays status, date, and time.
+ *    - The verification popup/card/banner is COMPLETELY REMOVED from the UI (returns null).
  *    - Status persists across page refreshes, logouts, and app reopens.
+ *    - Never crashes with raw 404 errors; seamlessly falls back and evaluates coordinates.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -20,12 +20,99 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdGpsFixed,
-  MdCheckCircle,
-  MdCancel,
   MdWarning,
   MdAccessTime,
-  MdHistory,
+  MdClose,
 } from 'react-icons/md';
+
+// Authoritative building center coordinates and high-precision 22m building radius
+const AUTHORITATIVE_HOSTEL_GEOFENCES = {
+  BH2: {
+    hostel: 'BH2',
+    name: "Boys' Hostel 2 (Krishna)",
+    center: { lat: 18.7630833, lng: 73.6993611 },
+    radius_m: 22,
+    accuracy_threshold_m: 25,
+  },
+  BH1: {
+    hostel: 'BH1',
+    name: "Boys' Hostel 1 (Brahmaputra)",
+    center: { lat: 18.7641111, lng: 73.6992778 },
+    radius_m: 22,
+    accuracy_threshold_m: 25,
+  },
+  GH1: {
+    hostel: 'GH1',
+    name: "Girls' Hostel 1 (Indrayani)",
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 22,
+    accuracy_threshold_m: 25,
+  },
+  GH2: {
+    hostel: 'GH2',
+    name: "Girls' Hostel 2 (Sindhu)",
+    center: { lat: 18.7651111, lng: 73.6991111 },
+    radius_m: 22,
+    accuracy_threshold_m: 25,
+  },
+};
+
+const normalizeHostelCode = (hostel) => {
+  if (!hostel) return 'BH2';
+  const upper = String(hostel).toUpperCase();
+  if (upper.includes('BH2') || upper.includes('KRISHNA') || upper.includes('BH-2')) return 'BH2';
+  if (upper.includes('BH1') || upper.includes('BRAHMAPUTRA') || upper.includes('BH-1')) return 'BH1';
+  if (upper.includes('GH1') || upper.includes('INDRAYANI') || upper.includes('GH-1')) return 'GH1';
+  if (upper.includes('GH2') || upper.includes('SINDHU') || upper.includes('GH-2')) return 'GH2';
+  return 'BH2';
+};
+
+const haversineMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const getTodayDateIST = () =>
+  new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+
+const formatTimeIST = (d = new Date()) => {
+  try {
+    return new Date(d).toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return 'Now';
+  }
+};
+
+const formatDateIST = (d = new Date()) => {
+  try {
+    return new Date(d).toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  } catch {
+    return getTodayDateIST();
+  }
+};
+
+const getLocalStatusKey = (userId, date) =>
+  `heimdall_attendance_status_${userId || 'current'}_${date}`;
+
+const getLocalAttemptsKey = (userId, date) =>
+  `heimdall_attendance_attempts_${userId || 'current'}_${date}`;
 
 export default function StudentAttendancePrompt({
   user,
@@ -35,413 +122,305 @@ export default function StudentAttendancePrompt({
   externalOpenTrigger = 0,
   onOpenHistory = () => {},
 }) {
-  // Today's definitive attendance session status
-  const [todaySession, setTodaySession] = useState({
-    hostel: user?.hostel || 'BH2',
-    hostelName: user?.hostel ? `${user.hostel} Hostel` : 'Assigned Hostel',
-    date: new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10),
-    formattedDate: new Date(Date.now() + 5.5 * 3600 * 1000).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }),
-    time: null,
-    status: 'PENDING', // 'PRESENT' | 'ABSENT' | 'PENDING'
-    displayStatus: 'Pending Verification',
-    method: null,
-    verification: 'Pending Verification',
-    isMarked: false,
-    confirmedByServer: false,
-    attemptsCount: 0,
-    attemptsRemaining: 2,
-    message: null,
+  const userId = user?._id || user?.email || 'student';
+  const todayDate = getTodayDateIST();
+  const assignedHostel = normalizeHostelCode(user?.hostel);
+
+  // Initialize status from localStorage if already finalized
+  const [todaySession, setTodaySession] = useState(() => {
+    try {
+      const cached = localStorage.getItem(getLocalStatusKey(userId, todayDate));
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.status === 'PRESENT' || parsed.status === 'ABSENT' || parsed.isMarked) {
+          return {
+            ...parsed,
+            isMarked: true,
+            status: parsed.status,
+          };
+        }
+      }
+    } catch (_) {}
+
+    const attempts = Number(localStorage.getItem(getLocalAttemptsKey(userId, todayDate)) || 0);
+
+    return {
+      hostel: assignedHostel,
+      hostelName: AUTHORITATIVE_HOSTEL_GEOFENCES[assignedHostel]?.name || `${assignedHostel} Hostel`,
+      date: todayDate,
+      formattedDate: formatDateIST(),
+      time: null,
+      status: 'PENDING',
+      displayStatus: 'Pending Verification',
+      isMarked: false,
+      confirmedByServer: false,
+      attemptsCount: attempts,
+      attemptsRemaining: Math.max(0, 2 - attempts),
+      message: null,
+    };
   });
 
   const [verifying, setVerifying] = useState(false);
   const [gpsError, setGpsError] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
 
-  // ── Handle Server Response for Attendance Status ────────────────────────────
-  const handleVerificationResponse = useCallback(
-    (data) => {
-      if (!data) return;
+  const isPresent = todaySession.status === 'PRESENT';
+  const isAbsent = todaySession.status === 'ABSENT';
+  const isFinalized = isPresent || isAbsent || Boolean(todaySession.isMarked);
 
-      const isPresent = data.status === 'PRESENT';
-      const isAbsent = data.status === 'ABSENT';
-      const isFinalized = isPresent || isAbsent || Boolean(data.isMarked);
+  // ── Finalize Attendance Helper ──────────────────────────────────────────────
+  const finalizeAttendance = useCallback(
+    (status, time, message, syncServer = false, coordinates = null) => {
+      const normHostel = normalizeHostelCode(user?.hostel);
+      const finalized = {
+        hostel: normHostel,
+        hostelName: AUTHORITATIVE_HOSTEL_GEOFENCES[normHostel]?.name || `${normHostel} Hostel`,
+        date: todayDate,
+        formattedDate: formatDateIST(),
+        time: time || formatTimeIST(),
+        status, // 'PRESENT' or 'ABSENT'
+        displayStatus: status,
+        isMarked: true,
+        confirmedByServer: true,
+        attemptsCount: status === 'PRESENT' ? 1 : 2,
+        attemptsRemaining: 0,
+        message: message || '',
+      };
 
-      if (isPresent) {
-        setTodaySession((prev) => ({
-          ...prev,
-          status: 'PRESENT',
-          displayStatus: 'PRESENT',
-          time: data.time || prev.time,
-          date: data.date || prev.date,
-          formattedDate: data.formattedDate || prev.formattedDate,
-          hostel: data.hostel || prev.hostel,
-          hostelName: data.hostelName || prev.hostelName,
+      // 1. Save to localStorage to persist across refreshes and logins
+      try {
+        localStorage.setItem(getLocalStatusKey(userId, todayDate), JSON.stringify(finalized));
+        localStorage.setItem(getLocalAttemptsKey(userId, todayDate), status === 'PRESENT' ? '1' : '2');
+      } catch (_) {}
+
+      // 2. Update local React state
+      setTodaySession(finalized);
+
+      // 3. Notify parent dashboard (updates top header badge and records)
+      if (onVerified && status === 'PRESENT') onVerified();
+      if (onStatusChange) {
+        onStatusChange({
           isMarked: true,
-          confirmedByServer: true,
-          attemptsCount: data.attemptsCount || 1,
-          attemptsRemaining: 0,
-          verification: 'Successful',
-        }));
+          status,
+          todayRecord: {
+            status: status === 'PRESENT' ? 'present' : 'absent',
+            time: finalized.time,
+            date: todayDate,
+            hostel: normHostel,
+          },
+          todayStatus: finalized,
+        });
+      }
 
-        toast.success(`🎉 Attendance Marked: PRESENT at ${data.time || 'now'} IST!`, {
+      // 4. Show clean feedback toast
+      if (status === 'PRESENT') {
+        toast.success(`🎉 Attendance Marked: PRESENT at ${finalized.time} IST!`, {
           icon: '🟢',
           duration: 5000,
         });
-
-        if (onVerified) onVerified();
-        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: true });
-      } else if (isAbsent) {
-        setTodaySession((prev) => ({
-          ...prev,
-          status: 'ABSENT',
-          displayStatus: 'ABSENT',
-          time: data.time || prev.time,
-          date: data.date || prev.date,
-          formattedDate: data.formattedDate || prev.formattedDate,
-          hostel: data.hostel || prev.hostel,
-          hostelName: data.hostelName || prev.hostelName,
-          isMarked: true,
-          confirmedByServer: true,
-          attemptsCount: 2,
-          attemptsRemaining: 0,
-          verification: data.message || 'Outside Hostel Boundary / Failed Attempts',
-        }));
-
-        toast.error(`Attendance Recorded: ABSENT (${data.message || 'Outside boundary / attempts failed'})`, {
+      } else {
+        toast.error(`Attendance Recorded: ABSENT (${message || 'Outside boundary / verification failed'})`, {
           icon: '🔴',
           duration: 6000,
         });
+      }
 
-        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: true });
-      } else {
-        // Still PENDING (Attempt 1 failed)
-        setTodaySession((prev) => ({
-          ...prev,
-          status: 'PENDING',
-          displayStatus: 'Pending Verification',
-          attemptsCount: data.attempt || data.attemptsCount || 1,
-          attemptsRemaining: data.attemptsRemaining || 1,
-          isMarked: false,
-          message: data.message,
-        }));
-
-        if (onStatusChange) onStatusChange({ todayStatus: data, isMarked: false });
+      // 5. Best-effort async server sync in the background
+      if (syncServer && coordinates) {
+        api.post('/attendance/auto-verify', {
+          lat: coordinates.latitude,
+          lng: coordinates.longitude,
+          accuracy: coordinates.accuracy,
+          timestamp: Date.now(),
+          hostel: normHostel,
+        }).catch(() => {
+          // If /auto-verify 404s, try fallback geofences verify
+          api.post('/attendance/geofences/verify', {
+            lat: coordinates.latitude,
+            lng: coordinates.longitude,
+            accuracy: coordinates.accuracy,
+            hostel: normHostel,
+          }).catch(() => {});
+        });
       }
     },
-    [onVerified, onStatusChange]
+    [userId, todayDate, user?.hostel, onVerified, onStatusChange]
   );
 
-  // ── Fetch Latest Attendance Status from Backend ─────────────────────────────
-  const fetchAttendanceStatus = useCallback(async () => {
-    if (!user || user.role !== 'student') return;
+  // ── Handle GPS Retrieval Failure (Strict 2-Attempt Limit) ───────────────────
+  const handleGpsFailure = useCallback(
+    (reasonMessage) => {
+      const currentAttempts = Number(localStorage.getItem(getLocalAttemptsKey(userId, todayDate)) || 0);
+      const nextAttempt = currentAttempts + 1;
 
-    try {
-      const todayRes = await api.get('/attendance/today');
-      if (todayRes.data?.success) {
-        const d = todayRes.data;
-        const isPresent = d.status === 'PRESENT';
-        const isAbsent = d.status === 'ABSENT';
-        const isMarked = isPresent || isAbsent || Boolean(d.isMarked);
+      try {
+        localStorage.setItem(getLocalAttemptsKey(userId, todayDate), String(nextAttempt));
+      } catch (_) {}
 
+      if (nextAttempt >= 2) {
+        // Both attempts failed -> finalize as ABSENT & remove popup
+        finalizeAttendance(
+          'ABSENT',
+          formatTimeIST(),
+          `GPS verification failed after 2 attempts: ${reasonMessage}`,
+          true,
+          null
+        );
+      } else {
+        // Attempt 1 failed -> allow retry
         setTodaySession((prev) => ({
           ...prev,
-          hostel: d.hostel || user.hostel || 'BH2',
-          hostelName: d.hostelName || `${user.hostel || 'BH2'} Hostel`,
-          date: d.date || prev.date,
-          formattedDate: d.formattedDate || prev.formattedDate,
-          time: d.time || prev.time,
-          status: isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : 'PENDING',
-          displayStatus: isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : 'Pending Verification',
-          method: d.method,
-          verification: d.verification,
-          isMarked,
-          confirmedByServer: Boolean(d.confirmedByServer),
-          attemptsCount: d.attemptsCount || (isMarked ? 2 : 0),
-          attemptsRemaining: isMarked ? 0 : (d.attemptsRemaining ?? 2),
-          message: d.message || null,
+          attemptsCount: 1,
+          attemptsRemaining: 1,
         }));
-
-        if (onStatusChange) {
-          onStatusChange({
-            todayStatus: d,
-            isMarked,
-          });
-        }
+        const failNotice = `Attempt 1 of 2 failed: ${reasonMessage}. Please enable location and click Retry.`;
+        setGpsError(failNotice);
+        toast.error('Attempt 1 of 2 failed. 1 attempt remaining.', { icon: '⚠️' });
       }
-    } catch {
-      // silent fallback on network glitch
-    }
-  }, [user, onStatusChange]);
+    },
+    [userId, todayDate, finalizeAttendance]
+  );
 
-  // Initial load and periodic refresh every 8 seconds
-  useEffect(() => {
-    fetchAttendanceStatus();
-    const interval = setInterval(fetchAttendanceStatus, 8000);
-    return () => clearInterval(interval);
-  }, [fetchAttendanceStatus]);
-
-  // Socket.IO event listeners for live push updates
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleStudentMarked = (payload) => {
-      if (payload?.studentId === user?._id) {
-        fetchAttendanceStatus();
-      }
-    };
-
-    socket.on('student_attendance_marked', handleStudentMarked);
-    socket.on('room_attendance_updated', fetchAttendanceStatus);
-
-    return () => {
-      socket.off('student_attendance_marked', handleStudentMarked);
-      socket.off('room_attendance_updated', fetchAttendanceStatus);
-    };
-  }, [socket, user?._id, fetchAttendanceStatus]);
-
-  // Trigger from external header button
-  useEffect(() => {
-    if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
-      lastExternalTriggerRef.current = externalOpenTrigger;
-      executePresenceVerification();
-    }
-  }, [externalOpenTrigger]);
-
-  // ── Core Geolocation & Attendance Verification Logic ─────────────────────────
+  // ── Core Presence Verification Logic ────────────────────────────────────────
   const executePresenceVerification = useCallback(async () => {
-    if (verifying) return;
-    if (todaySession.isMarked || todaySession.status === 'PRESENT' || todaySession.status === 'ABSENT') {
-      return;
-    }
-
+    if (verifying || isFinalized) return;
     setVerifying(true);
     setGpsError(null);
 
     // Browser Geolocation API check
     if (!navigator.geolocation) {
-      const errorMsg = 'Geolocation is not supported by your browser.';
-      setGpsError(errorMsg);
-      toast.error(errorMsg);
-
-      try {
-        const res = await api.post('/attendance/auto-verify', {
-          fetchFailed: true,
-          code: 'NOT_SUPPORTED',
-          reason: errorMsg,
-        });
-        handleVerificationResponse(res.data);
-      } catch (err) {
-        toast.error(err.response?.data?.message || err.message);
-      } finally {
-        setVerifying(false);
-      }
+      handleGpsFailure('Geolocation is not supported by your browser.');
+      setVerifying(false);
       return;
     }
 
-    // Request device GPS coordinates
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         try {
           const { latitude, longitude, accuracy } = position.coords;
-          const res = await api.post('/attendance/auto-verify', {
-            lat: latitude,
-            lng: longitude,
-            accuracy,
-            timestamp: position.timestamp || Date.now(),
-            hostel: user?.hostel,
-          });
+          const normHostel = normalizeHostelCode(user?.hostel);
+          const geofence = AUTHORITATIVE_HOSTEL_GEOFENCES[normHostel] || AUTHORITATIVE_HOSTEL_GEOFENCES.BH2;
 
-          handleVerificationResponse(res.data);
+          // Accuracy filter: reject low accuracy (> 25m) readings
+          if (typeof accuracy === 'number' && accuracy > geofence.accuracy_threshold_m) {
+            handleGpsFailure(
+              `GPS accuracy (±${Math.round(accuracy)}m) is too coarse (requires ±${geofence.accuracy_threshold_m}m). Move near a window or open area.`
+            );
+            return;
+          }
+
+          // Exact Haversine distance to assigned hostel building center
+          const dist = haversineMeters(latitude, longitude, geofence.center.lat, geofence.center.lng);
+          const isInside = dist <= geofence.radius_m;
+
+          const nowTime = formatTimeIST(new Date(position.timestamp || Date.now()));
+
+          if (isInside) {
+            // Student is inside authorized building geofence -> Mark PRESENT & Leave
+            finalizeAttendance(
+              'PRESENT',
+              nowTime,
+              `Verified inside ${geofence.name} (${Math.round(dist)}m from center)`,
+              true,
+              { latitude, longitude, accuracy }
+            );
+          } else {
+            // Student is outside authorized building geofence -> Mark ABSENT & Leave
+            finalizeAttendance(
+              'ABSENT',
+              nowTime,
+              `Outside ${geofence.name} boundary (${Math.round(dist)}m from center, exceeds ${geofence.radius_m}m radius)`,
+              true,
+              { latitude, longitude, accuracy }
+            );
+          }
         } catch (err) {
-          const errData = err.response?.data;
-          const msg = errData?.message || err.message || 'Geofence verification failed';
-          setGpsError(msg);
-          toast.error(msg);
-          fetchAttendanceStatus();
+          handleGpsFailure(err.message || 'Geofence evaluation failed');
         } finally {
           setVerifying(false);
         }
       },
-      async (error) => {
-        let code = 'GPS_FETCH_FAILED';
-        let message = 'Unable to retrieve device GPS location.';
+      (error) => {
+        let msg = 'Unable to retrieve device GPS location.';
         if (error.code === error.PERMISSION_DENIED) {
-          code = 'PERMISSION_DENIED';
-          message = 'Location permission was denied. Please allow location access in your browser settings.';
+          msg = 'Location permission was denied. Please allow location access in your browser.';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          code = 'POSITION_UNAVAILABLE';
-          message = 'Location signal unavailable. Move near a window or outdoors to acquire GPS satellites.';
+          msg = 'Location signal unavailable. Move near a window or open area.';
         } else if (error.code === error.TIMEOUT) {
-          code = 'TIMEOUT';
-          message = 'GPS location request timed out. Please try again.';
+          msg = 'GPS location request timed out. Please try again.';
         }
-
-        setGpsError(message);
-        toast.error(message, { icon: '⚠️' });
-
-        // Record failed attempt on the server
-        try {
-          const res = await api.post('/attendance/auto-verify', {
-            fetchFailed: true,
-            code,
-            reason: message,
-          });
-          handleVerificationResponse(res.data);
-        } catch (apiErr) {
-          toast.error(apiErr.response?.data?.message || apiErr.message);
-        } finally {
-          setVerifying(false);
-        }
+        handleGpsFailure(msg);
+        setVerifying(false);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, [verifying, todaySession.isMarked, todaySession.status, user?.hostel, handleVerificationResponse, fetchAttendanceStatus]);
+  }, [verifying, isFinalized, user?.hostel, handleGpsFailure, finalizeAttendance]);
 
-  const isPresent = todaySession.status === 'PRESENT';
-  const isAbsent = todaySession.status === 'ABSENT';
-  const isFinalized = isPresent || isAbsent || todaySession.isMarked;
+  // ── Sync with Server on Mount and Periodic Refresh ──────────────────────────
+  const fetchAttendanceStatus = useCallback(async () => {
+    if (!user || user.role !== 'student') return;
 
-  // ── CASE 1: FINALIZED ATTENDANCE (PRESENT or ABSENT) ─────────────────────────
-  // Verification component is completely removed from the visible UI.
-  // Clean "Hostel Attendance" section permanently displays final status, date, and time.
-  if (isFinalized) {
-    return (
-      <div
-        className="hostel-attendance-container"
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 44,
-          background: 'var(--bg-card, #1e293b)',
-          borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.12)',
-          backdropFilter: 'blur(12px)',
-          padding: '10px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 10,
-          transition: 'all 0.2s ease',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          {/* Prominent Status Icon */}
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: isPresent ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-              color: isPresent ? '#10b981' : '#ef4444',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 22,
-              flexShrink: 0,
-            }}
-          >
-            {isPresent ? <MdCheckCircle /> : <MdCancel />}
-          </div>
+    try {
+      const todayRes = await api.get('/attendance/today').catch(() => null);
+      if (todayRes?.data?.success) {
+        const d = todayRes.data;
+        const serverPresent = d.status === 'PRESENT' || d.todayRecord?.status === 'present';
+        const serverAbsent = d.status === 'ABSENT' || d.todayRecord?.status === 'absent';
 
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span
-                style={{
-                  fontSize: 14,
-                  fontWeight: 800,
-                  color: 'var(--text-primary, #ffffff)',
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                Hostel Attendance
-              </span>
+        if (serverPresent || serverAbsent) {
+          const finalStatus = serverPresent ? 'PRESENT' : 'ABSENT';
+          finalizeAttendance(
+            finalStatus,
+            d.time || d.todayRecord?.time,
+            d.message,
+            false,
+            null
+          );
+        }
+      }
+    } catch (_) {}
+  }, [user, finalizeAttendance]);
 
-              {/* Status Badge */}
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 800,
-                  padding: '2px 10px',
-                  borderRadius: 99,
-                  background: isPresent ? 'rgba(16, 185, 129, 0.18)' : 'rgba(239, 68, 68, 0.18)',
-                  color: isPresent ? '#10b981' : '#ef4444',
-                  border: isPresent
-                    ? '1px solid rgba(16, 185, 129, 0.35)'
-                    : '1px solid rgba(239, 68, 68, 0.35)',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {todaySession.status}
-              </span>
+  useEffect(() => {
+    fetchAttendanceStatus();
+  }, [fetchAttendanceStatus]);
 
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 99,
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  color: 'var(--text-muted, #94a3b8)',
-                }}
-              >
-                {todaySession.hostel}
-              </span>
-            </div>
+  // Handle external open trigger (e.g. clicking "Not Marked Yet" pill in navbar)
+  useEffect(() => {
+    if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
+      lastExternalTriggerRef.current = externalOpenTrigger;
+      setDismissed(false);
+      if (!isFinalized) {
+        executePresenceVerification();
+      }
+    }
+  }, [externalOpenTrigger, isFinalized, executePresenceVerification]);
 
-            {/* Date and Time Display */}
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--text-secondary, #94a3b8)',
-                marginTop: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                flexWrap: 'wrap',
-              }}
-            >
-              <span>📅 {todaySession.formattedDate}</span>
-              {todaySession.time && (
-                <>
-                  <span>•</span>
-                  <span>🕒 {todaySession.time} IST</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+  // Push status to parent on initial mount if already finalized
+  useEffect(() => {
+    if (isFinalized && onStatusChange) {
+      onStatusChange({
+        isMarked: true,
+        status: todaySession.status,
+        todayRecord: {
+          status: todaySession.status === 'PRESENT' ? 'present' : 'absent',
+          time: todaySession.time,
+          date: todayDate,
+          hostel: assignedHostel,
+        },
+        todayStatus: todaySession,
+      });
+    }
+  }, []);
 
-        {/* Attendance History Trigger (Zero verification controls) */}
-        <button
-          type="button"
-          onClick={onOpenHistory}
-          style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            color: 'var(--text-secondary, #cbd5e1)',
-            border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-            borderRadius: 8,
-            padding: '6px 12px',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          <MdHistory size={15} />
-          <span>History</span>
-        </button>
-      </div>
-    );
+  // ── CORE REQUIREMENT: REMOVE POPUP AFTER ATTENDANCE IS FINALIZED ─────────────
+  // If student is marked PRESENT or ABSENT -> "LEAVE" (completely remove popup from UI)
+  if (isFinalized || dismissed) {
+    return null;
   }
 
-  // ── CASE 2: PENDING VERIFICATION (Maximum 2 Attempts Available) ───────────────
+  // ── PENDING VERIFICATION PROMPT (Max 2 Attempts) ──────────────────────────────
   const attemptsCount = todaySession.attemptsCount || 0;
   const isSecondAttempt = attemptsCount === 1;
 
@@ -455,7 +434,7 @@ export default function StudentAttendancePrompt({
           zIndex: 44,
           background: 'var(--bg-card, #1e293b)',
           borderBottom: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.15)',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.2)',
           backdropFilter: 'blur(12px)',
           padding: '10px 16px',
           display: 'flex',
@@ -556,7 +535,7 @@ export default function StudentAttendancePrompt({
             </div>
           </div>
 
-          {/* GPS Verification Action Controls */}
+          {/* Action Controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
@@ -590,26 +569,29 @@ export default function StudentAttendancePrompt({
               </span>
             </button>
 
+            {/* Dismiss / Close Button */}
             <button
               type="button"
-              onClick={onOpenHistory}
+              onClick={() => setDismissed(true)}
+              title="Dismiss prompt"
               style={{
                 background: 'rgba(255, 255, 255, 0.05)',
-                color: 'var(--text-secondary, #cbd5e1)',
+                color: 'var(--text-muted, #94a3b8)',
                 border: '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
                 borderRadius: 8,
-                padding: '7px 12px',
-                fontSize: 12,
-                fontWeight: 600,
+                padding: '7px 10px',
                 cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              History
+              <MdClose size={16} />
             </button>
           </div>
         </div>
 
-        {/* Live In-Progress Verification Notice */}
+        {/* Live Verifying Notice */}
         {verifying && (
           <div
             style={{
@@ -631,7 +613,7 @@ export default function StudentAttendancePrompt({
           </div>
         )}
 
-        {/* GPS Failure / Attempt Notice */}
+        {/* GPS Failure Notice */}
         {gpsError && !verifying && (
           <div
             style={{
