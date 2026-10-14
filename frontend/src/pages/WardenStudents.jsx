@@ -6,6 +6,7 @@ import { MdPeople, MdSearch, MdEmail, MdPhone, MdLock, MdDeleteOutline, MdRefres
 import { useAuth } from '../context/AuthContext';
 import StudentAvatar from '../components/StudentAvatar';
 import RoomAllocation from './RoomAllocation';
+import { getHostelLabel } from '../utils/hostel';
 
 export default function WardenStudents() {
   const { user } = useAuth();
@@ -254,7 +255,7 @@ export default function WardenStudents() {
             }}
             onClick={() => {
               setSelectedHostel('BH2');
-              setBh2ViewMode('3d');
+              setBh2ViewMode('rooms');
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

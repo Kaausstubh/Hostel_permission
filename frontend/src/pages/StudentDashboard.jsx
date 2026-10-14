@@ -1217,6 +1217,14 @@ export default function StudentDashboard() {
     setLoading(true);
     try {
       const res = await api.post('/student/request-inout', { place });
+      const {
+        scan_type = 'OUT',
+        student = user,
+        qrDataUrl = '',
+        qrToken = '',
+        token = '',
+        expiresIn = '15 minutes',
+      } = res.data || {};
       const rawExpires = expiresIn || '15 minutes';
       const cleanExpires = String(rawExpires).replace(/\s*\(.*?\)/g, '').trim() || '15 minutes';
 
