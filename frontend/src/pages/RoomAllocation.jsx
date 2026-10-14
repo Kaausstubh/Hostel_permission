@@ -68,6 +68,7 @@ export default function RoomAllocation({ embedded = false }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingPdf, setSyncingPdf] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
   // ── 3. Active View Mode Tab ──────────────────────────────────────────────────
   // 'hierarchy-rooms': Room Cards Grid & Selected Room Detail
@@ -134,6 +135,7 @@ export default function RoomAllocation({ embedded = false }) {
       try {
         if (!isSilent) setLoading(true);
         else setRefreshing(true);
+        setFetchError(null);
 
         const res = await api.get(`/rooms?hostel=${selectedHostel}`);
         if (res.data?.success) {
@@ -143,9 +145,13 @@ export default function RoomAllocation({ embedded = false }) {
             const updated = res.data.rooms.find((r) => r.roomNumber === activeRoomInspectModal.roomNumber);
             if (updated) setActiveRoomInspectModal(updated);
           }
+        } else {
+          setFetchError(res.data?.message || 'Failed to load room data');
         }
       } catch (err) {
-        toast.error(err.response?.data?.message || 'Failed to fetch room allocations');
+        const msg = err.response?.data?.message || err.message || 'Failed to fetch room allocations';
+        setFetchError(msg);
+        toast.error(msg);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -1463,6 +1469,24 @@ export default function RoomAllocation({ embedded = false }) {
             Fetching physical room records and student rosters for {currentHostelInfo.name}
           </div>
         </div>
+      ) : fetchError && !data ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', borderRadius: 20 }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
+            Unable to Load Room Allocations
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 460, margin: '8px auto 20px' }}>
+            {fetchError}. The server might be waking up or warming up. Please try again.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => fetchRooms(false)}
+            style={{ fontWeight: 700, padding: '10px 24px' }}
+          >
+            Retry Connection
+          </button>
+        </div>
       ) : activeTab === 'hierarchy-rooms' ? (
         /* ════════════════════════════════════════════════════════════════════════
            TAB 1: ROOM HIERARCHY CARDS GRID & SELECTED ROOM DETAIL
@@ -1670,176 +1694,210 @@ export default function RoomAllocation({ embedded = false }) {
           )}
 
           {/* Room Cards Grid */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))',
-              gap: 16,
-            }}
-          >
-            {filteredRooms.map((room) => {
-              const isFull = room.occupancy >= room.capacity;
-              const isPartial = room.occupancy > 0 && room.occupancy < room.capacity;
-              const isAvailable = room.vacancies > 0;
+          {filteredRooms.length > 0 ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))',
+                gap: 16,
+              }}
+            >
+              {filteredRooms.map((room) => {
+                const isFull = room.occupancy >= room.capacity;
+                const isPartial = room.occupancy > 0 && room.occupancy < room.capacity;
+                const isAvailable = room.vacancies > 0;
 
-              const statusColor = isFull ? '#ef4444' : isPartial ? '#f59e0b' : '#10b981';
-              const statusBg = isFull ? 'rgba(239, 68, 68, 0.12)' : isPartial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.12)';
-              const statusBorder = isFull ? 'rgba(239, 68, 68, 0.35)' : isPartial ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
-              const statusLabel = isFull ? 'Full' : isPartial ? 'Partially Occupied' : 'Available';
+                const statusColor = isFull ? '#ef4444' : isPartial ? '#f59e0b' : '#10b981';
+                const statusBg = isFull ? 'rgba(239, 68, 68, 0.12)' : isPartial ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+                const statusBorder = isFull ? 'rgba(239, 68, 68, 0.35)' : isPartial ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
+                const statusLabel = isFull ? 'Full' : isPartial ? 'Partially Occupied' : 'Available';
 
-              const percentage = Math.min(100, Math.round((room.occupancy / room.capacity) * 100));
-              const isSelected = selectedRoomNumber === room.roomNumber;
+                const percentage = Math.min(100, Math.round((room.occupancy / room.capacity) * 100));
+                const isSelected = selectedRoomNumber === room.roomNumber;
 
-              return (
-                <div
-                  key={room.roomNumber}
-                  className="room-card"
-                  onClick={() => {
-                    setSelectedRoomNumber(room.roomNumber);
-                    setActiveRoomInspectModal(room);
-                  }}
-                  style={{
-                    background: 'var(--bg-card)',
-                    borderRadius: 18,
-                    border: isSelected ? '2px solid #4f46e5' : `1.5px solid ${statusBorder}`,
-                    padding: 16,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    cursor: 'pointer',
-                    transition: 'all 0.18s ease',
-                    boxShadow: isSelected ? '0 8px 24px rgba(79, 70, 229, 0.2)' : '0 4px 14px rgba(0,0,0,0.06)',
-                  }}
-                >
-                  {/* Card Header */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 17 }}>🚪</span>
-                        <h3 style={{ fontSize: 17, fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>
-                          Room {room.roomNumber}
-                        </h3>
-                      </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2, fontWeight: 600 }}>
-                        {room.floor} · {currentHostelInfo.code}
-                      </div>
-                    </div>
-
-                    <span
-                      style={{
-                        background: statusBg,
-                        color: statusColor,
-                        border: `1px solid ${statusBorder}`,
-                        padding: '3px 9px',
-                        borderRadius: 99,
-                        fontSize: 11,
-                        fontWeight: 800,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
-                      <span>{statusLabel}</span>
-                    </span>
-                  </div>
-
-                  {/* Occupancy Bar */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 5, color: 'var(--text-secondary)' }}>
-                      <span>
-                        Occupied: <strong style={{ color: 'var(--text-primary)' }}>{room.occupancy}</strong> / {room.capacity} ({percentage}%)
-                      </span>
-                      <span style={{ color: isAvailable ? '#10b981' : 'var(--text-muted)' }}>
-                        Vacant: <strong>{room.vacancies}</strong>
-                      </span>
-                    </div>
-                    <div style={{ height: 6, borderRadius: 99, background: 'var(--bg-input, rgba(255,255,255,0.08))', overflow: 'hidden' }}>
-                      <div style={{ width: `${percentage}%`, height: '100%', background: statusColor, borderRadius: 99, transition: 'width 0.3s ease' }} />
-                    </div>
-                  </div>
-
-                  {/* Bed Chips Preview */}
+                return (
                   <div
+                    key={room.roomNumber}
+                    className="room-card"
+                    onClick={() => {
+                      setSelectedRoomNumber(room.roomNumber);
+                      setActiveRoomInspectModal(room);
+                    }}
                     style={{
+                      background: 'var(--bg-card)',
+                      borderRadius: 18,
+                      border: isSelected ? '2px solid #4f46e5' : `1.5px solid ${statusBorder}`,
+                      padding: 16,
                       display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 5,
-                      padding: '8px 10px',
-                      borderRadius: 10,
-                      background: 'var(--bg-input, rgba(255,255,255,0.03))',
-                      border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
+                      flexDirection: 'column',
+                      gap: 12,
+                      cursor: 'pointer',
+                      transition: 'all 0.18s ease',
+                      boxShadow: isSelected ? '0 8px 24px rgba(79, 70, 229, 0.2)' : '0 4px 14px rgba(0,0,0,0.06)',
                     }}
                   >
-                    {room.beds?.map((b) => {
-                      if (b.status === 'OCCUPIED' && b.student) {
+                    {/* Card Header */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 17 }}>🚪</span>
+                          <h3 style={{ fontSize: 17, fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>
+                            Room {room.roomNumber}
+                          </h3>
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2, fontWeight: 600 }}>
+                          {room.floor} · {currentHostelInfo.code}
+                        </div>
+                      </div>
+
+                      <span
+                        style={{
+                          background: statusBg,
+                          color: statusColor,
+                          border: `1px solid ${statusBorder}`,
+                          padding: '3px 9px',
+                          borderRadius: 99,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+                        <span>{statusLabel}</span>
+                      </span>
+                    </div>
+
+                    {/* Occupancy Bar */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 5, color: 'var(--text-secondary)' }}>
+                        <span>
+                          Occupied: <strong style={{ color: 'var(--text-primary)' }}>{room.occupancy}</strong> / {room.capacity} ({percentage}%)
+                        </span>
+                        <span style={{ color: isAvailable ? '#10b981' : 'var(--text-muted)' }}>
+                          Vacant: <strong>{room.vacancies}</strong>
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 99, background: 'var(--bg-input, rgba(255,255,255,0.08))', overflow: 'hidden' }}>
+                        <div style={{ width: `${percentage}%`, height: '100%', background: statusColor, borderRadius: 99, transition: 'width 0.3s ease' }} />
+                      </div>
+                    </div>
+
+                    {/* Bed Chips Preview */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 5,
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        background: 'var(--bg-input, rgba(255,255,255,0.03))',
+                        border: '1px solid var(--border-color, rgba(255,255,255,0.06))',
+                      }}
+                    >
+                      {room.beds?.map((b) => {
+                        if (b.status === 'OCCUPIED' && b.student) {
+                          return (
+                            <div
+                              key={b.bedNumber}
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: '2px 7px',
+                                borderRadius: 6,
+                                background: 'rgba(99, 102, 241, 0.12)',
+                                color: 'var(--text-primary)',
+                                border: '1px solid rgba(99, 102, 241, 0.25)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '100%',
+                              }}
+                              title={`Bed ${b.bedNumber}: ${b.student.name} (${b.student.rollNo || 'MIS unassigned'})`}
+                            >
+                              <span style={{ color: '#6366f1', fontWeight: 800, marginRight: 4 }}>B{b.bedNumber}</span>
+                              <span>{b.student.name}</span>
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={b.bedNumber}
                             style={{
-                              fontSize: 11,
+                              fontSize: 10.5,
                               fontWeight: 600,
-                              padding: '2px 7px',
+                              padding: '2px 6px',
                               borderRadius: 6,
-                              background: 'rgba(99, 102, 241, 0.12)',
-                              color: 'var(--text-primary)',
-                              border: '1px solid rgba(99, 102, 241, 0.25)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              maxWidth: '100%',
+                              background: 'rgba(16, 185, 129, 0.08)',
+                              color: '#10b981',
+                              border: '1px dashed rgba(16, 185, 129, 0.4)',
                             }}
-                            title={`Bed ${b.bedNumber}: ${b.student.name} (${b.student.rollNo || 'MIS unassigned'})`}
                           >
-                            <span style={{ color: '#6366f1', fontWeight: 800, marginRight: 4 }}>B{b.bedNumber}</span>
-                            <span>{b.student.name}</span>
+                            B{b.bedNumber} Vacant
                           </div>
                         );
-                      }
-                      return (
-                        <div
-                          key={b.bedNumber}
-                          style={{
-                            fontSize: 10.5,
-                            fontWeight: 600,
-                            padding: '2px 6px',
-                            borderRadius: 6,
-                            background: 'rgba(16, 185, 129, 0.08)',
-                            color: '#10b981',
-                            border: '1px dashed rgba(16, 185, 129, 0.4)',
+                      })}
+                    </div>
+
+                    {/* Bottom Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 2 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#4f46e5' }}>
+                        Inspect Room &amp; Students →
+                      </span>
+
+                      {room.vacancies > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTargetRoomForAdd(room);
+                            setShowAddModal(true);
                           }}
+                          style={{ padding: '4px 10px', fontSize: 11.5, background: '#10b981', border: 'none', fontWeight: 800 }}
                         >
-                          B{b.bedNumber} Vacant
-                        </div>
-                      );
-                    })}
+                          + Assign
+                        </button>
+                      )}
+                    </div>
                   </div>
-
-                  {/* Bottom Actions */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 2 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#4f46e5' }}>
-                      Inspect Room &amp; Students →
-                    </span>
-
-                    {room.vacancies > 0 && (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTargetRoomForAdd(room);
-                          setShowAddModal(true);
-                        }}
-                        style={{ padding: '4px 10px', fontSize: 11.5, background: '#10b981', border: 'none', fontWeight: 800 }}
-                      >
-                        + Assign
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div
+              className="card"
+              style={{
+                padding: '48px 24px',
+                textAlign: 'center',
+                color: 'var(--text-secondary)',
+                borderRadius: 18,
+                border: '1px dashed var(--glass-border)',
+                background: 'var(--bg-card)',
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 10 }}>🔍</div>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                No Matching Rooms Found
+              </h3>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 480, margin: '6px auto 16px' }}>
+                No rooms match the selected filters in {currentHostelInfo.name}
+                {selectedFloor !== 'All' ? ` on ${selectedFloor}` : ''}
+                {filterRoomStatus !== 'All' ? ` with status "${filterRoomStatus}"` : ''}
+                {filterYear !== 'All' ? ` for "${filterYear}"` : ''}
+                {studentSearchTerm ? ` matching "${studentSearchTerm}"` : ''}.
+              </p>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={handleClearAllFilters}
+                style={{ fontWeight: 700, padding: '6px 16px' }}
+              >
+                Clear All Filters
+              </button>
+            </div>
+          )}
         </div>
       ) : activeTab === 'overall-students' ? (
         /* ════════════════════════════════════════════════════════════════════════
