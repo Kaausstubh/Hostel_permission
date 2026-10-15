@@ -37,7 +37,12 @@ const MAX_LATENCY_SAMPLES = 1000; // Rolling window for percentile calculation
  */
 const getRouteKey = (req) => {
   const method = req.method;
-  let path = req.route?.path || req.path;
+  const rawPath = req.route?.path || req.path;
+  let path = Array.isArray(rawPath)
+    ? String(rawPath[0] || req.path || '')
+    : typeof rawPath === 'string'
+      ? rawPath
+      : String(req.path || '');
   // Replace ObjectId-like segments
   path = path.replace(/\/[0-9a-f]{24}/g, '/:id');
   // Replace UUIDs

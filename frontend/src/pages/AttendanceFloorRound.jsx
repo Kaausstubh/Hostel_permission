@@ -48,16 +48,25 @@ export default function AttendanceFloorRound() {
   // Request loading tracking by room
   const [actionLoading, setActionLoading] = useState({});
   const [requestingAll, setRequestingAll] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
   const fetchRooms = async (silent = false) => {
+    if (!roundId || roundId === 'undefined') {
+      setFetchError('No round ID provided. Please return to Floor Selection.');
+      setLoading(false);
+      return;
+    }
     try {
       if (!silent) setLoading(true);
       const res = await api.get(`/attendance/rounds/${roundId}/rooms`);
       if (res.data?.success) {
         setRoundData(res.data);
+        setFetchError(null);
       }
     } catch (err) {
-      if (!silent) toast.error(err.response?.data?.message || 'Failed to load rooms');
+      const msg = err.response?.data?.message || 'Failed to load rooms for this round';
+      setFetchError(msg);
+      if (!silent) toast.error(msg);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -383,9 +392,97 @@ export default function AttendanceFloorRound() {
 
       {/* Room List Body */}
       <div style={{ maxWidth: 900, margin: '16px auto', padding: '0 16px' }}>
-        {loading && rooms.length === 0 ? (
+        {fetchError && !roundData ? (
+          <div
+            className="card"
+            style={{
+              padding: 24,
+              borderRadius: 'var(--radius-lg)',
+              textAlign: 'center',
+              background: 'var(--bg-card)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+            }}
+          >
+            <div style={{ color: '#ef4444', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+              ⚠️ Unable to load round
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
+              {fetchError}
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={() => fetchRooms(false)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--primary, #6366f1)',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <MdRefresh size={16} /> Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/attendance')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-color)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Back to Floor Selection
+              </button>
+            </div>
+          </div>
+        ) : loading && rooms.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
             Loading floor rooms…
+          </div>
+        ) : rooms.length === 0 ? (
+          <div
+            className="card"
+            style={{
+              padding: 32,
+              borderRadius: 'var(--radius-lg)',
+              textAlign: 'center',
+              color: 'var(--text-muted)',
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+              No Rooms Found
+            </div>
+            <p style={{ fontSize: 13, marginBottom: 16 }}>
+              No rooms are registered for this floor in the room allocation directory.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/attendance')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--primary, #6366f1)',
+                color: '#fff',
+                border: 'none',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Select Another Floor
+            </button>
           </div>
         ) : filteredRooms.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>

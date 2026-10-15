@@ -241,22 +241,22 @@ const getHostelsAndFloors = async (staffUser = null) => {
     {
       code: 'BH1',
       name: "Boys' Hostel 1 (BH1)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'BH2',
       name: "Boys' Hostel 2 (BH2)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH1',
       name: "Girls' Hostel 1 (GH1)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH2',
       name: "Girls' Hostel 2 (GH2)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
   ];
 
@@ -286,12 +286,14 @@ const getHostelsAndFloors = async (staffUser = null) => {
     }
 
     const matchedConfig = standardConfigs.find((c) => c.code === h.code);
+    const dbFloorLabels = floors.map((f) => f.label || (f.floor_number === 0 ? 'Ground Floor' : f.floor_number === -1 ? 'Basement / Wing B' : `${f.floor_number} Floor`));
+    const combinedFloors = Array.from(new Set(['All Floors', ...dbFloorLabels, ...(matchedConfig?.floors || [])]));
 
     hostelMap.set(h.code, {
       hostel: h.code,
       name: matchedConfig?.name || `${h.name} (${h.code})`,
       studentCount: Math.max(allocCount, userCount),
-      floors: ['All Floors'],
+      floors: combinedFloors,
     });
   }
 
@@ -803,29 +805,52 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
       }
     }
 
-    // Ensure AttendanceRecord exists in ledger immediately
-    const stFloor = parseFloorFromRoom(cleanRoomNo);
-    await AttendanceRecord.findOneAndUpdate(
-      { student_id: st._id, date: todayStr, session: 'Night Attendance' },
-      {
-        $setOnInsert: {
-          student_id: st._id,
-          date: todayStr,
-          session: 'Night Attendance',
-          session_name: 'Night Attendance',
-          hostel: round.hostel,
-          floor: stFloor,
-          roomNo: cleanRoomNo,
-          status: onLeave ? 'on_leave' : 'absent',
-          method: 'staff_marked',
-          remark: onLeave ? 'On approved home visit leave' : 'Awaiting student geofence verification',
-          round_id: round._id,
-          request_id: request._id,
-          verification_timestamp: new Date(),
+    if (!onLeave) {
+      // Reset student attempt counter to give 3 fresh attempts for the new request
+      await AttendanceAttempt.findOneAndUpdate(
+        { student_id: st._id, date: todayStr },
+        {
+          $set: {
+            status: 'pending',
+            attemptsCount: 0,
+            locationStatus: 'NOT CHECKED',
+            expires_at: expiresAt,
+            attempts: [],
+          },
+        }
+      ).catch(() => {});
+
+      // Delete any preliminary/stale absent record so student can verify freshly
+      await AttendanceRecord.deleteOne({
+        student_id: st._id,
+        date: todayStr,
+        status: 'absent',
+      }).catch(() => {});
+    } else {
+      // Ensure on-leave student has immediate ledger record
+      const stFloor = parseFloorFromRoom(cleanRoomNo);
+      await AttendanceRecord.findOneAndUpdate(
+        { student_id: st._id, date: todayStr, session: 'Night Attendance' },
+        {
+          $setOnInsert: {
+            student_id: st._id,
+            date: todayStr,
+            session: 'Night Attendance',
+            session_name: 'Night Attendance',
+            hostel: round.hostel,
+            floor: stFloor,
+            roomNo: cleanRoomNo,
+            status: 'on_leave',
+            method: 'staff_marked',
+            remark: 'On approved home visit leave',
+            round_id: round._id,
+            request_id: request._id,
+            verification_timestamp: new Date(),
+          },
         },
-      },
-      { upsert: true, new: true }
-    ).catch((err) => logger.warn('[AttendanceRecord] Init record warning: ' + err.message));
+        { upsert: true, new: true }
+      ).catch((err) => logger.warn('[AttendanceRecord] Init record warning: ' + err.message));
+    }
 
     // Notify student instantly via Socket.IO if NOT on leave!
     if (!onLeave && io) {
@@ -936,10 +961,55 @@ const reopenRoom = async ({ roundId, roomNo, staffUser }) => {
   });
 
   if (request) {
+    const expiresAt = new Date(Date.now() + DEFAULT_TTL_SECONDS * 1000);
     request.status = 'open';
+    request.expires_at = expiresAt;
     request.skip_reason = null;
     request.skipped_at = null;
     await request.save();
+
+    const todayStr = round.date || getTodayDateStr();
+    const responses = await RequestResponse.find({ request_id: request._id });
+    const io = getIO();
+
+    for (const resp of responses) {
+      if (resp.status !== 'approved' && resp.status !== 'on_leave') {
+        resp.status = 'pending';
+        await resp.save();
+
+        await AttendanceAttempt.findOneAndUpdate(
+          { student_id: resp.student_id, date: todayStr },
+          {
+            $set: {
+              status: 'pending',
+              attemptsCount: 0,
+              locationStatus: 'NOT CHECKED',
+              expires_at: expiresAt,
+              attempts: [],
+            },
+          }
+        ).catch(() => {});
+
+        await AttendanceRecord.deleteOne({
+          student_id: resp.student_id,
+          date: todayStr,
+          status: 'absent',
+        }).catch(() => {});
+
+        if (io) {
+          const payload = {
+            requestId: request._id,
+            roomNo: cleanRoomNo,
+            hostel: round.hostel,
+            expiresAt: expiresAt.toISOString(),
+            ttlSeconds: DEFAULT_TTL_SECONDS,
+            nonce: request.nonce,
+          };
+          io.to(`student:${resp.student_id}`).emit('attendance_requested', payload);
+          io.to(`user:${resp.student_id}`).emit('attendance_requested', payload);
+        }
+      }
+    }
 
     await AttendanceAuditLog.create({
       actor_id: staffUser._id,
@@ -1091,7 +1161,14 @@ const requestAllRoomsInRound = async ({ roundId, staffUser }) => {
   );
 
   if (eligibleRooms.length === 0) {
-    throw new Error('No occupied rooms found on this floor to request attendance for');
+    return {
+      roundId: round._id,
+      totalRoomsTargeted: 0,
+      requestedRoomsCount: 0,
+      totalStudentsNotified: 0,
+      message: 'No occupied rooms found on this floor to request attendance for',
+      results: [],
+    };
   }
 
   const results = [];

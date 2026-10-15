@@ -61,6 +61,13 @@ export default function StudentAttendancePrompt({
 }) {
   const assignedHostel = normalizeHostelCode(user?.hostel);
 
+  const onVerifiedRef = useRef(onVerified);
+  onVerifiedRef.current = onVerified;
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+  const onOpenHistoryRef = useRef(onOpenHistory);
+  onOpenHistoryRef.current = onOpenHistory;
+
   const [sessionData, setSessionData] = useState({
     status: 'PENDING',
     displayStatus: 'Pending Verification',
@@ -86,13 +93,8 @@ export default function StudentAttendancePrompt({
   const [verifying, setVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
-  const expiryRefreshSessionRef = useRef(null);
+  const autoFinalizeTriggeredRef = useRef(false);
   const finalizationNoticeRef = useRef(null);
-  const callbacksRef = useRef({ onVerified, onStatusChange });
-
-  useEffect(() => {
-    callbacksRef.current = { onVerified, onStatusChange };
-  }, [onVerified, onStatusChange]);
 
   const isFinalized =
     sessionData.isFinalized ||
@@ -103,7 +105,7 @@ export default function StudentAttendancePrompt({
 
   // ── Handle Server Response ──────────────────────────────────────────────────
   const handleServerResponse = useCallback(
-    (data) => {
+    (data, { isUserAction = false } = {}) => {
       const statusUpper = String(data.status || 'PENDING').toUpperCase();
       const isPresent = statusUpper === 'PRESENT';
       const isAbsent = statusUpper === 'ABSENT';
@@ -143,30 +145,32 @@ export default function StudentAttendancePrompt({
 
       if (isFinal) {
         setIsOpen(false);
-        // A finalized response is returned by status refreshes as well as the
-        // initial verification. Announce that outcome exactly once per record.
-        const noticeKey = data.recordId || `${data.date || ''}:${statusUpper}:${data.markedAt || data.time || ''}`;
-        if (finalizationNoticeRef.current !== noticeKey) {
-          finalizationNoticeRef.current = noticeKey;
-          if (isPresent) {
-            toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { duration: 5000 });
-            callbacksRef.current.onVerified?.();
-          } else if (isOnLeave) {
-            toast.success('Attendance Status: ON APPROVED LEAVE', { duration: 5000 });
-          } else if (isAbsent) {
-            toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { duration: 6000 });
+        if (isUserAction) {
+          const noticeKey = data.recordId || `${data.date || ''}:${statusUpper}:${data.markedAt || data.time || ''}`;
+          if (finalizationNoticeRef.current !== noticeKey) {
+            finalizationNoticeRef.current = noticeKey;
+            if (isPresent) {
+              toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { id: 'attendance-status-toast', duration: 5000 });
+              if (onVerifiedRef.current) onVerifiedRef.current();
+            } else if (isOnLeave) {
+              toast.success('Attendance Status: ON APPROVED LEAVE', { id: 'attendance-status-toast', duration: 5000 });
+            } else if (isAbsent) {
+              toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { id: 'attendance-status-toast', duration: 6000 });
+            }
           }
         }
       } else {
-        if (data.locationStatus === 'OUTSIDE HOSTEL') {
-          toast.error(`Outside hostel geofence! Location checks remaining: ${remaining}/3`, { icon: '⚠️' });
-        } else if (data.locationStatus === 'LOCATION UNAVAILABLE') {
-          toast.error(`Location unavailable! Location checks remaining: ${remaining}/3`, { icon: '⚠️' });
+        if (isUserAction) {
+          if (data.locationStatus === 'OUTSIDE HOSTEL') {
+            toast.error(`Outside hostel geofence! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
+          } else if (data.locationStatus === 'LOCATION UNAVAILABLE') {
+            toast.error(`Location unavailable! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
+          }
         }
       }
 
-      if (callbacksRef.current.onStatusChange) {
-        callbacksRef.current.onStatusChange({
+      if (onStatusChangeRef.current) {
+        onStatusChangeRef.current({
           isMarked: isFinal,
           status: statusUpper,
           hasPending: Boolean(data.hasActiveSession) && !isFinal,
@@ -193,7 +197,7 @@ export default function StudentAttendancePrompt({
     try {
       const res = await api.get('/attendance/today').catch(() => null);
       if (res?.data?.success) {
-        handleServerResponse(res.data);
+        handleServerResponse(res.data, { isUserAction: false });
       }
     } catch (_) {}
   }, [user, handleServerResponse]);
@@ -208,10 +212,11 @@ export default function StudentAttendancePrompt({
 
     const handleAttendanceRequested = () => {
       fetchAttendanceStatus();
-      setIsOpen(true);
-      toast('📍 Night attendance verification requested by hostel staff. Please verify your presence.', {
+      // Keep modal closed so it never auto-pops up uninvited. Student can open via header button or banner.
+      toast('📍 Night attendance verification requested by hostel staff. Tap "Mark Attendance" above to verify.', {
+        id: 'attendance-request-toast',
         icon: '🔔',
-        duration: 5000,
+        duration: 6000,
       });
     };
 
@@ -231,10 +236,10 @@ export default function StudentAttendancePrompt({
       if (!isFinalized) {
         setIsOpen(true);
       } else {
-        if (onOpenHistory) onOpenHistory();
+        if (onOpenHistoryRef.current) onOpenHistoryRef.current();
       }
     }
-  }, [externalOpenTrigger, isFinalized, onOpenHistory]);
+  }, [externalOpenTrigger, isFinalized]);
 
   // ── Countdown Timer — always ticks once popup is open ───────────────────────
   useEffect(() => {
@@ -242,12 +247,10 @@ export default function StudentAttendancePrompt({
 
     const timer = setInterval(() => {
       setSessionData((prev) => {
-        // If server gave us an absolute expiry timestamp, derive from wall-clock
         let secLeft = prev.remainingSeconds;
         if (prev.expiresAt) {
           secLeft = Math.max(0, Math.floor((new Date(prev.expiresAt).getTime() - Date.now()) / 1000));
         } else {
-          // No expiresAt yet — decrement locally
           secLeft = Math.max(0, prev.remainingSeconds - 1);
         }
         return { ...prev, remainingSeconds: secLeft };
@@ -262,14 +265,20 @@ export default function StudentAttendancePrompt({
     if (isFinalized || !sessionData.hasActiveSession || !sessionData.verificationSessionId) return;
     const expired = sessionData.remainingSeconds <= 0;
     const exhausted = sessionData.attemptsRemaining <= 0;
-    if ((expired || exhausted) && sessionData.status === 'PENDING' && expiryRefreshSessionRef.current !== sessionData.verificationSessionId) {
-      // The server owns finalization. A status refresh is sufficient and never
-      // consumes an extra GPS check.
-      expiryRefreshSessionRef.current = sessionData.verificationSessionId;
-      fetchAttendanceStatus();
+    if ((expired || exhausted) && sessionData.status === 'PENDING' && !autoFinalizeTriggeredRef.current) {
+      autoFinalizeTriggeredRef.current = true;
+      // Ask server to finalize as ABSENT
+      api.post('/attendance/auto-verify', {
+        fetchFailed: false,
+        exhausted: true,
+        expired,
+        hostel: assignedHostel,
+        verificationSessionId: sessionData.verificationSessionId,
+      })
+        .then((res) => { if (res.data) handleServerResponse(res.data, { isUserAction: true }); })
+        .catch(() => fetchAttendanceStatus());
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, sessionData.hasActiveSession, sessionData.verificationSessionId, isFinalized, fetchAttendanceStatus]);
+  }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, isFinalized, assignedHostel, fetchAttendanceStatus, handleServerResponse, sessionData.verificationSessionId]);
 
   // ── Handle GPS Retrieval Failure (Atomic Server Log) ────────────────────────
   const handleGpsFailure = useCallback(
@@ -284,12 +293,12 @@ export default function StudentAttendancePrompt({
           verificationSessionId: sessionData.verificationSessionId,
         });
         if (res.data) {
-          handleServerResponse(res.data);
+          handleServerResponse(res.data, { isUserAction: true });
         }
       } catch (err) {
         const serverMsg = err.response?.data?.message || msg;
         setErrorMessage(serverMsg);
-        toast.error(serverMsg);
+        toast.error(serverMsg, { id: 'attendance-error-toast' });
       }
     },
     [assignedHostel, handleServerResponse, sessionData.verificationSessionId]
@@ -327,7 +336,11 @@ export default function StudentAttendancePrompt({
             verificationSessionId: sessionData.verificationSessionId,
           });
 
-          if (res.data) handleServerResponse(res.data);
+          if (res.data?.success) {
+            handleServerResponse(res.data, { isUserAction: true });
+          } else {
+            await handleGpsFailure(res.data?.message || 'Geofence check failed.', 'OUTSIDE_GEOFENCE');
+          }
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Verification failed.';
           // A server/network error is not a GPS failure and must not become a
