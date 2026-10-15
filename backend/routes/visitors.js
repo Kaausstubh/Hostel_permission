@@ -68,21 +68,15 @@ router.get('/public/students-search', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     const hostel = String(req.query.hostel || '').trim();
-    const totalStudents = await User.countDocuments({ role: 'student', isActive: true });
+
+    // Do not return any students if no search query is entered
+    if (!q || q.length < 1) {
+      return res.json({ success: true, students: [] });
+    }
 
     const filter = { role: 'student', isActive: true };
     if (hostel && hostel !== 'ALL') {
       filter.hostel = hostel;
-    }
-
-    if (!q || q.length < 1) {
-      // Return list of recommended/enrolled students
-      const recommended = await User.find(filter)
-        .select('_id name rollNo hostel roomNo')
-        .sort({ name: 1 })
-        .limit(20)
-        .lean();
-      return res.json({ success: true, students: recommended, totalStudents });
     }
 
     const escapedTerm = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -91,7 +85,6 @@ router.get('/public/students-search', async (req, res) => {
     filter.$or = [
       { name: searchRegex },
       { rollNo: searchRegex },
-      { roomNo: searchRegex },
     ];
 
     const students = await User.find(filter)
@@ -100,7 +93,7 @@ router.get('/public/students-search', async (req, res) => {
       .limit(20)
       .lean();
 
-    res.json({ success: true, students, totalStudents });
+    res.json({ success: true, students });
   } catch (err) {
     logger.error('[Visitor Route] Public student search failed', { error: err.message });
     res.status(500).json({ success: false, message: 'Student search failed: ' + err.message });
@@ -426,16 +419,21 @@ router.get('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'
     const today = todayStr();
 
     // Run parallel queries: Paginated list, total count, and summary aggregation
-    const [visitors, count, todayDocs, insideDocs, pendingDocs] = await Promise.all([
+    const [visitors, count, todayDocs, insideDocs, pendingDocs, totalAllCount] = await Promise.all([
       VisitorLog.find(filter).sort({ createdAt: -1, entryTime: -1 }).skip(skip).limit(limit).lean(),
       VisitorLog.countDocuments(filter),
-      VisitorLog.find({ date: today }).select('visitorCount hasVehicle status').lean(),
+      VisitorLog.find({ date: today, status: { $ne: 'REJECTED' } }).select('visitorCount hasVehicle status').lean(),
       VisitorLog.find({ status: 'INSIDE' }).select('visitorCount hasVehicle').lean(),
       VisitorLog.find({ status: 'PENDING' }).select('visitorCount hasVehicle').lean(),
+      VisitorLog.countDocuments({}),
     ]);
 
-    // Headcount for currently filtered results
-    const filteredAllDocs = await VisitorLog.find(filter).select('visitorCount').lean();
+    // Headcount for currently filtered results (exclude rejected passes unless explicitly filtering for them)
+    const headcountFilter = {
+      ...filter,
+      ...(filter.status ? {} : { status: { $ne: 'REJECTED' } }),
+    };
+    const filteredAllDocs = await VisitorLog.find(headcountFilter).select('visitorCount').lean();
     const totalFilteredHeadcount = sumHeadcount(filteredAllDocs);
 
     // Summary calculations
@@ -469,6 +467,7 @@ router.get('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'
         awaitingStudent,
         totalToday,
         totalTodayHeadcount,
+        totalAll: totalAllCount,
       },
       visitors,
     });
@@ -697,7 +696,7 @@ router.post('/:id/student-response', protect, authorize('student', 'admin'), asy
 
 // ─── POST /api/visitors/:id/staff-action ──────────────────────────────────────
 // Guard or Warden physical admission or override at gate
-router.post('/:id/staff-action', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
+router.post('/:id/staff-action', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const { action, remarks } = req.body;
     if (!['APPROVE', 'REJECT'].includes(action)) {
@@ -755,8 +754,8 @@ router.post('/:id/staff-action', protect, authorize('warden', 'hostel_staff', 'a
 });
 
 // ─── POST /api/visitors ───────────────────────────────────────────────────────
-// Manual visitor check-in (Guard or Warden)
-router.post('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
+// Manual visitor check-in (Guard, Warden, or Admin only - not hostel staff)
+router.post('/', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const {
       name,
@@ -948,7 +947,7 @@ router.post('/', protect, authorize('warden', 'hostel_staff', 'admin', 'security
 
 // ─── POST /api/visitors/:id/exit ──────────────────────────────────────────────
 // Mark a visitor as EXITED
-router.post('/:id/exit', protect, authorize('warden', 'hostel_staff', 'admin', 'security'), async (req, res) => {
+router.post('/:id/exit', protect, authorize('warden', 'admin', 'security'), async (req, res) => {
   try {
     const visitor = await VisitorLog.findById(req.params.id);
     if (!visitor) {
@@ -1225,7 +1224,7 @@ router.get('/export-data', protect, authorize('warden', 'hostel_staff', 'admin',
 
 // ─── DELETE /api/visitors/:id ─────────────────────────────────────────────────
 // Delete visitor log (Warden/Admin only)
-router.delete('/:id', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
+router.delete('/:id', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
     const visitor = await VisitorLog.findByIdAndDelete(req.params.id);
     if (!visitor) {
