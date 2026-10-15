@@ -1,6 +1,6 @@
 /**
- * Attendance Screen 1: Select Hostel, Floor & Session
- * Fast, instant-render hostel selection with 1-Click Request All Attendance support.
+ * Attendance Setup Screen: Select Hostel & Session
+ * 1-Click Request All Student Attendance with strict building geofence verification.
  */
 
 import { useState, useEffect } from 'react';
@@ -10,9 +10,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   MdMeetingRoom,
-  MdPlayArrow,
   MdCalendarToday,
-  MdLayers,
   MdApartment,
   MdCheckCircle,
   MdBolt,
@@ -28,7 +26,6 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Brahmaputra Building',
     coords: "18°45'50.8\"N 73°41'57.4\"E",
     studentCount: 0,
-    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'BH2',
@@ -36,7 +33,6 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Krishna Building',
     coords: "18°45'47.1\"N 73°41'57.7\"E",
     studentCount: 0,
-    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH1',
@@ -44,7 +40,6 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Indrayani Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
-    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH2',
@@ -52,7 +47,6 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Sindhu Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
-    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
 ];
 
@@ -63,10 +57,8 @@ export default function AttendanceRoundSetup() {
   // Instant render with default 4 hostels
   const [hostels, setHostels] = useState(DEFAULT_HOSTELS);
   const [selectedHostel, setSelectedHostel] = useState('BH2');
-  const [selectedFloor, setSelectedFloor] = useState('All Floors');
   const [sessionName, setSessionName] = useState('Night Attendance');
   const [submitting, setSubmitting] = useState(false);
-  const [requestingHostel, setRequestingHostel] = useState(false);
 
   const todayStr = new Date().toLocaleDateString('en-US', {
     weekday: 'short',
@@ -96,13 +88,9 @@ export default function AttendanceRoundSetup() {
       const merged = DEFAULT_HOSTELS.map((st) => {
         const found = loadedHostels.find((lh) => lh.hostel === st.hostel);
         if (!found) return st;
-        const combinedFloors = Array.from(
-          new Set(['All Floors', ...(st.floors || []), ...(found.floors || [])])
-        );
         return {
           ...st,
           ...found,
-          floors: combinedFloors,
           studentCount: found.studentCount || st.studentCount,
         };
       });
@@ -116,7 +104,6 @@ export default function AttendanceRoundSetup() {
 
       if (matched && !selectedHostel) {
         setSelectedHostel(matched.hostel);
-        if (matched.floors?.length > 0) setSelectedFloor(matched.floors[0]);
       }
     } catch {
       // Fallback stays seamlessly on DEFAULT_HOSTELS
@@ -128,108 +115,30 @@ export default function AttendanceRoundSetup() {
   }, []);
 
   const currentHostelObj = hostels.find((h) => h.hostel === selectedHostel) || hostels[0];
-  const availableFloors = currentHostelObj?.floors || ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
-  // Ensure selected floor is valid for current hostel
-  useEffect(() => {
-    if (availableFloors.length > 0 && !availableFloors.includes(selectedFloor)) {
-      setSelectedFloor(availableFloors[0]);
-    }
-  }, [selectedHostel]);
-
-  // 1-Click Request All for Selected Floor
-  const handleQuickRequestAllFloor = async () => {
-    if (!selectedHostel || !selectedFloor) {
-      toast.error('Please select both a hostel and a floor');
+  // 1-Click Request All Student Attendance for Selected Hostel
+  const handleQuickRequestAll = async () => {
+    if (!selectedHostel) {
+      toast.error('Please select a hostel');
       return;
     }
     try {
       setSubmitting(true);
       const res = await api.post('/attendance/rounds/quick-request-all', {
         hostel: selectedHostel,
-        floor: selectedFloor,
+        floor: 'All Floors',
         session_name: sessionName,
       });
 
       if (res.data?.success) {
-        const floorLabel = selectedFloor.toLowerCase().includes('all') ? 'All Floors' : `Floor ${selectedFloor}`;
         toast.success(
-          `⚡ Attendance requested for ${res.data.requestedRoomsCount} rooms on ${floorLabel} (${res.data.totalStudentsNotified} students)!`,
+          `⚡ Attendance requested for ${res.data.requestedRoomsCount || 'all'} rooms in ${selectedHostel} (${res.data.totalStudentsNotified || 0} students notified)!`,
           { duration: 6000 }
         );
         navigate(`/attendance/round/${res.data.round._id}`);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to request floor attendance');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // 1-Click Request for ENTIRE Hostel (All Floors)
-  const handleRequestEntireHostel = async () => {
-    if (!selectedHostel) {
-      toast.error('Please select a hostel');
-      return;
-    }
-    const confirmMsg = `Send 1-Click Attendance Request to ALL students in ${currentHostelObj.name} (${selectedHostel}) across ALL floors?\n\nStudents will immediately receive an attendance prompt on their app to verify physical location inside the building (30m geofence).`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      setRequestingHostel(true);
-      const res = await api.post(`/attendance/hostels/${selectedHostel}/request-all`, {
-        session_name: sessionName,
-      });
-
-      if (res.data?.success) {
-        toast.success(
-          `🏢 1-Click Broadcast Sent! ${res.data.totalRoomsRequested} rooms (${res.data.totalStudentsNotified} students) requested across ${selectedHostel}!`,
-          { duration: 7000, icon: '⚡' }
-        );
-        // Automatically start the floor round so staff can monitor progress
-        handleStartRound();
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to request entire hostel attendance');
-    } finally {
-      setRequestingHostel(false);
-    }
-  };
-
-  // Standard Manual Walkthrough Start Round
-  const handleStartRound = async () => {
-    if (!selectedHostel || !selectedFloor) {
-      toast.error('Please select both a hostel and a floor');
-      return;
-    }
-
-    try {
-      setSubmitting(true);
-      const res = await api.post('/attendance/rounds', {
-        hostel: selectedHostel,
-        floor: selectedFloor,
-        session_name: sessionName,
-      });
-
-      if (res.data?.success) {
-        const roundId = res.data.round._id;
-        if (res.data.resumed) {
-          toast.success(
-            selectedFloor.toLowerCase().includes('all')
-              ? 'Resumed existing active round for All Floors'
-              : 'Resumed existing active round for this floor'
-          );
-        } else {
-          toast.success(
-            selectedFloor.toLowerCase().includes('all')
-              ? 'Started attendance round for All Floors'
-              : 'Started attendance round'
-          );
-        }
-        navigate(`/attendance/round/${roundId}`);
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to start round');
+      toast.error(err.response?.data?.message || 'Failed to request student attendance');
     } finally {
       setSubmitting(false);
     }
@@ -264,7 +173,7 @@ export default function AttendanceRoundSetup() {
                   Room-by-Room Attendance
                 </h1>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  1-Click Student Geofence Verification & Floor Rounds
+                  1-Click Student Geofence Verification
                 </span>
               </div>
             </div>
@@ -282,7 +191,7 @@ export default function AttendanceRoundSetup() {
               boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
             }}
           >
-            {/* Step 1: Select Hostel (All 4 Options Instant & Visible) */}
+            {/* Step 1: Select Hostel */}
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -386,58 +295,7 @@ export default function AttendanceRoundSetup() {
               </div>
             </div>
 
-            {/* Step 2: Select Floor */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  <MdLayers style={{ color: '#06b6d4', fontSize: 18 }} /> Select Floor for Round
-                </label>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  Choose a single floor or &quot;All Floors&quot;
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {availableFloors.map((fl) => {
-                  const isSelected = selectedFloor === fl;
-                  const isAll = fl.toLowerCase().includes('all');
-                  return (
-                    <button
-                      key={fl}
-                      type="button"
-                      onClick={() => setSelectedFloor(fl)}
-                      style={{
-                        padding: '10px 18px',
-                        borderRadius: 10,
-                        border: isSelected
-                          ? (isAll ? '2px solid #8b5cf6' : '2px solid #06b6d4')
-                          : '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
-                        background: isSelected
-                          ? (isAll ? 'rgba(139, 92, 246, 0.15)' : 'rgba(6, 182, 212, 0.14)')
-                          : 'var(--bg-input, rgba(255, 255, 255, 0.7))',
-                        color: isSelected
-                          ? (isAll ? '#7c3aed' : '#0891b2')
-                          : 'var(--text-primary)',
-                        fontWeight: 700,
-                        fontSize: 13.5,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        boxShadow: isSelected
-                          ? (isAll ? '0 3px 12px rgba(139, 92, 246, 0.25)' : '0 3px 12px rgba(6, 182, 212, 0.2)')
-                          : 'none',
-                      }}
-                    >
-                      {isAll && <span>🏢</span>}
-                      {fl}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Step 3: Session Details */}
+            {/* Step 2: Session Details */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 28 }}>
               <div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
@@ -499,13 +357,12 @@ export default function AttendanceRoundSetup() {
               </div>
             </div>
 
-            {/* 1-Click Action Buttons Section */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* PRIMARY HERO: 1-Click Request All for Floor */}
+            {/* 1-Click Action Button */}
+            <div>
               <button
                 type="button"
-                onClick={handleQuickRequestAllFloor}
-                disabled={submitting || requestingHostel}
+                onClick={handleQuickRequestAll}
+                disabled={submitting}
                 style={{
                   width: '100%',
                   padding: '16px 24px',
@@ -526,63 +383,11 @@ export default function AttendanceRoundSetup() {
               >
                 <MdBolt size={24} />
                 {submitting ? (
-                  'Requesting All Rooms…'
+                  'Requesting All Students…'
                 ) : (
-                  <>1-Click Request All Attendance ({selectedHostel} · {selectedFloor.toLowerCase().includes('all') ? 'All Floors' : selectedFloor})</>
+                  <>1-Click Request All Student Attendance ({selectedHostel})</>
                 )}
               </button>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
-                {/* 1-Click Request for ENTIRE HOSTEL */}
-                <button
-                  type="button"
-                  onClick={handleRequestEntireHostel}
-                  disabled={submitting || requestingHostel}
-                  style={{
-                    padding: '13px 18px',
-                    borderRadius: 12,
-                    background: 'rgba(99, 102, 241, 0.1)',
-                    border: '1px solid rgba(99, 102, 241, 0.3)',
-                    color: 'var(--primary, #6366f1)',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: requestingHostel ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  <MdApartment size={18} />
-                  {requestingHostel ? 'Broadcasting Entire Hostel…' : `1-Click Request Entire Hostel (${selectedHostel})`}
-                </button>
-
-                {/* Manual Walkthrough Start */}
-                <button
-                  type="button"
-                  onClick={handleStartRound}
-                  disabled={submitting || requestingHostel}
-                  style={{
-                    padding: '13px 18px',
-                    borderRadius: 12,
-                    background: 'var(--bg-input, rgba(0,0,0,0.03))',
-                    border: '1px solid var(--border-color, rgba(148, 163, 184, 0.3))',
-                    color: 'var(--text-primary)',
-                    fontWeight: 600,
-                    fontSize: 14,
-                    cursor: submitting ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  <MdPlayArrow size={20} />
-                  Start Manual Walkthrough Round
-                </button>
-              </div>
             </div>
           </div>
 
@@ -598,7 +403,7 @@ export default function AttendanceRoundSetup() {
               lineHeight: 1.6,
             }}
           >
-            ⚡ <strong>1-Click Instant Attendance:</strong> Click <em>"1-Click Request All Attendance"</em> to broadcast an active attendance request to all student rooms at once. Students open their portal or phone, tap to verify location, and their GPS is checked against the authoritative building coordinates (BH1, BH2, GH1, GH2 with a strict 30m building boundary). If inside the building, attendance is recorded as <strong>PRESENT</strong>; otherwise <strong>ABSENT</strong>.
+            ⚡ <strong>1-Click Instant Attendance:</strong> Click <em>&quot;1-Click Request All Student Attendance&quot;</em> to broadcast an active attendance request to all student rooms in {selectedHostel} at once. Students open their portal or phone, tap to verify location, and their GPS is checked against the authoritative building coordinates ({selectedHostel} with a strict 30m building boundary). If inside the building, attendance is recorded as <strong>PRESENT</strong>; otherwise <strong>ABSENT</strong>.
           </div>
         </div>
       </div>

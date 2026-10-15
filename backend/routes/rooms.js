@@ -13,6 +13,7 @@ function getFloorForRoom(roomNumber) {
   if (!roomNumber) return 'Unassigned';
   const r = String(roomNumber).trim().toUpperCase();
   if (r.startsWith('B')) return 'Basement';
+  if (r.startsWith('G')) return 'Ground Floor';
   const digitsMatch = r.match(/\d+/);
   if (!digitsMatch) return 'General';
   const num = parseInt(digitsMatch[0], 10);
@@ -429,6 +430,41 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
       ...roomConfigMap.keys(),
       ...roomStudentsMap.keys(),
     ]);
+
+    // Ensure Ground Floor is always represented in rooms
+    const hasGround = Array.from(allRoomNumbers).some((rNum) => {
+      const config = roomConfigMap.get(rNum);
+      const fl = config?.floor || getFloorForRoom(rNum);
+      return fl === 'Ground Floor';
+    });
+
+    if (!hasGround) {
+      const defaultGround = '02';
+      allRoomNumbers.add(defaultGround);
+      if (!roomConfigMap.has(defaultGround)) {
+        roomConfigMap.set(defaultGround, {
+          roomNumber: defaultGround,
+          floor: 'Ground Floor',
+          capacity: 4,
+          hostelCode: hostel,
+          notes: 'Ground Floor Room',
+        });
+      }
+      Room.findOneAndUpdate(
+        { hostelCode: hostel, roomNumber: defaultGround },
+        {
+          $setOnInsert: {
+            hostelCode: hostel,
+            roomNumber: defaultGround,
+            floor: 'Ground Floor',
+            capacity: 4,
+            isActive: true,
+            notes: 'Ground Floor Room',
+          },
+        },
+        { upsert: true, setDefaultsOnInsert: true }
+      ).catch(() => {});
+    }
 
     let roomList = [];
     let totalCapacity = 0;

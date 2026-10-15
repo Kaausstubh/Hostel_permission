@@ -308,6 +308,10 @@ export const exportAttendanceToExcel = async ({
     const methodLabel =
       r.method === 'self_approved' || r.method === 'qr_geofence'
         ? 'GPS Geofence'
+        : r.status === 'on_leave'
+        ? 'Approved Leave'
+        : r.status === 'absent'
+        ? 'Unverified'
         : 'Staff Override';
 
     return {
@@ -321,7 +325,7 @@ export const exportAttendanceToExcel = async ({
       'Roll / MIS Number': student.rollNo || '—',
       'Attendance Status': statusLabel,
       'Verification Method': methodLabel,
-      'Verified By': r.verifiedBy || 'Self-Approved',
+      'Verified By': r.status === 'absent' ? '—' : (r.verifiedBy || 'Self-Approved'),
       'Remarks / Reason': r.remark || '—',
       'Recorded Timestamp': r.createdAt
         ? new Date(r.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })

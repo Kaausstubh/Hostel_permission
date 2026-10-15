@@ -220,7 +220,7 @@ export default function AttendanceFloorRound() {
       <Navbar
         title={
           round?.floor?.toLowerCase().includes('all')
-            ? `All Floors Round (${round?.hostel || 'Hostel'})`
+            ? `Student Attendance (${round?.hostel || 'Hostel'})`
             : `Floor Round — Floor ${round?.floor ?? ''} (${round?.hostel || 'Hostel'})`
         }
       />
@@ -266,7 +266,7 @@ export default function AttendanceFloorRound() {
               </button>
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                  {round?.hostel} · {round?.floor?.toLowerCase().includes('all') ? 'All Floors' : `Floor ${round?.floor}`}
+                  {round?.hostel} · {round?.floor?.toLowerCase().includes('all') ? 'All Students' : `Floor ${round?.floor}`}
                 </h2>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   {round?.session_name} · {round?.date} {round?.status === 'completed' && <strong style={{ color: 'var(--success)' }}>(Locked)</strong>}

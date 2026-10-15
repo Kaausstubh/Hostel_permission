@@ -17,6 +17,7 @@ const AttendanceAttempt = require('../models/AttendanceAttempt');
 const AttendanceAuditLog = require('../models/AttendanceAuditLog');
 const User = require('../models/User');
 const RoomAllocation = require('../models/RoomAllocation');
+const HomeVisitLog = require('../models/HomeVisitLog');
 
 const {
   registerStudentDevice,
@@ -28,6 +29,7 @@ const {
   getHostelGeofenceConfig,
 } = require('../services/geofenceService');
 const {
+  parseFloorFromRoom,
   getHostelsAndFloors,
   startOrResumeRound,
   getRoundRoomsSummary,
@@ -95,15 +97,17 @@ router.get('/hostels/:hostel/floors', protect, authorize('warden', 'admin'), asy
 
 router.post('/rounds', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
-    const { hostel, floor, session_name } = req.body;
-    if (!hostel || !floor) {
-      return res.status(400).json({ success: false, message: 'Hostel and floor are required' });
+    const hostel = req.body.hostel;
+    const floor = req.body.floor || 'All Floors';
+    const session_name = req.body.session_name;
+    if (!hostel) {
+      return res.status(400).json({ success: false, message: 'Hostel is required' });
     }
 
     const { round, resumed } = await startOrResumeRound({
       hostel,
       floor,
-      session_name: 'Night Attendance',
+      session_name: session_name || 'Night Attendance',
       staffUser: req.user,
     });
 
@@ -189,9 +193,11 @@ router.post('/rounds/:id/request-all', protect, authorize('warden', 'admin'), as
 
 router.post('/rounds/quick-request-all', protect, authorize('warden', 'admin'), async (req, res) => {
   try {
-    const { hostel, floor, session_name } = req.body;
-    if (!hostel || !floor) {
-      return res.status(400).json({ success: false, message: 'Hostel and floor are required' });
+    const hostel = req.body.hostel;
+    const floor = req.body.floor || 'All Floors';
+    const session_name = req.body.session_name;
+    if (!hostel) {
+      return res.status(400).json({ success: false, message: 'Hostel is required' });
     }
 
     const { round, resumed } = await startOrResumeRound({
@@ -667,6 +673,55 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
     }
 
     const geofenceConfig = await getHostelGeofenceConfig(assignedHostel);
+
+    // 0. Check approved leave for today
+    const activeLeave = await HomeVisitLog.findOne({
+      student_id: req.user._id,
+      overall_status: 'approved',
+      leave_date: { $lte: todayDate },
+      return_date: { $gte: todayDate },
+      qr_used_in: { $ne: true },
+    }).lean();
+
+    if (activeLeave) {
+      const leaveRec = await AttendanceRecord.findOneAndUpdate(
+        { student_id: req.user._id, date: todayDate, session },
+        {
+          $setOnInsert: {
+            student_id: req.user._id,
+            date: todayDate,
+            session,
+            session_name: session,
+            hostel: assignedHostel,
+            floor: req.user.floor || '',
+            roomNo: req.user.roomNo || 'Assigned',
+            status: 'on_leave',
+            method: 'staff_marked',
+            remark: 'On approved home visit leave',
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return res.json({
+        success: true,
+        isMarked: true,
+        recordId: leaveRec._id,
+        hostel: leaveRec.hostel || assignedHostel,
+        hostelName: geofenceConfig.name,
+        date: todayDate,
+        formattedDate: formatRecordDate(now, todayDate),
+        time: formatRecordTime(leaveRec.createdAt || now),
+        status: 'ON_LEAVE',
+        displayStatus: 'On Approved Leave',
+        method: 'Approved Leave',
+        verification: 'Exempt (Approved Home Visit)',
+        remark: 'On approved home visit leave',
+        confirmedByServer: true,
+        attemptsCount: 0,
+        attemptsRemaining: 0,
+        markedAt: leaveRec.createdAt || now,
+      });
+    }
 
     // 1. Check AttendanceRecord (the finalized ledger)
     const record = await AttendanceRecord.findOne({
@@ -1761,7 +1816,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
             date: todayDate,
             session: 'Night Attendance',
             hostel: request.hostel,
-            floor: request.floor || '',
+            floor: parseFloorFromRoom(request.roomNo),
             roomNo: request.roomNo,
             status: 'present',
             method: 'self_approved',
@@ -1840,21 +1895,143 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
 // ── Student: Personal Attendance History ─────────────────────────────────────
 router.get('/history', protect, authorize('student'), async (req, res) => {
   try {
-    const records = await AttendanceRecord.find({ student_id: req.user._id })
+    const student = req.user;
+    const assignedHostel = normalizeHostelCode(student.hostel) || 'BH2';
+    const now = new Date();
+    const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const session = 'Night Attendance';
+
+    // 1. Fetch rounds conducted for student's hostel to ensure no missed round dates
+    const rounds = await AttendanceRound.find({
+      hostel: assignedHostel,
+    }).select('date session_name status completed_at').lean();
+
+    const roundDates = Array.from(new Set(rounds.map((r) => r.date).filter(Boolean)));
+
+    // 2. Fetch approved home visits
+    const leaves = await HomeVisitLog.find({
+      student_id: student._id,
+      overall_status: 'approved',
+    }).lean();
+
+    // 3. Check existing records for student
+    const existingRecords = await AttendanceRecord.find({
+      student_id: student._id,
+    }).lean();
+    const existingDateMap = new Map(existingRecords.map((r) => [r.date, r]));
+
+    // 4. Ensure past rounds or approved leave dates reflect in the ledger
+    for (const rDate of roundDates) {
+      if (!existingDateMap.has(rDate)) {
+        const onLeave = leaves.some(
+          (l) => l.leave_date <= rDate && l.return_date >= rDate && !l.qr_used_in
+        );
+        const isPastDate = rDate < todayDate;
+        const roundDoc = rounds.find((r) => r.date === rDate);
+        const isRoundCompleted = roundDoc?.status === 'completed';
+
+        if (onLeave) {
+          await AttendanceRecord.findOneAndUpdate(
+            { student_id: student._id, date: rDate, session },
+            {
+              $setOnInsert: {
+                student_id: student._id,
+                date: rDate,
+                session,
+                session_name: session,
+                hostel: assignedHostel,
+                floor: student.floor || '',
+                roomNo: student.roomNo || 'Assigned',
+                status: 'on_leave',
+                method: 'staff_marked',
+                remark: 'On approved home visit leave',
+              },
+            },
+            { upsert: true, setDefaultsOnInsert: true }
+          );
+        } else if (isPastDate || isRoundCompleted) {
+          await AttendanceRecord.findOneAndUpdate(
+            { student_id: student._id, date: rDate, session },
+            {
+              $setOnInsert: {
+                student_id: student._id,
+                date: rDate,
+                session,
+                session_name: session,
+                hostel: assignedHostel,
+                floor: student.floor || '',
+                roomNo: student.roomNo || 'Assigned',
+                status: 'absent',
+                method: 'staff_marked',
+                remark: 'Unverified / Absent during round',
+              },
+            },
+            { upsert: true, setDefaultsOnInsert: true }
+          );
+        }
+      }
+    }
+
+    // 5. Query finalized student records
+    const records = await AttendanceRecord.find({ student_id: student._id })
       .populate('verified_by', 'name role')
       .sort({ date: -1, createdAt: -1 })
       .limit(60)
       .lean();
 
+    // 6. Compute today's status summary
+    const todayRec = records.find((r) => r.date === todayDate);
+    const todayLeave = leaves.find(
+      (l) => l.leave_date <= todayDate && l.return_date >= todayDate && !l.qr_used_in
+    );
+    const activeRoundToday = rounds.find((r) => r.date === todayDate && r.status === 'active');
+
+    let todayStatusVal = 'not_marked';
+    let todayDisplayStatus = 'Not Marked Yet';
+    if (todayRec) {
+      todayStatusVal = todayRec.status;
+      todayDisplayStatus =
+        todayRec.status === 'present'
+          ? 'Present'
+          : todayRec.status === 'absent'
+          ? 'Absent'
+          : 'On Approved Leave';
+    } else if (todayLeave) {
+      todayStatusVal = 'on_leave';
+      todayDisplayStatus = 'On Approved Leave';
+    } else if (activeRoundToday) {
+      todayStatusVal = 'pending';
+      todayDisplayStatus = 'Verification Pending';
+    }
+
+    const todaySummary = {
+      isMarked: Boolean(todayRec || todayLeave),
+      status: todayStatusVal,
+      displayStatus: todayDisplayStatus,
+      time: todayRec
+        ? formatRecordTime(todayRec.verification_timestamp || todayRec.createdAt || todayRec.updatedAt)
+        : null,
+      date: todayDate,
+      formattedDate: formatRecordDate(now, todayDate),
+      session,
+      hostel: assignedHostel,
+      roomNo: student.roomNo || 'Assigned',
+      method: todayRec?.method || (todayLeave ? 'Approved Leave' : null),
+      remark: todayRec?.remark || (todayLeave ? 'On approved home visit leave' : ''),
+      hasActiveRound: Boolean(activeRoundToday),
+      canVerify: Boolean(activeRoundToday && !todayRec && !todayLeave),
+    };
+
     res.json({
       success: true,
       count: records.length,
+      today: todaySummary,
       records: records.map((r) => ({
         id: r._id,
         date: r.date,
-        formattedDate: formatRecordDate(r.createdAt || r.updatedAt, r.date),
-        time: formatRecordTime(r.createdAt || r.updatedAt),
-        markedAt: r.createdAt || r.updatedAt,
+        formattedDate: formatRecordDate(r.verification_timestamp || r.createdAt || r.updatedAt, r.date),
+        time: formatRecordTime(r.verification_timestamp || r.createdAt || r.updatedAt),
+        markedAt: r.verification_timestamp || r.createdAt || r.updatedAt,
         session: r.session,
         hostel: r.hostel,
         roomNo: r.roomNo,
@@ -1981,6 +2158,152 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
   try {
     const { startDate, endDate, hostel, floor, status, format: reqFormat } = req.query;
 
+    const getISTDate = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const effectiveStartDate = startDate || getISTDate();
+    const effectiveEndDate = endDate || effectiveStartDate;
+
+    // 1. Gather all active students matching requested hostel scope
+    const studentFilter = { role: 'student', isActive: true };
+    if (hostel && hostel.toUpperCase() !== 'ALL') {
+      const hUpper = hostel.toUpperCase();
+      if (hUpper === 'GH1' || hUpper === 'GH') {
+        studentFilter.hostel = { $in: ['GH1', 'GH'] };
+      } else {
+        studentFilter.hostel = hUpper;
+      }
+    }
+
+    const allStudents = await User.find(studentFilter)
+      .select('_id name rollNo email phone hostel roomNo')
+      .lean();
+
+    // 2. Resolve room allocations to guarantee accurate room numbers & floors
+    const allocations = await RoomAllocation.find({ status: 'active' })
+      .populate('room_id', 'room_number')
+      .lean();
+    const allocRoomMap = new Map();
+    for (const a of allocations) {
+      if (a.student_id && a.room_id?.room_number) {
+        allocRoomMap.set(a.student_id.toString(), a.room_id.room_number);
+      }
+    }
+
+    // 3. Build list of dates to cover (at most 31 days)
+    const dateList = [];
+    const cur = new Date(effectiveStartDate);
+    const end = new Date(effectiveEndDate);
+    let safetyCounter = 0;
+    while (cur <= end && safetyCounter < 31) {
+      dateList.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+      safetyCounter++;
+    }
+    if (dateList.length === 0) dateList.push(effectiveStartDate);
+
+    // 4. For each date, ensure every student has a definitive attendance record
+    for (const curDate of dateList) {
+      const existingRecords = await AttendanceRecord.find({ date: curDate }).lean();
+      const existingByStudent = new Map(
+        existingRecords.map((r) => [r.student_id.toString(), r])
+      );
+
+      // Check active rounds & student request responses for this date
+      const rounds = await AttendanceRound.find({ date: curDate }).lean();
+      const roundIds = rounds.map((r) => r._id);
+      const requests = await RoomAttendanceRequest.find({ round_id: { $in: roundIds } }).lean();
+      const reqIds = requests.map((r) => r._id);
+      const responses = await RequestResponse.find({ request_id: { $in: reqIds } }).lean();
+      const respByStudent = new Map(
+        responses.map((resp) => [resp.student_id.toString(), resp])
+      );
+
+      // Check approved leaves for this date
+      const leaves = await HomeVisitLog.find({
+        overall_status: 'approved',
+        leave_date: { $lte: curDate },
+        return_date: { $gte: curDate },
+        qr_used_in: { $ne: true },
+      }).lean();
+      const leaveStudentIds = new Set(leaves.map((l) => l.student_id.toString()));
+
+      const ops = [];
+      for (const st of allStudents) {
+        const sId = st._id.toString();
+        const existingRec = existingByStudent.get(sId);
+        const resolvedRoom = st.roomNo || allocRoomMap.get(sId) || '101';
+        const resolvedFloor = parseFloorFromRoom(resolvedRoom);
+
+        if (!existingRec) {
+          const resp = respByStudent.get(sId);
+          const onLeave = leaveStudentIds.has(sId);
+
+          let finalStatus = 'absent';
+          let finalMethod = 'staff_marked';
+          let finalRemark = 'Unverified / Absent';
+
+          if (resp) {
+            if (['approved', 'manual_present'].includes(resp.status)) {
+              finalStatus = 'present';
+              finalMethod = resp.status === 'manual_present' ? 'staff_marked' : 'self_approved';
+              finalRemark = resp.remark || 'Verified via GPS geofence';
+            } else if (resp.status === 'on_leave' || onLeave) {
+              finalStatus = 'on_leave';
+              finalMethod = 'staff_marked';
+              finalRemark = resp.remark || 'On approved home visit leave';
+            } else if (resp.status === 'absent' || resp.status === 'manual_absent') {
+              finalStatus = 'absent';
+              finalMethod = 'staff_marked';
+              finalRemark = resp.remark || 'Marked absent by staff';
+            } else {
+              finalStatus = 'absent';
+              finalMethod = 'staff_marked';
+              finalRemark = 'Awaiting student geofence verification';
+            }
+          } else if (onLeave) {
+            finalStatus = 'on_leave';
+            finalMethod = 'staff_marked';
+            finalRemark = 'On approved home visit leave';
+          }
+
+          ops.push({
+            updateOne: {
+              filter: { student_id: st._id, date: curDate, session: 'Night Attendance' },
+              update: {
+                $setOnInsert: {
+                  student_id: st._id,
+                  date: curDate,
+                  session: 'Night Attendance',
+                  session_name: 'Night Attendance',
+                  hostel: st.hostel || 'BH2',
+                  floor: resolvedFloor,
+                  roomNo: resolvedRoom,
+                  status: finalStatus,
+                  method: finalMethod,
+                  remark: finalRemark,
+                  verified_by: null,
+                },
+              },
+              upsert: true,
+            },
+          });
+        } else if (!existingRec.floor || existingRec.floor.toLowerCase().includes('all')) {
+          ops.push({
+            updateOne: {
+              filter: { _id: existingRec._id },
+              update: { $set: { floor: resolvedFloor, roomNo: resolvedRoom } },
+            },
+          });
+        }
+      }
+
+      if (ops.length > 0) {
+        await AttendanceRecord.bulkWrite(ops).catch((err) =>
+          logger.warn('[Attendance] bulkWrite attendance report sync warning: ' + err.message)
+        );
+      }
+    }
+
+    // 5. Query AttendanceRecords with user filters
     const query = {};
     if (startDate && endDate) {
       query.date = { $gte: startDate, $lte: endDate };
@@ -2015,6 +2338,37 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
       .sort({ date: -1, hostel: 1, floor: 1, roomNo: 1 })
       .lean();
 
+    const mappedRecords = records.map((r) => {
+      let verifiedByText = '—';
+      if (r.status === 'present') {
+        verifiedByText = r.verified_by?.name || (r.method === 'self_approved' ? 'Self-Approved' : 'Staff Override');
+      } else if (r.status === 'on_leave') {
+        verifiedByText = 'Hostel Office';
+      }
+
+      const st = r.student_id || {
+        name: 'Student',
+        rollNo: '—',
+        hostel: r.hostel,
+        roomNo: r.roomNo,
+      };
+
+      return {
+        id: r._id,
+        date: r.date,
+        session: r.session || 'Night Attendance',
+        hostel: r.hostel,
+        floor: r.floor,
+        roomNo: r.roomNo,
+        student: st,
+        status: r.status,
+        method: r.method,
+        verifiedBy: verifiedByText,
+        remark: r.remark,
+        createdAt: r.createdAt,
+      };
+    });
+
     if (reqFormat === 'csv') {
       const csvHeader = [
         'Date',
@@ -2031,8 +2385,8 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
         'Recorded At',
       ].join(',');
 
-      const csvRows = records.map((r) => {
-        const student = r.student_id || {};
+      const csvRows = mappedRecords.map((r) => {
+        const student = r.student || {};
         const safe = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
         return [
           safe(r.date),
@@ -2042,9 +2396,9 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
           safe(r.roomNo),
           safe(student.rollNo),
           safe(student.name),
-          safe(r.status),
-          safe(r.method),
-          safe(r.verified_by?.name || 'Self-Approved'),
+          safe(r.status ? r.status.toUpperCase() : 'ABSENT'),
+          safe(r.method === 'self_approved' ? 'GPS Geofence' : (r.status === 'absent' ? 'Unverified' : (r.status === 'on_leave' ? 'Approved Leave' : 'Staff Override'))),
+          safe(r.verifiedBy),
           safe(r.remark || ''),
           safe(r.createdAt ? new Date(r.createdAt).toISOString() : ''),
         ].join(',');
@@ -2060,21 +2414,8 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
 
     res.json({
       success: true,
-      count: records.length,
-      records: records.map((r) => ({
-        id: r._id,
-        date: r.date,
-        session: r.session,
-        hostel: r.hostel,
-        floor: r.floor,
-        roomNo: r.roomNo,
-        student: r.student_id,
-        status: r.status,
-        method: r.method,
-        verifiedBy: r.verified_by?.name || 'Self-Approved',
-        remark: r.remark,
-        createdAt: r.createdAt,
-      })),
+      count: mappedRecords.length,
+      records: mappedRecords,
     });
   } catch (err) {
     logger.error('[Attendance] Error generating report', { error: err.message });

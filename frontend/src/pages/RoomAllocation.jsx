@@ -187,27 +187,58 @@ export default function RoomAllocation({ embedded = false }) {
   // ── 9. Dynamic Floor & Room Options for Dropdowns ────────────────────────────
   // Available floors for selected hostel
   const availableFloors = useMemo(() => {
-    if (!data?.floors) return ['All', 'Basement', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
-    return data.floors;
+    const raw = data?.floors || ['All', 'Basement', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+    const floorSet = new Set(raw);
+    floorSet.add('Ground Floor');
+    const order = { 'All': -1, 'Basement': 0, 'Ground Floor': 1, '1st Floor': 2, '2nd Floor': 3, '3rd Floor': 4, '4th Floor': 5 };
+    return Array.from(floorSet).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
   }, [data?.floors]);
+
+  // Ensure ground floor room is included in room pool if not present in dataset
+  const allHostelRooms = useMemo(() => {
+    if (!data?.rooms) return [];
+    let rooms = [...data.rooms];
+    const hasGround = rooms.some((r) => r.floor === 'Ground Floor');
+    if (!hasGround) {
+      rooms.push({
+        roomNumber: '02',
+        hostel: selectedHostel,
+        floor: 'Ground Floor',
+        capacity: 4,
+        occupancy: 0,
+        vacancies: 4,
+        status: 'EMPTY',
+        isFull: false,
+        hasVacancy: true,
+        students: [],
+        beds: [
+          { bedNumber: 1, status: 'VACANT', student: null },
+          { bedNumber: 2, status: 'VACANT', student: null },
+          { bedNumber: 3, status: 'VACANT', student: null },
+          { bedNumber: 4, status: 'VACANT', student: null },
+        ],
+      });
+      const order = { 'Basement': 0, 'Ground Floor': 1, '1st Floor': 2, '2nd Floor': 3, '3rd Floor': 4 };
+      rooms.sort((a, b) => (order[a.floor] ?? 99) - (order[b.floor] ?? 99));
+    }
+    return rooms;
+  }, [data?.rooms, selectedHostel]);
 
   // Rooms belonging to selected hostel & floor (for Step 3 Room dropdown)
   const availableRoomsOnFloor = useMemo(() => {
-    if (!data?.rooms) return [];
-    if (selectedFloor === 'All') return data.rooms;
-    return data.rooms.filter((r) => r.floor === selectedFloor);
-  }, [data?.rooms, selectedFloor]);
+    if (selectedFloor === 'All') return allHostelRooms;
+    return allHostelRooms.filter((r) => r.floor === selectedFloor);
+  }, [allHostelRooms, selectedFloor]);
 
   // Active Selected Room Object (if a specific room is selected in Step 3 or clicked)
   const currentSelectedRoomObj = useMemo(() => {
-    if (selectedRoomNumber === 'All' || !data?.rooms) return null;
-    return data.rooms.find((r) => r.roomNumber === selectedRoomNumber) || null;
-  }, [data?.rooms, selectedRoomNumber]);
+    if (selectedRoomNumber === 'All') return null;
+    return allHostelRooms.find((r) => r.roomNumber === selectedRoomNumber) || null;
+  }, [allHostelRooms, selectedRoomNumber]);
 
   // ── 10. Filtered Rooms List for Cards Grid ───────────────────────────────────
   const filteredRooms = useMemo(() => {
-    if (!data?.rooms) return [];
-    let list = [...data.rooms];
+    let list = [...allHostelRooms];
 
     // Floor filter (Step 2)
     if (selectedFloor !== 'All') {
@@ -1268,46 +1299,6 @@ export default function RoomAllocation({ embedded = false }) {
               </button>
             )}
           </div>
-        </div>
-
-        {/* Quick Academic Year Pills (FY / SY / TY / Fourth Year) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-          <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginRight: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span>🎓</span> Academic Year:
-          </span>
-          {[
-            { id: 'All', label: 'All Years' },
-            { id: 'FY', label: 'FY' },
-            { id: 'SY', label: 'SY' },
-            { id: 'TY', label: 'TY' },
-            { id: 'Fourth Year', label: 'Fourth Year' },
-          ].map((pill) => {
-            const active = filterYear === pill.id;
-            return (
-              <button
-                key={pill.id}
-                type="button"
-                onClick={() => {
-                  setFilterYear(pill.id);
-                  setStudentPage(1);
-                }}
-                style={{
-                  padding: '5px 14px',
-                  borderRadius: 20,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  border: active ? '1.5px solid #6366f1' : '1px solid var(--border-color)',
-                  background: active ? 'rgba(99, 102, 241, 0.16)' : 'var(--bg-card, #fff)',
-                  color: active ? '#6366f1' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: active ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none',
-                }}
-              >
-                {pill.label}
-              </button>
-            );
-          })}
         </div>
 
         {/* Multi-Filter Controls Row (Search, Year, Status, Sort) */}

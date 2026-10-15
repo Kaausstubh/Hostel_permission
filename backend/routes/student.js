@@ -20,6 +20,7 @@ const InOutLog = require('../models/InOutLog');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
 const GatePass = require('../models/GatePass');
+const AttendanceRecord = require('../models/AttendanceRecord');
 const logger = require('../utils/logger');
 const {
   getActivePassForStudent,
@@ -124,6 +125,7 @@ router.get('/status', async (req, res) => {
       recentVisitHistory,
       recentComplaints,
       todayLogs,
+      todayAttendanceRec,
     ] = await Promise.all([
       // Look for any unreturned OUT log across ALL dates (survives midnight & multi-day movements)
       InOutLog.findOne({
@@ -158,6 +160,12 @@ router.get('/status', async (req, res) => {
         date: today,
       })
         .sort({ timestamp: -1 })
+        .lean(),
+      AttendanceRecord.findOne({
+        student_id: studentId,
+        date: today,
+      })
+        .sort({ createdAt: -1 })
         .lean(),
     ]);
 
@@ -231,6 +239,17 @@ router.get('/status', async (req, res) => {
         recentVisitHistory,
         recentComplaints,
         todayLogs,
+        todayAttendance: todayAttendanceRec
+          ? {
+              status: todayAttendanceRec.status,
+              time: todayAttendanceRec.verification_timestamp
+                ? new Date(todayAttendanceRec.verification_timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })
+                : null,
+              date: todayAttendanceRec.date,
+              method: todayAttendanceRec.method,
+              remark: todayAttendanceRec.remark,
+            }
+          : null,
         studentPhoto: req.user?.studentPhoto || req.user?.picture || null,
       },
     });

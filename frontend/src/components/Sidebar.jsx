@@ -118,10 +118,14 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           <div className="user-avatar">
             {user?.name?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <div className="user-info">
-            <div className="user-name">{user?.name}</div>
-            <div className="user-role">{user?.role === 'warden' ? 'Hostel Staff' : user?.role}</div>
-          </div>
+            <div className="user-info">
+              <div className="user-name">{user?.name}</div>
+              <div className="user-role">
+                {['warden', 'hostel_staff'].includes(user?.role)
+                  ? 'Hostel Staff'
+                  : (user?.role ? user.role.replace(/_/g, ' ') : '')}
+              </div>
+            </div>
           <MdLogout style={{ color: 'var(--text-muted)', fontSize: '18px', flexShrink: 0 }} />
         </div>
       </div>

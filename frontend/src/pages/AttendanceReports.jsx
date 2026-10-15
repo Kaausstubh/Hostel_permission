@@ -316,13 +316,19 @@ export default function AttendanceReports() {
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        {r.method === 'self_approved' ? 'GPS Geofence' : 'Staff Override'}
+                        {r.method === 'self_approved'
+                          ? 'GPS Geofence'
+                          : r.status === 'on_leave'
+                          ? 'Approved Leave'
+                          : r.status === 'absent'
+                          ? 'Unverified'
+                          : 'Staff Override'}
                       </td>
                       <td style={{ padding: '12px 16px', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.remark || '-'}
                       </td>
                       <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        {r.verifiedBy || 'Self-Verified'}
+                        {r.status === 'absent' ? '—' : (r.verifiedBy || 'Self-Approved')}
                       </td>
                     </tr>
                   );

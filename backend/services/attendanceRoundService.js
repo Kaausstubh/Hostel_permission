@@ -48,12 +48,8 @@ const parseFloorFromRoom = (roomNo) => {
   return '1st Floor';
 };
 
-/**
- * Get current date string in YYYY-MM-DD
- */
 const getTodayDateStr = () => {
-  const now = new Date();
-  return now.toISOString().split('T')[0];
+  return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
 };
 
 /**
@@ -692,6 +688,29 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
         await resp.save();
       }
     }
+
+    // Ensure AttendanceRecord exists in ledger immediately
+    const stFloor = parseFloorFromRoom(cleanRoomNo);
+    await AttendanceRecord.findOneAndUpdate(
+      { student_id: st._id, date: todayStr, session: 'Night Attendance' },
+      {
+        $setOnInsert: {
+          student_id: st._id,
+          date: todayStr,
+          session: 'Night Attendance',
+          session_name: 'Night Attendance',
+          hostel: round.hostel,
+          floor: stFloor,
+          roomNo: cleanRoomNo,
+          status: onLeave ? 'on_leave' : 'absent',
+          method: 'staff_marked',
+          remark: onLeave ? 'On approved home visit leave' : 'Awaiting student geofence verification',
+          round_id: round._id,
+          request_id: request._id,
+        },
+      },
+      { upsert: true, new: true }
+    ).catch((err) => logger.warn('[AttendanceRecord] Init record warning: ' + err.message));
 
     // Notify student instantly via Socket.IO if NOT on leave!
     if (!onLeave && io) {

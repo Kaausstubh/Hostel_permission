@@ -2173,6 +2173,31 @@ export default function StudentDashboard() {
         });
       }
 
+      // Night Attendance Status
+      let attText = '\n\n📋 *Night Attendance (Today):* ';
+      if (s.todayAttendance) {
+        if (s.todayAttendance.status === 'present') {
+          attText += `✅ *Present* (${s.todayAttendance.time || 'Verified'})`;
+        } else if (s.todayAttendance.status === 'absent') {
+          attText += `❌ *Absent*`;
+        } else if (s.todayAttendance.status === 'on_leave') {
+          attText += `🏠 *On Approved Leave*`;
+        } else {
+          attText += `⏳ *Pending Verification*`;
+        }
+      } else if (attendanceStatus?.todayRecord?.status === 'present') {
+        attText += `✅ *Present* (${attendanceStatus.todayRecord.time || 'Verified'})`;
+      } else if (attendanceStatus?.todayRecord?.status === 'absent') {
+        attText += `❌ *Absent*`;
+      } else if (attendanceStatus?.todayRecord?.status === 'on_leave') {
+        attText += `🏠 *On Approved Leave*`;
+      } else if (attendanceStatus?.hasPending) {
+        attText += `⏳ *Pending Verification*`;
+      } else {
+        attText += `📋 *Not Marked Yet*`;
+      }
+      statusMsg += attText;
+
       // Removed recentVisitHistory to keep the status output clean and prevent showing discarded/completed passes
 
       if (Object.keys(qrMap).length > 0) {
@@ -2869,12 +2894,43 @@ export default function StudentDashboard() {
         <nav style={{ padding: '12px 0', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {[
             { icon: <MdDashboard size={18} />, label: 'My Chatbot', active: true, onClick: () => {} },
-            { icon: <MdCalendarMonth size={18} />, label: 'Attendance History', active: false, onClick: () => setAttendanceHistoryOpen(true) },
+            {
+              icon: <MdCalendarMonth size={18} />,
+              label: 'Attendance History',
+              active: false,
+              badge: attendanceStatus?.todayRecord?.status === 'present'
+                ? 'Present'
+                : attendanceStatus?.todayRecord?.status === 'absent'
+                ? 'Absent'
+                : attendanceStatus?.todayRecord?.status === 'on_leave'
+                ? 'On Leave'
+                : attendanceStatus?.hasPending
+                ? 'Pending'
+                : null,
+              badgeBg: attendanceStatus?.todayRecord?.status === 'present'
+                ? 'rgba(16, 185, 129, 0.16)'
+                : attendanceStatus?.todayRecord?.status === 'absent'
+                ? 'rgba(239, 68, 68, 0.16)'
+                : attendanceStatus?.todayRecord?.status === 'on_leave'
+                ? 'rgba(168, 85, 247, 0.16)'
+                : 'rgba(99, 102, 241, 0.16)',
+              badgeColor: attendanceStatus?.todayRecord?.status === 'present'
+                ? '#10b981'
+                : attendanceStatus?.todayRecord?.status === 'absent'
+                ? '#ef4444'
+                : attendanceStatus?.todayRecord?.status === 'on_leave'
+                ? '#c084fc'
+                : '#818cf8',
+              onClick: () => setAttendanceHistoryOpen(true),
+            },
             {
               icon: <span style={{ fontSize: 16 }}>👨‍👩‍👦</span>,
               label: pendingVisitorRequests.length > 0 ? `Parent Visit (${pendingVisitorRequests.length})` : 'Parent Visit Request',
               active: false,
               badge: pendingVisitorRequests.length > 0 ? pendingVisitorRequests.length : null,
+              badgeBg: '#f59e0b',
+              badgeColor: '#000',
+              pulse: true,
               onClick: () => {
                 if (pendingVisitorRequests.length > 0) {
                   setActiveVisitorModal(pendingVisitorRequests[0]);
@@ -2913,13 +2969,14 @@ export default function StudentDashboard() {
               {item.badge && (
                 <span
                   style={{
-                    background: '#f59e0b',
-                    color: '#000',
-                    fontSize: 11,
-                    fontWeight: 900,
+                    background: item.badgeBg || '#f59e0b',
+                    color: item.badgeColor || '#000',
+                    fontSize: 10.5,
+                    fontWeight: 800,
                     borderRadius: 999,
-                    padding: '2px 7px',
-                    animation: 'pulse 1.5s infinite',
+                    padding: '2px 8px',
+                    letterSpacing: 0.2,
+                    animation: item.pulse ? 'pulse 1.5s infinite' : 'none',
                   }}
                 >
                   {item.badge}
@@ -2950,6 +3007,51 @@ export default function StudentDashboard() {
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
                 {user?.rollNo} · {getHostelLabel(user?.hostel)}{user?.roomNo ? ` · Room ${user.roomNo}` : ''}
+              </div>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  marginTop: 4,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: attendanceStatus?.todayRecord?.status === 'present'
+                    ? '#10b981'
+                    : attendanceStatus?.todayRecord?.status === 'absent'
+                    ? '#ef4444'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '#c084fc'
+                    : attendanceStatus?.hasPending
+                    ? '#818cf8'
+                    : 'var(--text-muted)',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: attendanceStatus?.todayRecord?.status === 'present'
+                      ? '#10b981'
+                      : attendanceStatus?.todayRecord?.status === 'absent'
+                      ? '#ef4444'
+                      : attendanceStatus?.todayRecord?.status === 'on_leave'
+                      ? '#c084fc'
+                      : attendanceStatus?.hasPending
+                      ? '#818cf8'
+                      : 'var(--text-muted)',
+                  }}
+                />
+                Attendance: {attendanceStatus?.todayRecord?.status === 'present'
+                  ? 'Present'
+                  : attendanceStatus?.todayRecord?.status === 'absent'
+                  ? 'Absent'
+                  : attendanceStatus?.todayRecord?.status === 'on_leave'
+                  ? 'On Leave'
+                  : attendanceStatus?.hasPending
+                  ? 'Pending'
+                  : 'Not Marked'}
               </div>
             </div>
           </div>
@@ -5298,7 +5400,7 @@ export default function StudentDashboard() {
                   ⚡ How Campus Visitor Entry Works
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                  <div>1️⃣ <strong>Arrival:</strong> Parents arrive at campus gate & state your name ({user?.name || 'Student'}).</div>
+                  <div>1️⃣ <strong>Arrival:</strong> Parents arrive at campus gate & state your name.</div>
                   <div>2️⃣ <strong>Instant Alert:</strong> A pop-up immediately rings on your phone/laptop to approve or decline.</div>
                   <div>3️⃣ <strong>Gate Access:</strong> Once you tap <strong>Allow Entry</strong>, security immediately admits them inside.</div>
                 </div>
@@ -5490,7 +5592,14 @@ export default function StudentDashboard() {
         }
       `}</style>
       {attendanceHistoryOpen && (
-        <StudentAttendanceHistoryModal onClose={() => setAttendanceHistoryOpen(false)} />
+        <StudentAttendanceHistoryModal
+          onClose={() => setAttendanceHistoryOpen(false)}
+          todayStatus={attendanceStatus}
+          onVerifyNow={() => {
+            setAttendanceHistoryOpen(false);
+            setAttendancePromptOpenTrigger((prev) => prev + 1);
+          }}
+        />
       )}
       {showRoomInfoModal && (
         <StudentRoomInfoModal

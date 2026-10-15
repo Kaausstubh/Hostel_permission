@@ -1561,7 +1561,7 @@ export default function ScanLogs({ defaultTab = 'gate' }) {
                 <MdSecurity size={15} />
                 Staff Deletion Audit Recorded
               </div>
-              Your account details (<strong>{user?.name || 'Staff Member'}</strong> • {user?.role?.toUpperCase()} • {user?.email}) and execution timestamp in IST will be permanently preserved in the staff audit registry.
+              Your account details (<strong>{user?.name || 'Staff Member'}</strong> • {(['warden', 'hostel_staff'].includes(user?.role) ? 'HOSTEL STAFF' : (user?.role || 'staff').replace(/_/g, ' ')).toUpperCase()} • {user?.email}) and execution timestamp in IST will be permanently preserved in the staff audit registry.
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
