@@ -3506,17 +3506,19 @@ export default function StudentDashboard() {
                   padding: '8px 14px',
                   fontSize: 12.5,
                   borderRadius: 12,
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
                   cursor: 'pointer',
                   boxShadow: attendanceStatus?.hasPending ? '0 0 16px rgba(79, 70, 229, 0.6)' : 'none',
                   animation: attendanceStatus?.hasPending ? 'pulse 1.6s infinite' : 'none',
                   transition: 'all 0.18s ease',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
                 title="Hostel Night Attendance Status — Tap to Verify or View Records"
               >
-                <span>
+                <span style={{ fontSize: 13, flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
                   {attendanceStatus?.hasPending
                     ? '📍'
                     : attendanceStatus?.todayRecord?.status === 'present'
@@ -3527,16 +3529,16 @@ export default function StudentDashboard() {
                     ? '✈️'
                     : '📋'}
                 </span>
-                <span>
+                <span style={{ whiteSpace: 'nowrap' }}>
                   {attendanceStatus?.hasPending
                     ? `Mark Attendance (${attendanceStatus?.pendingRequest?.remainingSeconds || 60}s)`
                     : attendanceStatus?.todayRecord?.status === 'present'
-                    ? `✅ Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    ? `Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
-                    ? `❌ Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    ? `Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'on_leave'
-                    ? '✈️ On Approved Leave'
-                    : '📋 Not Marked Yet'}
+                    ? 'On Approved Leave'
+                    : 'Not Marked Yet'}
                 </span>
               </button>
 
