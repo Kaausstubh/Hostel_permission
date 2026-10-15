@@ -423,25 +423,30 @@ export default function StudentAttendanceHistoryModal({
                     ? 'Approved Leave (Home Visit)'
                     : record.remark || 'Unverified / Absent during round';
 
-                const recordTime =
-                  record.time ||
-                  (record.markedAt && !isNaN(new Date(record.markedAt).getTime())
-                    ? new Date(record.markedAt).toLocaleTimeString('en-IN', {
+                // Extract timestamp consistently for present, absent, and leave
+                let recordTime = record.time;
+                if (!recordTime) {
+                  const rawTs =
+                    record.markedAt ||
+                    record.verification_timestamp ||
+                    record.createdAt ||
+                    record.updatedAt ||
+                    (record.id && String(record.id).length >= 8
+                      ? new Date(parseInt(String(record.id).substring(0, 8), 16) * 1000)
+                      : null);
+                  if (rawTs) {
+                    const d = new Date(rawTs);
+                    if (!isNaN(d.getTime())) {
+                      recordTime = d.toLocaleTimeString('en-IN', {
                         timeZone: 'Asia/Kolkata',
                         hour: '2-digit',
                         minute: '2-digit',
                         second: '2-digit',
                         hour12: true,
-                      })
-                    : record.createdAt && !isNaN(new Date(record.createdAt).getTime())
-                    ? new Date(record.createdAt).toLocaleTimeString('en-IN', {
-                        timeZone: 'Asia/Kolkata',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                        hour12: true,
-                      })
-                    : null);
+                      });
+                    }
+                  }
+                }
 
                 return (
                   <div
@@ -458,7 +463,8 @@ export default function StudentAttendanceHistoryModal({
                     }}
                   >
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      {/* Row 1: Date & Time Pill (Uniformly displayed across all records) */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                         <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
                           📅 {record.formattedDate || record.date}
                         </span>
@@ -479,11 +485,14 @@ export default function StudentAttendanceHistoryModal({
                             ⏰ {recordTime}
                           </span>
                         )}
-                        <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                          {record.hostel ? `${record.hostel} · ` : ''}{record.session || 'Night Attendance'}
-                        </span>
                       </div>
 
+                      {/* Row 2: Hostel & Session Name */}
+                      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 2 }}>
+                        {record.hostel ? `${record.hostel} · ` : ''}{record.session || 'Night Attendance'}
+                      </div>
+
+                      {/* Row 3: Room, Method & Remark */}
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                         Hostel {record.hostel || 'Assigned'}{record.roomNo ? ` · Room ${record.roomNo}` : ''} · {methodDesc}
                         {record.remark && record.status === 'present' && <span> · "{record.remark}"</span>}

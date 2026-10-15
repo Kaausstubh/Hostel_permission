@@ -96,7 +96,7 @@ export default function AttendanceRoundSetup() {
   // Instant render with default 4 hostels
   const [hostels, setHostels] = useState(DEFAULT_HOSTELS);
   const [selectedHostel, setSelectedHostel] = useState("BH2");
-  const [selectedFloor, setSelectedFloor] = useState("Floor 1");
+  const selectedFloor = "All Floors";
   const [sessionName, setSessionName] = useState("Night Attendance");
   const [submitting, setSubmitting] = useState(false);
 
@@ -158,15 +158,7 @@ export default function AttendanceRoundSetup() {
     fetchHostels();
   }, []);
 
-  const currentHostelObj = hostels.find((h) => h.hostel === selectedHostel) || hostels[0];
-  const availableFloors = currentHostelObj?.floors || DEFAULT_HOSTELS[1].floors;
-
-  // Ensure selected floor is valid for current hostel
-  useEffect(() => {
-    if (availableFloors.length > 0 && !availableFloors.includes(selectedFloor)) {
-      setSelectedFloor(availableFloors[1] || availableFloors[0]);
-    }
-  }, [selectedHostel, availableFloors, selectedFloor]);
+  // Floor selection is permanently fixed to "All Floors" across all buildings
 
   // Single Unified Action Button: Starts the round and triggers attendance
   const handleStartRound = async () => {
@@ -361,54 +353,7 @@ export default function AttendanceRoundSetup() {
               </div>
             </div>
 
-            {/* Step 2: Select Floor */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 6 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-                  <MdLayers style={{ color: "#06b6d4", fontSize: 18 }} /> Step 2: Select Floor
-                </label>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  Choose floor or &quot;All Floors&quot;
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {availableFloors.map((fl) => {
-                  const isSelected = selectedFloor === fl;
-                  const isAll = fl.toLowerCase().includes("all");
-                  return (
-                    <button
-                      key={fl}
-                      type="button"
-                      onClick={() => setSelectedFloor(fl)}
-                      style={{
-                        padding: "10px 18px",
-                        borderRadius: 10,
-                        border: isSelected
-                          ? "2px solid #06b6d4"
-                          : "1px solid var(--border-color, rgba(148, 163, 184, 0.25))",
-                        background: isSelected
-                          ? "rgba(6, 182, 212, 0.12)"
-                          : "var(--bg-input, rgba(255, 255, 255, 0.7))",
-                        color: isSelected ? "#0891b2" : "var(--text-primary)",
-                        fontWeight: 700,
-                        fontSize: 13.5,
-                        cursor: "pointer",
-                        transition: "all 0.2s ease",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        boxShadow: isSelected ? "0 3px 12px rgba(6, 182, 212, 0.25)" : "none",
-                      }}
-                    >
-                      {isAll && <MdApartment size={16} />}
-                      {fl}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Step 3: Session Details */}
+            {/* Step 2: Session Details */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 28 }}>
               <div>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>
@@ -516,7 +461,7 @@ export default function AttendanceRoundSetup() {
               lineHeight: 1.6,
             }}
           >
-            💡 <strong>Hostel Floor Round:</strong> Select a hostel and floor, then click <em>&quot;Start Round&quot;</em> to open the mobile room list. From there, you can tap each room to inspect students, trigger inline Request Attendance, or Skip Room with a mandatory reason.
+            💡 <strong>Hostel Floor Round:</strong> Select a hostel, then click <em>&quot;Start Round&quot;</em> to open the mobile room list. From there, you can tap each room to inspect students, trigger inline Request Attendance, or Skip Room with a mandatory reason.
           </div>
         </div>
       </div>

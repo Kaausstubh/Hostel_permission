@@ -602,6 +602,30 @@ router.post('/geofences/verify', protect, async (req, res) => {
   }
 });
 
+// Helper: Extract valid timestamp from record (verification_timestamp, createdAt, updatedAt, or ObjectId)
+function getRecordTimestamp(r) {
+  if (!r) return null;
+  if (r.verification_timestamp && !isNaN(new Date(r.verification_timestamp).getTime())) {
+    return r.verification_timestamp;
+  }
+  if (r.createdAt && !isNaN(new Date(r.createdAt).getTime())) {
+    return r.createdAt;
+  }
+  if (r.updatedAt && !isNaN(new Date(r.updatedAt).getTime())) {
+    return r.updatedAt;
+  }
+  if (r._id) {
+    try {
+      const hex = String(r._id).substring(0, 8);
+      const sec = parseInt(hex, 16);
+      if (!isNaN(sec) && sec > 0) {
+        return new Date(sec * 1000);
+      }
+    } catch {}
+  }
+  return null;
+}
+
 // Helper: Format record timestamp to Indian Standard Time (IST) 12-hour clock with seconds
 function formatRecordTime(ts) {
   if (!ts) return null;
@@ -1875,7 +1899,7 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
       status: todayStatusVal,
       displayStatus: todayDisplayStatus,
       time: todayRec
-        ? formatRecordTime(todayRec.verification_timestamp || todayRec.createdAt || todayRec.updatedAt)
+        ? formatRecordTime(getRecordTimestamp(todayRec))
         : null,
       date: todayDate,
       formattedDate: formatRecordDate(now, todayDate),
@@ -1892,21 +1916,25 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
       success: true,
       count: records.length,
       today: todaySummary,
-      records: records.map((r) => ({
-        id: r._id,
-        date: r.date,
-        formattedDate: formatRecordDate(r.verification_timestamp || r.createdAt || r.updatedAt, r.date),
-        time: formatRecordTime(r.verification_timestamp || r.createdAt || r.updatedAt),
-        markedAt: r.verification_timestamp || r.createdAt || r.updatedAt,
-        session: r.session,
-        hostel: r.hostel,
-        roomNo: r.roomNo,
-        status: r.status,
-        method: r.method,
-        remark: r.remark,
-        verifiedBy: r.verified_by?.name || (r.method === 'self_approved' ? 'Self (GPS Geofence)' : 'Staff Verified'),
-        createdAt: r.createdAt,
-      })),
+      records: records.map((r) => {
+        const ts = getRecordTimestamp(r);
+        return {
+          id: r._id,
+          date: r.date,
+          formattedDate: formatRecordDate(ts, r.date),
+          time: formatRecordTime(ts),
+          markedAt: ts,
+          session: r.session,
+          hostel: r.hostel,
+          roomNo: r.roomNo,
+          status: r.status,
+          method: r.method,
+          remark: r.remark,
+          verifiedBy: r.verified_by?.name || (r.method === 'self_approved' ? 'Self (GPS Geofence)' : 'Staff Verified'),
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        };
+      }),
     });
   } catch (err) {
     logger.error('[Attendance] Error fetching student history', { error: err.message });
