@@ -220,12 +220,12 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
         <Route path="/attendance/reports" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'staff', 'admin']}>
             <AppLayout><AttendanceReports /></AppLayout>
           </ProtectedRoute>
         } />
         <Route path="/attendance/summary" element={
-          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'staff', 'security', 'admin']}>
             <AppLayout><AttendanceSummary /></AppLayout>
           </ProtectedRoute>
         } />

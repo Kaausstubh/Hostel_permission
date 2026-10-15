@@ -26,7 +26,9 @@ import { exportAttendanceToExcel } from '../utils/excelReportGenerator';
 export default function AttendanceReports() {
   const { user } = useAuth();
   const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(todayStr);
+  // Default to past 14 days so all recent records appear immediately upon opening
+  const defaultStartDate = new Date(Date.now() + 5.5 * 3600 * 1000 - 14 * 86400000).toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(defaultStartDate);
   const [endDate, setEndDate] = useState(todayStr);
   const [hostel, setHostel] = useState('ALL');
   const [floor, setFloor] = useState('ALL');
@@ -61,7 +63,7 @@ export default function AttendanceReports() {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [startDate, endDate, hostel, status]);
 
   const handleExportPdf = async () => {
     if (records.length === 0) {
@@ -257,6 +259,7 @@ export default function AttendanceReports() {
             value={studentQuery}
             onChange={(e) => setStudentQuery(e.target.value)}
             placeholder="Name or Roll No..."
+            onKeyDown={(e) => { if (e.key === 'Enter') fetchReports(); }}
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           />
         </div>
@@ -329,7 +332,7 @@ export default function AttendanceReports() {
                           {isPresent && <MdCheckCircle size={13} />}
                           {isLeave && <MdHome size={13} />}
                           {!isPresent && !isLeave && !isPending && <MdCancel size={13} />}
-                          {r.status.toUpperCase()}
+                          {r.status ? r.status.toUpperCase() : 'ABSENT'}
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
@@ -347,8 +350,8 @@ export default function AttendanceReports() {
                         {r.verificationTime || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
-                        <div>{r.sessionStart ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
-                        <div>{r.expiresAt ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
+                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
+                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
                         <strong>{r.attemptsUsed || 0}/3 checks</strong>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontSize: 12.5 }}>

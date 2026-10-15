@@ -1996,7 +1996,7 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
 });
 
 // ── Security & Staff: Read-Only Daily Attendance Summary ────────────────────
-router.get('/summary', protect, authorize('warden', 'security', 'admin'), async (req, res) => {
+router.get('/summary', protect, authorize('warden', 'security', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { date, hostel } = req.query;
     const todayStr = date || new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -2101,7 +2101,7 @@ router.get('/summary', protect, authorize('warden', 'security', 'admin'), async 
 });
 
 // ── Staff/Admin: Attendance Reports & CSV Export ─────────────────────────────
-router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { startDate, endDate, hostel, floor, status, student: studentSearch, format: reqFormat } = req.query;
 
@@ -2135,12 +2135,12 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
       }
     }
 
-    // 3. Build list of dates to cover (at most 31 days)
+    // 3. Build list of dates to cover (at most 180 days)
     const dateList = [];
     const cur = new Date(effectiveStartDate);
     const end = new Date(effectiveEndDate);
     let safetyCounter = 0;
-    while (cur <= end && safetyCounter < 31) {
+    while (cur <= end && safetyCounter < 180) {
       dateList.push(cur.toISOString().slice(0, 10));
       cur.setDate(cur.getDate() + 1);
       safetyCounter++;
@@ -2324,7 +2324,8 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
         };
       }
 
-      const exactVerificationTime = formatRecordTime(r.verification_timestamp || r.createdAt);
+      const ts = getRecordTimestamp(r);
+      const exactVerificationTime = formatRecordTime(ts);
       const attempt = r._attendanceAttempt || attemptByStudentDate.get(`${st._id || r.student_id}:${r.date}`);
       const latestAttempt = attempt?.attempts?.[attempt.attempts.length - 1] || null;
 
@@ -2340,7 +2341,7 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
         method: r.method,
         verifiedBy: verifiedByText,
         remark: r.remark,
-        verificationTimestamp: r.verification_timestamp || r.createdAt,
+        verificationTimestamp: ts,
         verificationTime: r.status === 'pending' ? null : exactVerificationTime,
         sessionStart: attempt?.session_start || null,
         expiresAt: attempt?.expires_at || null,
