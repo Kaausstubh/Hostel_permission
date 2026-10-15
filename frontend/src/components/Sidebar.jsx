@@ -94,6 +94,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           <NavLink
             key={item.to}
             to={item.to}
+            end
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
             onClick={onClose}
           >
