@@ -833,7 +833,7 @@ export default function StudentDashboard() {
 
         if (action === 'APPROVE') {
           toast.success(`Entry approved for ${vName}! Gate security has been notified.`);
-          botSay(`✅ You *APPROVED* the visitor pass for *${vName}* ${pNum ? `(#${pNum})` : ''}. Gate security has been notified and entry is allowed.`);
+          botSay(`✅ You *APPROVED* the visitor pass for *${vName}*. Gate security has been notified and entry is allowed.`);
         } else {
           toast.error(`Visitor request for ${vName} declined.`);
           botSay(`🚫 You *DECLINED* the visitor pass for *${vName}*. Gate security has been notified.`);
@@ -4949,20 +4949,6 @@ export default function StudentDashboard() {
                     ? `You allowed entry for ${visitorResponseResult.name}. Gate Security has been notified in real time.`
                     : `You declined entry for ${visitorResponseResult.name}. Gate Security will not permit entry.`}
                 </p>
-                {visitorResponseResult.passNumber && (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: theme === 'light' ? '#475569' : '#94a3b8',
-                      backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.08)',
-                      padding: '4px 10px',
-                      borderRadius: 8,
-                    }}
-                  >
-                    Pass #{visitorResponseResult.passNumber}
-                  </span>
-                )}
               </div>
             ) : (
               <>
@@ -4998,21 +4984,6 @@ export default function StudentDashboard() {
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {activeVisitorModal.passNumber && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color: theme === 'light' ? '#475569' : '#94a3b8',
-                            backgroundColor: theme === 'light' ? '#f1f5f9' : 'rgba(255, 255, 255, 0.06)',
-                            padding: '3px 8px',
-                            borderRadius: 8,
-                            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-                          }}
-                        >
-                          Pass #{activeVisitorModal.passNumber}
-                        </span>
-                      )}
                       <button
                         type="button"
                         onClick={() => setActiveVisitorModal(null)}

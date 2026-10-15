@@ -256,7 +256,7 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
         <Route path="/visitors" element={
-          <ProtectedRoute allowedRoles={['warden', 'security', 'admin']}>
+          <ProtectedRoute allowedRoles={['warden', 'hostel_staff', 'security', 'admin']}>
             <AppLayout><VisitorManagement /></AppLayout>
           </ProtectedRoute>
         } />
