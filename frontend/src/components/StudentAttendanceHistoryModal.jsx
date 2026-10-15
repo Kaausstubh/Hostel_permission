@@ -281,7 +281,7 @@ export default function StudentAttendanceHistoryModal({
 
               {effectiveToday?.time && (
                 <div>
-                  ⏰ Verified at: <strong style={{ color: 'var(--text-primary)' }}>{effectiveToday.time}</strong>
+                  ⏰ {isPresent ? 'Verified at:' : 'Marked at:'} <strong style={{ color: 'var(--text-primary)' }}>{effectiveToday.time}</strong>
                 </div>
               )}
               {effectiveToday?.method && (
@@ -423,6 +423,26 @@ export default function StudentAttendanceHistoryModal({
                     ? 'Approved Leave (Home Visit)'
                     : record.remark || 'Unverified / Absent during round';
 
+                const recordTime =
+                  record.time ||
+                  (record.markedAt && !isNaN(new Date(record.markedAt).getTime())
+                    ? new Date(record.markedAt).toLocaleTimeString('en-IN', {
+                        timeZone: 'Asia/Kolkata',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true,
+                      })
+                    : record.createdAt && !isNaN(new Date(record.createdAt).getTime())
+                    ? new Date(record.createdAt).toLocaleTimeString('en-IN', {
+                        timeZone: 'Asia/Kolkata',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true,
+                      })
+                    : null);
+
                 return (
                   <div
                     key={record.id}
@@ -442,7 +462,7 @@ export default function StudentAttendanceHistoryModal({
                         <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
                           📅 {record.formattedDate || record.date}
                         </span>
-                        {(record.time || record.markedAt) && record.status === 'present' && (
+                        {recordTime && (
                           <span
                             style={{
                               fontSize: 12,
@@ -456,7 +476,7 @@ export default function StudentAttendanceHistoryModal({
                               gap: 4,
                             }}
                           >
-                            ⏰ {record.time || new Date(record.markedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                            ⏰ {recordTime}
                           </span>
                         )}
                         <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>

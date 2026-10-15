@@ -60,13 +60,16 @@ const studentIsInRoundFloor = (student, floor) => {
   return roundAllFloors || parseFloorFromRoom(student.roomNo) === floor;
 };
 
+const getStudentHostelFilter = (hostel) =>
+  hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : hostel;
+
 /**
  * A night-attendance session is opened only by staff.  Student dashboard
  * reads can recover a missing attempt document, but cannot create a new
  * window because the authoritative start/end timestamps belong to this round.
  */
 const initializeNightAttendanceAttempts = async (round) => {
-  const studentHostel = round.hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : round.hostel;
+  const studentHostel = getStudentHostelFilter(round.hostel);
   const students = await User.find({
     role: 'student',
     isActive: true,
@@ -409,10 +412,34 @@ const getRoundRoomsSummary = async (roundId) => {
       const occupants = allocsByRoomId.get(roomDoc._id.toString()) || [];
       roomsMap.set(roomDoc.room_number.trim().toUpperCase(), occupants);
     }
+
+    // Some older student records predate RoomAllocation.  They still carry a
+    // valid hostel and room number, so use them only for rooms with no active
+    // allocation.  Active allocations remain authoritative when present.
+    const roomsWithoutAllocations = Array.from(roomsMap.entries())
+      .filter(([, occupants]) => occupants.length === 0)
+      .map(([roomNo]) => roomNo);
+
+    if (roomsWithoutAllocations.length > 0) {
+      const legacyStudents = await User.find({
+        role: 'student',
+        isActive: true,
+        hostel: getStudentHostelFilter(round.hostel),
+        roomNo: { $in: roomsWithoutAllocations },
+      })
+        .select('_id name rollNo hostel roomNo studentPhoto picture phone')
+        .lean();
+
+      for (const student of legacyStudents) {
+        const roomNo = (student.roomNo || '').trim().toUpperCase();
+        if (roomsMap.has(roomNo) && roomsMap.get(roomNo).length === 0) {
+          roomsMap.get(roomNo).push(student);
+        }
+      }
+    }
   } else {
     // Fallback to User query
-    const studentHostelFilter =
-      round.hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : round.hostel;
+    const studentHostelFilter = getStudentHostelFilter(round.hostel);
 
     const students = await User.find({
       role: 'student',
@@ -582,7 +609,7 @@ const getRoomDetails = async (roundId, roomNo) => {
     students = await User.find({
       role: 'student',
       isActive: true,
-      hostel: round.hostel,
+      hostel: getStudentHostelFilter(round.hostel),
       roomNo: cleanRoomNo,
     })
       .select('_id name rollNo hostel roomNo phone email studentPhoto picture')
@@ -695,12 +722,13 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
     }
   }
 
-  // Fallback if not found via RoomAllocation
-  if (students.length === 0 && !roomDoc) {
+  // Legacy student records may have a room number but no RoomAllocation yet.
+  // Fall back to that roster when this room has no active allocations.
+  if (students.length === 0) {
     students = await User.find({
       role: 'student',
       isActive: true,
-      hostel: round.hostel,
+      hostel: getStudentHostelFilter(round.hostel),
       roomNo: cleanRoomNo,
     }).lean();
   }
@@ -793,6 +821,7 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
           remark: onLeave ? 'On approved home visit leave' : 'Awaiting student geofence verification',
           round_id: round._id,
           request_id: request._id,
+          verification_timestamp: new Date(),
         },
       },
       { upsert: true, new: true }
@@ -996,6 +1025,7 @@ const completeRound = async ({ roundId, staffUser }) => {
           verified_by: staffUser._id,
           remark: st.remark || null,
           round_id: round._id,
+          verification_timestamp: new Date(),
         },
         { upsert: true, new: true }
       );

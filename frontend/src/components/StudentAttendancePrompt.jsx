@@ -82,12 +82,17 @@ export default function StudentAttendancePrompt({
     hasActiveSession: false,
   });
 
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
-  const autoVerificationSessionRef = useRef(null);
   const expiryRefreshSessionRef = useRef(null);
+  const finalizationNoticeRef = useRef(null);
+  const callbacksRef = useRef({ onVerified, onStatusChange });
+
+  useEffect(() => {
+    callbacksRef.current = { onVerified, onStatusChange };
+  }, [onVerified, onStatusChange]);
 
   const isFinalized =
     sessionData.isFinalized ||
@@ -138,13 +143,19 @@ export default function StudentAttendancePrompt({
 
       if (isFinal) {
         setIsOpen(false);
-        if (isPresent) {
-          toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { duration: 5000 });
-          if (onVerified) onVerified();
-        } else if (isOnLeave) {
-          toast.success('Attendance Status: ON APPROVED LEAVE', { duration: 5000 });
-        } else if (isAbsent) {
-          toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { duration: 6000 });
+        // A finalized response is returned by status refreshes as well as the
+        // initial verification. Announce that outcome exactly once per record.
+        const noticeKey = data.recordId || `${data.date || ''}:${statusUpper}:${data.markedAt || data.time || ''}`;
+        if (finalizationNoticeRef.current !== noticeKey) {
+          finalizationNoticeRef.current = noticeKey;
+          if (isPresent) {
+            toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { duration: 5000 });
+            callbacksRef.current.onVerified?.();
+          } else if (isOnLeave) {
+            toast.success('Attendance Status: ON APPROVED LEAVE', { duration: 5000 });
+          } else if (isAbsent) {
+            toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { duration: 6000 });
+          }
         }
       } else {
         if (data.locationStatus === 'OUTSIDE HOSTEL') {
@@ -154,8 +165,8 @@ export default function StudentAttendancePrompt({
         }
       }
 
-      if (onStatusChange) {
-        onStatusChange({
+      if (callbacksRef.current.onStatusChange) {
+        callbacksRef.current.onStatusChange({
           isMarked: isFinal,
           status: statusUpper,
           hasPending: Boolean(data.hasActiveSession) && !isFinal,
@@ -172,7 +183,7 @@ export default function StudentAttendancePrompt({
         });
       }
     },
-    [assignedHostel, onVerified, onStatusChange]
+    [assignedHostel]
   );
 
   // ── Sync with Server on Mount ───────────────────────────────────────────────
@@ -190,6 +201,28 @@ export default function StudentAttendancePrompt({
   useEffect(() => {
     fetchAttendanceStatus();
   }, [fetchAttendanceStatus]);
+
+  // ── Real-time Socket.IO trigger: open prompt when staff initiates a live round ──
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleAttendanceRequested = () => {
+      fetchAttendanceStatus();
+      setIsOpen(true);
+      toast('📍 Night attendance verification requested by hostel staff. Please verify your presence.', {
+        icon: '🔔',
+        duration: 5000,
+      });
+    };
+
+    socket.on('attendance_requested', handleAttendanceRequested);
+    socket.on('room_attendance_requested', handleAttendanceRequested);
+
+    return () => {
+      socket.off('attendance_requested', handleAttendanceRequested);
+      socket.off('room_attendance_requested', handleAttendanceRequested);
+    };
+  }, [socket, fetchAttendanceStatus]);
 
   // ── Reopen Modal on External Trigger ─────────────────────────────────────────
   useEffect(() => {
@@ -327,33 +360,9 @@ export default function StudentAttendancePrompt({
     );
   }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse, fetchAttendanceStatus]);
 
-  // Initiate the first GPS check automatically once the server confirms a
-  // staff-created active session. The in-memory ref prevents React re-render
-  // duplicates; sessionStorage also prevents a browser refresh from sending a
-  // second automatic request for the same session. A retry remains available.
-  useEffect(() => {
-    const sessionId = sessionData.verificationSessionId;
-    if (
-      !sessionData.hasActiveSession || !sessionId || isFinalized || verifying ||
-      sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0 ||
-      autoVerificationSessionRef.current === sessionId
-    ) return;
-
-    const storageKey = `heimdall:night-attendance:auto:${sessionId}`;
-    try {
-      if (sessionStorage.getItem(storageKey)) {
-        autoVerificationSessionRef.current = sessionId;
-        return;
-      }
-      sessionStorage.setItem(storageKey, 'started');
-    } catch {
-      // Privacy-mode storage failures are harmless; the in-memory guard still
-      // protects this component mount.
-    }
-
-    autoVerificationSessionRef.current = sessionId;
-    executePresenceVerification();
-  }, [sessionData.hasActiveSession, sessionData.verificationSessionId, sessionData.attemptsRemaining, sessionData.remainingSeconds, isFinalized, verifying, executePresenceVerification]);
+  // Note: Automatic presence verification on mount is disabled so that refreshing
+  // or logging in never triggers unexpected GPS prompts or consumes attempts.
+  // The user initiates location verification via the 'Verify Location' button.
 
   // ── CORE REQUIREMENT: DO NOT SHOW ACTIVE POPUP ONCE FINALIZED ───────────────
   if (isFinalized || !sessionData.hasActiveSession) {
@@ -439,6 +448,11 @@ export default function StudentAttendancePrompt({
 
   return (
     <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          setIsOpen(false);
+        }
+      }}
       style={{
         position: 'fixed',
         inset: 0,

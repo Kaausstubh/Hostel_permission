@@ -1730,6 +1730,7 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
             method: 'self_approved',
             verified_by: req.user._id,
             remark: remarkText,
+            verification_timestamp: now,
           },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1809,85 +1810,42 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
     const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     const session = 'Night Attendance';
 
-    // 1. Fetch rounds conducted for student's hostel to ensure no missed round dates
+    // 1. Fetch rounds conducted for student's hostel for today's live status.
     const rounds = await AttendanceRound.find({
       hostel: assignedHostel,
     }).select('date session_name status completed_at').lean();
 
-    const roundDates = Array.from(new Set(rounds.map((r) => r.date).filter(Boolean)));
-
-    // 2. Fetch approved home visits
+    // 2. Fetch approved home visits.
     const leaves = await HomeVisitLog.find({
       student_id: student._id,
       overall_status: 'approved',
     }).lean();
 
-    // 3. Check existing records for student
-    const existingRecords = await AttendanceRecord.find({
-      student_id: student._id,
-    }).lean();
-    const existingDateMap = new Map(existingRecords.map((r) => [r.date, r]));
-
-    // 4. Ensure past rounds or approved leave dates reflect in the ledger
-    for (const rDate of roundDates) {
-      if (!existingDateMap.has(rDate)) {
-        const onLeave = leaves.some(
-          (l) => l.leave_date <= rDate && l.return_date >= rDate && !l.qr_used_in
-        );
-        const isPastDate = rDate < todayDate;
-        const roundDoc = rounds.find((r) => r.date === rDate);
-        const isRoundCompleted = roundDoc?.status === 'completed';
-
-        if (onLeave) {
-          await AttendanceRecord.findOneAndUpdate(
-            { student_id: student._id, date: rDate, session },
-            {
-              $setOnInsert: {
-                student_id: student._id,
-                date: rDate,
-                session,
-                session_name: session,
-                hostel: assignedHostel,
-                floor: student.floor || '',
-                roomNo: student.roomNo || 'Assigned',
-                status: 'on_leave',
-                method: 'staff_marked',
-                remark: 'On approved home visit leave',
-              },
-            },
-            { upsert: true, setDefaultsOnInsert: true }
-          );
-        } else if (isPastDate || isRoundCompleted) {
-          await AttendanceRecord.findOneAndUpdate(
-            { student_id: student._id, date: rDate, session },
-            {
-              $setOnInsert: {
-                student_id: student._id,
-                date: rDate,
-                session,
-                session_name: session,
-                hostel: assignedHostel,
-                floor: student.floor || '',
-                roomNo: student.roomNo || 'Assigned',
-                status: 'absent',
-                method: 'staff_marked',
-                remark: 'Unverified / Absent during round',
-              },
-            },
-            { upsert: true, setDefaultsOnInsert: true }
-          );
-        }
-      }
-    }
-
-    // 5. Query finalized student records
-    const records = await AttendanceRecord.find({ student_id: student._id })
+    // 3. Query finalized student records. History reads must never manufacture
+    // absence rows; finalization paths are the only writers to the ledger.
+    const rawRecords = await AttendanceRecord.find({ student_id: student._id })
       .populate('verified_by', 'name role')
-      .sort({ date: -1, createdAt: -1 })
-      .limit(60)
+      .sort({ date: -1, verification_timestamp: -1, updatedAt: -1, createdAt: -1 })
+      .limit(120)
       .lean();
 
-    // 6. Compute today's status summary
+    // Older deployments may contain a fallback "during round" row alongside
+    // the authoritative room-request/finalization row. Return one outcome per
+    // date and session, preferring the row tied to an actual round or request.
+    const recordsBySession = new Map();
+    for (const record of rawRecords) {
+      const key = `${record.date}:${String(record.session || session).trim().toLowerCase()}`;
+      const current = recordsBySession.get(key);
+      const isFallback = (entry) =>
+        entry?.remark === 'Unverified / Absent during round' && !entry.round_id && !entry.request_id;
+
+      if (!current || (isFallback(current) && !isFallback(record))) {
+        recordsBySession.set(key, record);
+      }
+    }
+    const records = Array.from(recordsBySession.values()).slice(0, 60);
+
+    // 4. Compute today's status summary
     const todayRec = records.find((r) => r.date === todayDate);
     const todayLeave = leaves.find(
       (l) => l.leave_date <= todayDate && l.return_date >= todayDate && !l.qr_used_in
