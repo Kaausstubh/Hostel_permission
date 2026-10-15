@@ -757,35 +757,65 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
     if (record) {
       const isPresent = record.status === 'present';
       const isAbsent = record.status === 'absent';
-      const displayStatus = isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : record.status.toUpperCase();
-      const displayMethod = record.method === 'self_approved' ? 'Automatic' : 'Manual';
-      const exactTime = formatRecordTime(record.verification_timestamp || record.createdAt || record.updatedAt);
-      const exactDate = formatRecordDate(record.verification_timestamp || record.createdAt || record.updatedAt, record.date);
 
-      return res.json({
-        success: true,
-        isMarked: true,
-        recordId: record._id,
-        hostel: record.hostel || assignedHostel,
-        hostelName: geofenceConfig.name,
-        date: record.date,
-        formattedDate: exactDate,
-        time: exactTime,
-        status: displayStatus,
-        displayStatus,
-        method: displayMethod,
-        verification: isPresent ? 'Successful' : (record.remark || 'Outside Geofence / Unconfirmed'),
-        remark: record.remark,
-        confirmedByServer: true,
-        attemptsCount: record.attempt_count || 1,
-        maxAttempts: 3,
-        attemptsRemaining: 0,
-        remainingSeconds: 0,
-        locationStatus: isPresent ? 'INSIDE HOSTEL' : (record.status === 'on_leave' ? 'NOT CHECKED' : 'OUTSIDE HOSTEL'),
-        componentVisible: false,
-        isFinalized: true,
-        markedAt: record.verification_timestamp || record.createdAt || record.updatedAt,
-      });
+      let hasActiveRoundRequest = false;
+      if (isAbsent) {
+        const studentResp = await RequestResponse.findOne({
+          student_id: req.user._id,
+          status: { $in: ['pending', 'flagged'] },
+        }).populate('request_id');
+
+        if (
+          studentResp &&
+          studentResp.request_id &&
+          studentResp.request_id.status === 'open' &&
+          new Date(studentResp.request_id.expires_at) > now
+        ) {
+          hasActiveRoundRequest = true;
+        } else if (record.remark === 'Awaiting student geofence verification') {
+          const roomReq = await RoomAttendanceRequest.findOne({
+            hostel: assignedHostel,
+            roomNo: (req.user.roomNo || '').trim().toUpperCase(),
+            status: 'open',
+            expires_at: { $gt: now },
+          });
+          if (roomReq) {
+            hasActiveRoundRequest = true;
+          }
+        }
+      }
+
+      if (!hasActiveRoundRequest) {
+        const displayStatus = isPresent ? 'PRESENT' : isAbsent ? 'ABSENT' : record.status.toUpperCase();
+        const displayMethod = record.method === 'self_approved' ? 'Automatic' : 'Manual';
+        const exactTime = formatRecordTime(record.verification_timestamp || record.createdAt || record.updatedAt);
+        const exactDate = formatRecordDate(record.verification_timestamp || record.createdAt || record.updatedAt, record.date);
+
+        return res.json({
+          success: true,
+          isMarked: true,
+          recordId: record._id,
+          hostel: record.hostel || assignedHostel,
+          hostelName: geofenceConfig.name,
+          date: record.date,
+          formattedDate: exactDate,
+          time: exactTime,
+          status: displayStatus,
+          displayStatus,
+          method: displayMethod,
+          verification: isPresent ? 'Successful' : (record.remark || 'Outside Geofence / Unconfirmed'),
+          remark: record.remark,
+          confirmedByServer: true,
+          attemptsCount: record.attempt_count || 1,
+          maxAttempts: 3,
+          attemptsRemaining: 0,
+          remainingSeconds: 0,
+          locationStatus: isPresent ? 'INSIDE HOSTEL' : (record.status === 'on_leave' ? 'NOT CHECKED' : 'OUTSIDE HOSTEL'),
+          componentVisible: false,
+          isFinalized: true,
+          markedAt: record.verification_timestamp || record.createdAt || record.updatedAt,
+        });
+      }
     }
 
     // 2. Not in AttendanceRecord -> Check or atomically initialize AttendanceAttempt

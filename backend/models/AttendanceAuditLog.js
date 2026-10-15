@@ -32,6 +32,7 @@ const attendanceAuditLogSchema = new mongoose.Schema(
         'ROUND_STARTED',
         'ROUND_COMPLETED',
         'ROUND_REOPENED',
+        'AUTO_ATTENDANCE_MARKED',
         'DEVICE_REGISTERED',
         'DEVICE_APPROVED',
         'DEVICE_REVOKED',
