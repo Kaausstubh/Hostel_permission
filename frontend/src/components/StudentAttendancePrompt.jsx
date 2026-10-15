@@ -189,26 +189,45 @@ export default function StudentAttendancePrompt({
     }
   }, [externalOpenTrigger, isFinalized, onOpenHistory]);
 
-  // ── Countdown Timer from Server expiresAt ────────────────────────────────────
+  // ── Countdown Timer — always ticks once popup is open ───────────────────────
   useEffect(() => {
-    if (isFinalized || !sessionData.expiresAt) return;
+    if (isFinalized) return;
 
     const timer = setInterval(() => {
-      const secLeft = Math.max(0, Math.floor((new Date(sessionData.expiresAt).getTime() - Date.now()) / 1000));
-      setSessionData((prev) => ({
-        ...prev,
-        remainingSeconds: secLeft,
-      }));
-
-      // When countdown reaches 0, trigger server auto-finalization as ABSENT
-      if (secLeft <= 0 && sessionData.status === 'PENDING') {
-        clearInterval(timer);
-        fetchAttendanceStatus();
-      }
+      setSessionData((prev) => {
+        // If server gave us an absolute expiry timestamp, derive from wall-clock
+        let secLeft = prev.remainingSeconds;
+        if (prev.expiresAt) {
+          secLeft = Math.max(0, Math.floor((new Date(prev.expiresAt).getTime() - Date.now()) / 1000));
+        } else {
+          // No expiresAt yet — decrement locally
+          secLeft = Math.max(0, prev.remainingSeconds - 1);
+        }
+        return { ...prev, remainingSeconds: secLeft };
+      });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isFinalized, sessionData.expiresAt, sessionData.status, fetchAttendanceStatus]);
+  }, [isFinalized]);
+
+  // ── When countdown hits 0 or attempts exhausted → finalize via server ───────
+  useEffect(() => {
+    if (isFinalized) return;
+    const expired = sessionData.remainingSeconds <= 0;
+    const exhausted = sessionData.attemptsRemaining <= 0;
+    if ((expired || exhausted) && sessionData.status === 'PENDING') {
+      // Ask server to finalize as ABSENT
+      api.post('/attendance/auto-verify', {
+        fetchFailed: false,
+        exhausted: true,
+        expired,
+        hostel: assignedHostel,
+      })
+        .then((res) => { if (res.data) handleServerResponse(res.data); })
+        .catch(() => fetchAttendanceStatus());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, isFinalized]);
 
   // ── Handle GPS Retrieval Failure (Atomic Server Log) ────────────────────────
   const handleGpsFailure = useCallback(

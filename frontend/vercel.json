@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://hostel-permission-8add.onrender.com/api/"
+      "destination": "https://hostel-permission-8add.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
