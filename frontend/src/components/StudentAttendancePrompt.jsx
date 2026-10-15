@@ -7,8 +7,10 @@
  *    Automatically dismisses/unmounts once attendance is finalized (PRESENT or ABSENT).
  * 2. 2-HOUR VERIFICATION WINDOW: Live countdown in HH:MM:SS format ("Attendance verification expires in 01:59:59")
  *    calculated from reliable server timestamp (expiresAt) and persisted across reloads.
- * 3. MAXIMUM 3 ATTEMPTS: "Location checks remaining: X/3".
- *    All GPS failures count against the limit. GPS outside hostel never marks PRESENT.
+ * 3. MAXIMUM 3 ACCEPTED GPS CHECKS: "Location checks remaining: X/3".
+ *    Recoverable device failures are recorded but do not consume a check;
+ *    an accurate GPS fix outside the hostel does. The client never marks
+ *    attendance PRESENT without the server's confirmation.
  * 4. UI CARD / MODAL FIELDS:
  *    - Attendance Status: PENDING / PRESENT / ABSENT / ON APPROVED LEAVE
  *    - Verification Time Remaining: HH:MM:SS
@@ -77,12 +79,15 @@ export default function StudentAttendancePrompt({
     remainingSeconds: 7200,
     locationStatus: 'NOT CHECKED',
     message: null,
+    hasActiveSession: false,
   });
 
   const [isOpen, setIsOpen] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
+  const autoVerificationSessionRef = useRef(null);
+  const expiryRefreshSessionRef = useRef(null);
 
   const isFinalized =
     sessionData.isFinalized ||
@@ -122,10 +127,13 @@ export default function StudentAttendancePrompt({
         locationStatus: data.locationStatus || (isPresent ? 'INSIDE HOSTEL' : count > 0 ? 'OUTSIDE HOSTEL' : 'NOT CHECKED'),
         expiresAt: data.expiresAt || prev.expiresAt,
         remainingSeconds: typeof data.remainingSeconds === 'number' ? data.remainingSeconds : prev.remainingSeconds,
+        hasActiveSession: Boolean(data.hasActiveSession),
       }));
 
-      if (data.message) {
+      if (data.locationStatus === 'OUTSIDE HOSTEL' || data.locationStatus === 'LOCATION UNAVAILABLE') {
         setErrorMessage(data.message);
+      } else if (data.status !== 'PENDING') {
+        setErrorMessage(null);
       }
 
       if (isFinal) {
@@ -150,7 +158,7 @@ export default function StudentAttendancePrompt({
         onStatusChange({
           isMarked: isFinal,
           status: statusUpper,
-          hasPending: !isFinal,
+          hasPending: Boolean(data.hasActiveSession) && !isFinal,
           pendingRequest: !isFinal ? { remainingSeconds: data.remainingSeconds || 7200 } : null,
           todayRecord: isFinal
             ? {
@@ -197,7 +205,7 @@ export default function StudentAttendancePrompt({
 
   // ── Countdown Timer — always ticks once popup is open ───────────────────────
   useEffect(() => {
-    if (isFinalized) return;
+    if (isFinalized || !sessionData.hasActiveSession) return;
 
     const timer = setInterval(() => {
       setSessionData((prev) => {
@@ -214,27 +222,21 @@ export default function StudentAttendancePrompt({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isFinalized]);
+  }, [isFinalized, sessionData.hasActiveSession]);
 
   // ── When countdown hits 0 or attempts exhausted → finalize via server ───────
   useEffect(() => {
-    if (isFinalized) return;
+    if (isFinalized || !sessionData.hasActiveSession || !sessionData.verificationSessionId) return;
     const expired = sessionData.remainingSeconds <= 0;
     const exhausted = sessionData.attemptsRemaining <= 0;
-    if ((expired || exhausted) && sessionData.status === 'PENDING') {
-      // Ask server to finalize as ABSENT
-      api.post('/attendance/auto-verify', {
-        fetchFailed: false,
-          exhausted: true,
-          expired,
-          hostel: assignedHostel,
-          verificationSessionId: sessionData.verificationSessionId,
-      })
-        .then((res) => { if (res.data) handleServerResponse(res.data); })
-        .catch(() => fetchAttendanceStatus());
+    if ((expired || exhausted) && sessionData.status === 'PENDING' && expiryRefreshSessionRef.current !== sessionData.verificationSessionId) {
+      // The server owns finalization. A status refresh is sufficient and never
+      // consumes an extra GPS check.
+      expiryRefreshSessionRef.current = sessionData.verificationSessionId;
+      fetchAttendanceStatus();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, isFinalized]);
+  }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, sessionData.hasActiveSession, sessionData.verificationSessionId, isFinalized, fetchAttendanceStatus]);
 
   // ── Handle GPS Retrieval Failure (Atomic Server Log) ────────────────────────
   const handleGpsFailure = useCallback(
@@ -262,7 +264,10 @@ export default function StudentAttendancePrompt({
 
   // ── Core Presence Verification Logic ────────────────────────────────────────
   const executePresenceVerification = useCallback(async () => {
-    if (verifying || isFinalized || sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0) {
+    if (
+      verifying || isFinalized || !sessionData.hasActiveSession || !sessionData.verificationSessionId ||
+      sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0
+    ) {
       return;
     }
 
@@ -289,14 +294,13 @@ export default function StudentAttendancePrompt({
             verificationSessionId: sessionData.verificationSessionId,
           });
 
-          if (res.data?.success) {
-            handleServerResponse(res.data);
-          } else {
-            await handleGpsFailure(res.data?.message || 'Geofence check failed.', 'OUTSIDE_GEOFENCE');
-          }
+          if (res.data) handleServerResponse(res.data);
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Verification failed.';
-          await handleGpsFailure(msg, 'VERIFY_ERROR');
+          // A server/network error is not a GPS failure and must not become a
+          // second attendance request or consume a location check.
+          setErrorMessage(msg);
+          fetchAttendanceStatus();
         } finally {
           setVerifying(false);
         }
@@ -321,10 +325,38 @@ export default function StudentAttendancePrompt({
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse]);
+  }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse, fetchAttendanceStatus]);
+
+  // Initiate the first GPS check automatically once the server confirms a
+  // staff-created active session. The in-memory ref prevents React re-render
+  // duplicates; sessionStorage also prevents a browser refresh from sending a
+  // second automatic request for the same session. A retry remains available.
+  useEffect(() => {
+    const sessionId = sessionData.verificationSessionId;
+    if (
+      !sessionData.hasActiveSession || !sessionId || isFinalized || verifying ||
+      sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0 ||
+      autoVerificationSessionRef.current === sessionId
+    ) return;
+
+    const storageKey = `heimdall:night-attendance:auto:${sessionId}`;
+    try {
+      if (sessionStorage.getItem(storageKey)) {
+        autoVerificationSessionRef.current = sessionId;
+        return;
+      }
+      sessionStorage.setItem(storageKey, 'started');
+    } catch {
+      // Privacy-mode storage failures are harmless; the in-memory guard still
+      // protects this component mount.
+    }
+
+    autoVerificationSessionRef.current = sessionId;
+    executePresenceVerification();
+  }, [sessionData.hasActiveSession, sessionData.verificationSessionId, sessionData.attemptsRemaining, sessionData.remainingSeconds, isFinalized, verifying, executePresenceVerification]);
 
   // ── CORE REQUIREMENT: DO NOT SHOW ACTIVE POPUP ONCE FINALIZED ───────────────
-  if (isFinalized) {
+  if (isFinalized || !sessionData.hasActiveSession) {
     return null;
   }
 

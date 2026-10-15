@@ -10,15 +10,18 @@ const AttendanceRound = require('../models/AttendanceRound');
 const RoomAttendanceRequest = require('../models/RoomAttendanceRequest');
 const RequestResponse = require('../models/RequestResponse');
 const AttendanceRecord = require('../models/AttendanceRecord');
+const AttendanceAttempt = require('../models/AttendanceAttempt');
 const AttendanceAuditLog = require('../models/AttendanceAuditLog');
 const Hostel = require('../models/Hostel');
 const HostelFloor = require('../models/HostelFloor');
 const HostelRoom = require('../models/HostelRoom');
 const RoomAllocation = require('../models/RoomAllocation');
 const { getIO } = require('./socketService');
+const { finalizeExpiredNightAttendance } = require('./nightAttendanceService');
 const logger = require('../utils/logger');
 
 const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '90', 10);
+const NIGHT_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Extract floor identifier from room number string.
@@ -50,6 +53,85 @@ const parseFloorFromRoom = (roomNo) => {
 
 const getTodayDateStr = () => {
   return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+};
+
+const studentIsInRoundFloor = (student, floor) => {
+  const roundAllFloors = String(floor || '').toLowerCase().includes('all');
+  return roundAllFloors || parseFloorFromRoom(student.roomNo) === floor;
+};
+
+/**
+ * A night-attendance session is opened only by staff.  Student dashboard
+ * reads can recover a missing attempt document, but cannot create a new
+ * window because the authoritative start/end timestamps belong to this round.
+ */
+const initializeNightAttendanceAttempts = async (round) => {
+  const studentHostel = round.hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : round.hostel;
+  const students = await User.find({
+    role: 'student',
+    isActive: true,
+    hostel: studentHostel,
+  }).select('_id hostel roomNo').lean();
+
+  const eligibleStudents = students.filter((student) => studentIsInRoundFloor(student, round.floor));
+  if (!eligibleStudents.length) return { eligibleStudents: 0, initializedStudents: 0 };
+
+  // Recover only legacy/unbound documents that have never used a valid GPS
+  // check. This prevents an old dashboard read from blocking the staff-owned
+  // session, without resetting an in-progress or finalized verification.
+  const studentIds = eligibleStudents.map((student) => student._id);
+  const rebound = await AttendanceAttempt.updateMany(
+    {
+      student_id: { $in: studentIds },
+      date: round.date,
+      session: 'Night Attendance',
+      round_id: null,
+      status: 'pending',
+      attemptsCount: 0,
+    },
+    {
+      $set: {
+        round_id: round._id,
+        hostel: round.hostel,
+        session_start: round.window_start,
+        expires_at: round.window_end,
+        locationStatus: 'NOT CHECKED',
+      },
+    }
+  );
+
+  const operations = eligibleStudents.map((student) => ({
+    updateOne: {
+      filter: {
+        student_id: student._id,
+        date: round.date,
+        session: 'Night Attendance',
+      },
+      update: {
+        $setOnInsert: {
+          student_id: student._id,
+          date: round.date,
+          session: 'Night Attendance',
+          round_id: round._id,
+          hostel: round.hostel,
+          attemptsCount: 0,
+          maxAttempts: 3,
+          session_start: round.window_start,
+          expires_at: round.window_end,
+          status: 'pending',
+          locationStatus: 'NOT CHECKED',
+          attempts: [],
+        },
+      },
+      upsert: true,
+    },
+  }));
+
+  const result = await AttendanceAttempt.bulkWrite(operations, { ordered: false });
+  return {
+    eligibleStudents: eligibleStudents.length,
+    initializedStudents: (result.upsertedCount || 0) + (rebound.modifiedCount || 0),
+  };
 };
 
 /**
@@ -242,21 +324,28 @@ const getHostelsAndFloors = async (staffUser = null) => {
  */
 const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attendance', staffUser }) => {
   const date = getTodayDateStr();
+  const now = new Date();
   const cleanHostel = hostel.toUpperCase();
   const cleanFloor = String(floor).trim();
   const permanentSession = 'Night Attendance'; // Fixed permanent session
 
   // 1. Look for existing active round for this staff/hostel/floor/session/date
+  // An expired round is not resumable. Finalize its pending students before a
+  // subsequent staff click opens a fresh two-hour window.
+  await finalizeExpiredNightAttendance(now);
+
   let existingRound = await AttendanceRound.findOne({
     date,
     session_name: permanentSession,
     hostel: cleanHostel,
     floor: cleanFloor,
     status: 'active',
+    window_end: { $gt: now },
   });
 
   if (existingRound) {
-    return { round: existingRound, resumed: true };
+    const initialization = await initializeNightAttendanceAttempts(existingRound);
+    return { round: existingRound, resumed: true, ...initialization };
   }
 
   // 2. Create new round
@@ -266,8 +355,8 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
     hostel: cleanHostel,
     floor: cleanFloor,
     staff_id: staffUser._id,
-    window_start: new Date(),
-    window_end: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4-hour window default
+    window_start: now,
+    window_end: new Date(now.getTime() + NIGHT_ATTENDANCE_WINDOW_MS),
     status: 'active',
   });
 
@@ -283,7 +372,8 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
     reason: `Staff started attendance round for Floor ${cleanFloor}`,
   });
 
-  return { round: newRound, resumed: false };
+  const initialization = await initializeNightAttendanceAttempts(newRound);
+  return { round: newRound, resumed: false, ...initialization };
 };
 
 /**
