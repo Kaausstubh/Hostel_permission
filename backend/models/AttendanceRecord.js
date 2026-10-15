@@ -84,6 +84,10 @@ const attendanceRecordSchema = new mongoose.Schema(
       ref: 'RoomAttendanceRequest',
       default: null,
     },
+    gate_event: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -156,22 +156,22 @@ const getHostelsAndFloors = async (staffUser = null) => {
     {
       code: 'BH1',
       name: "Boys' Hostel 1 (BH1)",
-      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors'],
     },
     {
       code: 'BH2',
       name: "Boys' Hostel 2 (BH2)",
-      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors'],
     },
     {
       code: 'GH1',
       name: "Girls' Hostel 1 (GH1)",
-      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors'],
     },
     {
       code: 'GH2',
       name: "Girls' Hostel 2 (GH2)",
-      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
+      floors: ['All Floors'],
     },
   ];
 
@@ -201,16 +201,12 @@ const getHostelsAndFloors = async (staffUser = null) => {
     }
 
     const matchedConfig = standardConfigs.find((c) => c.code === h.code);
-    const defaultFl = matchedConfig ? matchedConfig.floors : ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
-    const dbFloorLabels = floors.map((f) => f.label).filter(Boolean);
-    // Combine 'All Floors' + standard campus floors + any DB floor labels (deduplicating)
-    const combinedFloors = Array.from(new Set(['All Floors', ...defaultFl, ...dbFloorLabels]));
 
     hostelMap.set(h.code, {
       hostel: h.code,
       name: matchedConfig?.name || `${h.name} (${h.code})`,
       studentCount: Math.max(allocCount, userCount),
-      floors: combinedFloors,
+      floors: ['All Floors'],
     });
   }
 

@@ -3247,6 +3247,8 @@ export default function StudentDashboard() {
                     ? (theme === 'light' ? '#ecfdf5' : 'rgba(16, 185, 129, 0.16)')
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? (theme === 'light' ? '#fef2f2' : 'rgba(239, 68, 68, 0.16)')
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? (theme === 'light' ? '#f5f3ff' : 'rgba(168, 85, 247, 0.16)')
                     : (theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.08)'),
                   color: attendanceStatus?.hasPending
                     ? '#ffffff'
@@ -3254,6 +3256,8 @@ export default function StudentDashboard() {
                     ? (theme === 'light' ? '#047857' : '#34d399')
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? (theme === 'light' ? '#b91c1c' : '#f87171')
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? (theme === 'light' ? '#7c3aed' : '#c084fc')
                     : 'var(--text-primary)',
                   border: attendanceStatus?.hasPending
                     ? 'none'
@@ -3261,6 +3265,8 @@ export default function StudentDashboard() {
                     ? '1.5px solid #10b981'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? '1.5px solid #ef4444'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '1.5px solid #a855f7'
                     : (theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.2)'),
                   fontWeight: 700,
                   height: 36,
@@ -3288,6 +3294,8 @@ export default function StudentDashboard() {
                     ? '✅'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? '❌'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '✈️'
                     : '📋'}
                 </span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -3297,6 +3305,8 @@ export default function StudentDashboard() {
                     ? `Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? `Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? 'On Leave'
                     : 'Not Marked'}
                 </span>
               </button>
@@ -3468,6 +3478,8 @@ export default function StudentDashboard() {
                     ? 'rgba(16, 185, 129, 0.12)'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? 'rgba(239, 68, 68, 0.12)'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? 'rgba(168, 85, 247, 0.12)'
                     : (theme === 'light' ? '#f8fafc' : 'rgba(255, 255, 255, 0.07)'),
                   color: attendanceStatus?.hasPending
                     ? '#ffffff'
@@ -3475,6 +3487,8 @@ export default function StudentDashboard() {
                     ? '#10b981'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? '#ef4444'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '#a855f7'
                     : 'var(--text-primary)',
                   border: attendanceStatus?.hasPending
                     ? 'none'
@@ -3482,6 +3496,8 @@ export default function StudentDashboard() {
                     ? '1.5px solid rgba(16, 185, 129, 0.35)'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? '1.5px solid rgba(239, 68, 68, 0.35)'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '1.5px solid rgba(168, 85, 247, 0.35)'
                     : (theme === 'light' ? '1.5px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.16)'),
                   fontWeight: 800,
                   padding: '8px 14px',
@@ -3504,6 +3520,8 @@ export default function StudentDashboard() {
                     ? '✅'
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? '❌'
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '✈️'
                     : '📋'}
                 </span>
                 <span>
@@ -3513,6 +3531,8 @@ export default function StudentDashboard() {
                     ? `✅ Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
                     ? `❌ Absent (${attendanceStatus?.todayRecord?.time || 'Today'})`
+                    : attendanceStatus?.todayRecord?.status === 'on_leave'
+                    ? '✈️ On Approved Leave'
                     : '📋 Not Marked Yet'}
                 </span>
               </button>

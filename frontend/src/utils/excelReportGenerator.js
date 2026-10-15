@@ -325,6 +325,8 @@ export const exportAttendanceToExcel = async ({
       'Roll / MIS Number': student.rollNo || '—',
       'Attendance Status': statusLabel,
       'Verification Method': methodLabel,
+      'Verification Time': sanitizeFormula(r.verificationTime || '—'),
+      'Gate Event': sanitizeFormula(r.gateEvent || '—'),
       'Verified By': r.status === 'absent' ? '—' : (r.verifiedBy || 'Self-Approved'),
       'Remarks / Reason': r.remark || '—',
       'Recorded Timestamp': r.createdAt

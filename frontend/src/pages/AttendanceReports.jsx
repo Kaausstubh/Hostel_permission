@@ -31,6 +31,7 @@ export default function AttendanceReports() {
   const [hostel, setHostel] = useState('ALL');
   const [floor, setFloor] = useState('ALL');
   const [status, setStatus] = useState('all');
+  const [studentQuery, setStudentQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -45,6 +46,7 @@ export default function AttendanceReports() {
         hostel: hostel !== 'ALL' ? hostel : undefined,
         floor: floor !== 'ALL' ? floor : undefined,
         status: status !== 'all' ? status : undefined,
+        student: studentQuery.trim() || undefined,
       };
       const res = await api.get('/attendance/reports', { params });
       if (res.data?.success) {
@@ -182,7 +184,7 @@ export default function AttendanceReports() {
           padding: 16,
           marginBottom: 20,
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
           gap: 12,
           alignItems: 'end',
         }}
@@ -227,11 +229,6 @@ export default function AttendanceReports() {
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           >
             <option value="ALL">All Floors</option>
-            <option value="Basement / Wing B">Basement / Wing B</option>
-            <option value="Ground Floor">Ground Floor</option>
-            <option value="1st Floor">1st Floor</option>
-            <option value="2nd Floor">2nd Floor</option>
-            <option value="3rd Floor">3rd Floor</option>
           </select>
         </div>
         <div>
@@ -246,6 +243,16 @@ export default function AttendanceReports() {
             <option value="absent">Absent Only</option>
             <option value="on_leave">On Leave Only</option>
           </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 5 }}>Student Search</label>
+          <input
+            type="text"
+            value={studentQuery}
+            onChange={(e) => setStudentQuery(e.target.value)}
+            placeholder="Name or Roll No..."
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
+          />
         </div>
         <div>
           <button
@@ -264,19 +271,21 @@ export default function AttendanceReports() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
             <thead>
               <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '12px 16px' }}>Date</th>
-                <th style={{ padding: '12px 16px' }}>Hostel / Room</th>
-                <th style={{ padding: '12px 16px' }}>Student</th>
-                <th style={{ padding: '12px 16px' }}>Status</th>
-                <th style={{ padding: '12px 16px' }}>Method</th>
-                <th style={{ padding: '12px 16px' }}>Remark / Note</th>
-                <th style={{ padding: '12px 16px' }}>Verified By</th>
+                <th style={{ padding: '12px 14px' }}>Date</th>
+                <th style={{ padding: '12px 14px' }}>Hostel / Room</th>
+                <th style={{ padding: '12px 14px' }}>Student</th>
+                <th style={{ padding: '12px 14px' }}>Status</th>
+                <th style={{ padding: '12px 14px' }}>Method</th>
+                <th style={{ padding: '12px 14px' }}>Verification Time</th>
+                <th style={{ padding: '12px 14px' }}>Gate Event</th>
+                <th style={{ padding: '12px 14px' }}>Remark / Note</th>
+                <th style={{ padding: '12px 14px' }}>Verified By</th>
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     No attendance records found matching the selected filters.
                   </td>
                 </tr>
@@ -286,16 +295,16 @@ export default function AttendanceReports() {
                   const isLeave = r.status === 'on_leave';
                   return (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-primary)' }}>{r.date}</td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{r.date}</td>
+                      <td style={{ padding: '12px 14px' }}>
                         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.hostel}</span>
                         <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>Room {r.roomNo}</span>
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.student?.name || 'Unknown'}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{r.student?.rollNo || '-'}</div>
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '12px 14px' }}>
                         <span
                           style={{
                             padding: '4px 10px',
@@ -315,7 +324,7 @@ export default function AttendanceReports() {
                           {r.status.toUpperCase()}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                         {r.method === 'self_approved'
                           ? 'GPS Geofence'
                           : r.status === 'on_leave'
@@ -324,10 +333,24 @@ export default function AttendanceReports() {
                           ? 'Unverified'
                           : 'Staff Override'}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
+                        {r.verificationTime || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontSize: 12.5 }}>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          background: r.gateEvent && r.gateEvent.startsWith('IN') ? 'rgba(16,185,129,0.08)' : (r.gateEvent && r.gateEvent.startsWith('OUT') ? 'rgba(239,68,68,0.08)' : 'transparent'),
+                          color: r.gateEvent && r.gateEvent.startsWith('IN') ? '#10b981' : (r.gateEvent && r.gateEvent.startsWith('OUT') ? '#ef4444' : 'var(--text-muted)'),
+                          fontWeight: 600,
+                        }}>
+                          {r.gateEvent || '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.remark || '-'}
                       </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                         {r.status === 'absent' ? '—' : (r.verifiedBy || 'Self-Approved')}
                       </td>
                     </tr>

@@ -252,7 +252,33 @@ export default function StudentAttendanceHistoryModal({
               </span>
             </div>
 
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* 4 Core Attendance Fields (Requirement 10) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>ATTENDANCE STATUS</div>
+                  <div style={{ fontWeight: 800, color: todayBadgeColor }}>{effectiveToday.status?.toUpperCase() || todayLabel}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>VERIFICATION TIME</div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {isPending ? `Open (${todayStatus?.todayStatus?.remainingSeconds ? Math.floor(todayStatus.todayStatus.remainingSeconds / 60) + 'm left' : 'Active'})` : (effectiveToday?.time || '—')}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>CHECKS REMAINING</div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {todayStatus?.todayStatus?.attemptsRemaining !== undefined ? `${todayStatus.todayStatus.attemptsRemaining}/3` : (effectiveToday?.isMarked ? '0/3' : '3/3')}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>LOCATION STATUS</div>
+                  <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {todayStatus?.todayStatus?.locationStatus || (isPresent ? 'INSIDE HOSTEL' : isAbsent ? 'OUTSIDE HOSTEL' : 'NOT CHECKED')}
+                  </div>
+                </div>
+              </div>
+
               {effectiveToday?.time && (
                 <div>
                   ⏰ Verified at: <strong style={{ color: 'var(--text-primary)' }}>{effectiveToday.time}</strong>

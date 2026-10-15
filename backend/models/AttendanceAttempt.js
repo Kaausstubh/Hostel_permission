@@ -83,12 +83,28 @@ const attendanceAttemptSchema = new mongoose.Schema(
     },
     maxAttempts: {
       type: Number,
-      default: 2,
+      default: 3,
+    },
+    session_start: {
+      type: Date,
+      default: Date.now,
+    },
+    expires_at: {
+      type: Date,
+      default: function () {
+        return new Date(Date.now() + 2 * 60 * 60 * 1000); // 2-hour verification window
+      },
+      index: true,
     },
     status: {
       type: String,
-      enum: ['pending', 'present', 'absent'],
+      enum: ['pending', 'present', 'absent', 'on_leave'],
       default: 'pending',
+    },
+    locationStatus: {
+      type: String,
+      enum: ['NOT CHECKED', 'INSIDE HOSTEL', 'OUTSIDE HOSTEL', 'LOCATION UNAVAILABLE'],
+      default: 'NOT CHECKED',
     },
     attempts: [attemptDetailSchema],
     finalizedAt: {
@@ -104,5 +120,6 @@ const attendanceAttemptSchema = new mongoose.Schema(
 // Unique compound index: only 1 attempt document per student per date per session
 attendanceAttemptSchema.index({ student_id: 1, date: 1, session: 1 }, { unique: true });
 attendanceAttemptSchema.index({ date: 1, hostel: 1, status: 1 });
+attendanceAttemptSchema.index({ expires_at: 1, status: 1 });
 
 module.exports = mongoose.model('AttendanceAttempt', attendanceAttemptSchema);

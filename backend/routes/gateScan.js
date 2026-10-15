@@ -475,6 +475,11 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
       scanDuration: Date.now() - scanStart,
     };
 
+    await User.updateOne(
+      { _id: payload.student_id },
+      { $set: { isOutsideCampus: true, lastGateScanAt: now, lastGateScanType: 'OUT' } }
+    ).catch(() => {});
+
     if (payload.jti) await cacheScanIdempotentResult(payload.jti, responseBody);
     return { status: 200, body: responseBody };
   }
@@ -558,6 +563,10 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
 
   await recordPassIn(payload.pass_id || payload.master_token || token, req.user._id, guardName).catch(() => {});
   await removePendingInOutRequest(payload.student_id).catch(() => {});
+  await User.updateOne(
+    { _id: payload.student_id },
+    { $set: { isOutsideCampus: false, lastGateScanAt: now, lastGateScanType: 'IN' } }
+  ).catch(() => {});
 
   const responseBody = {
     success: true,
@@ -660,6 +669,11 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
       { $set: { status: 'OUTSIDE', out_time: now, scanned_by_out: req.user._id, scanned_by_name: guardName } }
     ).catch(() => {});
 
+    await User.updateOne(
+      { _id: existing.student_id?._id || existing.student_id || payload.student_id },
+      { $set: { isOutsideCampus: true, lastGateScanAt: now, lastGateScanType: 'HOME OUT' } }
+    ).catch(() => {});
+
     const responseBody = {
       success: true,
       code: 'VALID',
@@ -712,6 +726,11 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
     await GatePass.updateOne(
       { qr_token: activeToken },
       { $set: { status: 'COMPLETED', in_time: now, completed_at: now, scanned_by_in: req.user._id, scanned_by_name: guardName } }
+    ).catch(() => {});
+
+    await User.updateOne(
+      { _id: existing.student_id?._id || existing.student_id || payload.student_id },
+      { $set: { isOutsideCampus: false, lastGateScanAt: now, lastGateScanType: 'HOME IN' } }
     ).catch(() => {});
 
     const responseBody = {
