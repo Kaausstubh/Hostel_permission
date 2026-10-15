@@ -542,6 +542,9 @@ export default function StudentDashboard() {
     pendingRequest: null,
     todayRecord: null,
   });
+  const handleAttendanceStatusChange = useCallback((status) => {
+    setAttendanceStatus(status);
+  }, []);
   const [attendancePromptOpenTrigger, setAttendancePromptOpenTrigger] = useState(0);
   const [showRoomInfoModal, setShowRoomInfoModal] = useState(false);
   const [activeSocket, setActiveSocket] = useState(null);
@@ -3089,7 +3092,7 @@ export default function StudentDashboard() {
         <StudentAttendancePrompt
           user={user}
           socket={activeSocket}
-          onStatusChange={(status) => setAttendanceStatus(status)}
+          onStatusChange={handleAttendanceStatusChange}
           externalOpenTrigger={attendancePromptOpenTrigger}
           onOpenHistory={() => setAttendanceHistoryOpen(true)}
         />
