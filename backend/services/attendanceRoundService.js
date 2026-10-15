@@ -156,22 +156,22 @@ const getHostelsAndFloors = async (staffUser = null) => {
     {
       code: 'BH1',
       name: "Boys' Hostel 1 (BH1)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'BH2',
       name: "Boys' Hostel 2 (BH2)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH1',
       name: "Girls' Hostel 1 (GH1)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
     {
       code: 'GH2',
       name: "Girls' Hostel 2 (GH2)",
-      floors: ['All Floors'],
+      floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     },
   ];
 
@@ -201,12 +201,14 @@ const getHostelsAndFloors = async (staffUser = null) => {
     }
 
     const matchedConfig = standardConfigs.find((c) => c.code === h.code);
+    const dbFloorLabels = floors.map((f) => f.label || (f.floor_number === 0 ? 'Ground Floor' : f.floor_number === -1 ? 'Basement / Wing B' : `${f.floor_number} Floor`));
+    const combinedFloors = Array.from(new Set(['All Floors', ...dbFloorLabels, ...(matchedConfig?.floors || [])]));
 
     hostelMap.set(h.code, {
       hostel: h.code,
       name: matchedConfig?.name || `${h.name} (${h.code})`,
       studentCount: Math.max(allocCount, userCount),
-      floors: ['All Floors'],
+      floors: combinedFloors,
     });
   }
 
@@ -971,7 +973,14 @@ const requestAllRoomsInRound = async ({ roundId, staffUser }) => {
   );
 
   if (eligibleRooms.length === 0) {
-    throw new Error('No occupied rooms found on this floor to request attendance for');
+    return {
+      roundId: round._id,
+      totalRoomsTargeted: 0,
+      requestedRoomsCount: 0,
+      totalStudentsNotified: 0,
+      message: 'No occupied rooms found on this floor to request attendance for',
+      results: [],
+    };
   }
 
   const results = [];

@@ -71,7 +71,7 @@ router.get('/status', (req, res) => {
 });
 
 // ── Staff: Screen 1 — Hostels, Floors, Start/Resume Round ────────────────────
-router.get('/hostels', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get('/hostels', protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const hostels = await getHostelsAndFloors(req.user);
     res.json({ success: true, hostels });
@@ -81,14 +81,17 @@ router.get('/hostels', protect, authorize('warden', 'admin'), async (req, res) =
   }
 });
 
-router.get('/hostels/:hostel/floors', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get(['/hostels/:hostel/floors', '/hostel/:hostel/floors', '/hostels/:hostel/floor', '/hostel/:hostel/floor'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const allHostels = await getHostelsAndFloors(req.user);
     const target = allHostels.find((h) => h.hostel.toUpperCase() === req.params.hostel.toUpperCase());
+    if (!target) {
+      return res.status(404).json({ success: false, message: `Hostel ${req.params.hostel} not found` });
+    }
     res.json({
       success: true,
       hostel: req.params.hostel.toUpperCase(),
-      floors: target?.floors || ['1', '2', '3', '4'],
+      floors: target?.floors || ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
     });
   } catch (err) {
     logger.error('[Attendance] Error fetching floors', { error: err.message });
@@ -96,7 +99,7 @@ router.get('/hostels/:hostel/floors', protect, authorize('warden', 'admin'), asy
   }
 });
 
-router.post('/rounds', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds', '/round'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const hostel = req.body.hostel;
     const floor = req.body.floor || 'All Floors';
@@ -125,8 +128,11 @@ router.post('/rounds', protect, authorize('warden', 'admin'), async (req, res) =
 });
 
 // ── Staff: Screen 2 — Room List for Floor & Actions ──────────────────────────
-router.get('/rounds/:id', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get(['/rounds/:id', '/round/:id'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
+    if (!req.params.id || req.params.id === 'undefined') {
+      return res.status(400).json({ success: false, message: 'Valid round ID is required' });
+    }
     const round = await AttendanceRound.findById(req.params.id)
       .populate('staff_id', 'name email role')
       .lean();
@@ -137,17 +143,21 @@ router.get('/rounds/:id', protect, authorize('warden', 'admin'), async (req, res
   }
 });
 
-router.get('/rounds/:id/rooms', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get(['/rounds/:id/rooms', '/round/:id/rooms'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
+    if (!req.params.id || req.params.id === 'undefined') {
+      return res.status(400).json({ success: false, message: 'Valid round ID is required' });
+    }
     const data = await getRoundRoomsSummary(req.params.id);
     res.json({ success: true, ...data });
   } catch (err) {
     logger.error('[Attendance] Error fetching round rooms', { error: err.message });
-    res.status(400).json({ success: false, message: err.message });
+    const isNotFound = err.message && err.message.toLowerCase().includes('not found');
+    res.status(isNotFound ? 404 : 400).json({ success: false, message: err.message });
   }
 });
 
-router.post('/rounds/:id/rooms/:roomNo/request', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/:id/rooms/:roomNo/request', '/round/:id/rooms/:roomNo/request'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const result = await requestRoomAttendance({
       roundId: req.params.id,
@@ -161,10 +171,22 @@ router.post('/rounds/:id/rooms/:roomNo/request', protect, authorize('warden', 'a
   }
 });
 
-router.post('/requests/:id/resend', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/requests/:id/resend', '/request/:id/resend', '/rounds/:roundId/rooms/:roomNo/resend', '/round/:roundId/rooms/:roomNo/resend'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
+    let requestId = req.params.id;
+    if (!requestId && req.params.roundId && req.params.roomNo) {
+      const existingReq = await RoomAttendanceRequest.findOne({
+        round_id: req.params.roundId,
+        roomNo: req.params.roomNo,
+      }).sort({ createdAt: -1 });
+      if (!existingReq) {
+        return res.status(404).json({ success: false, message: 'No active attendance request found for this room' });
+      }
+      requestId = existingReq._id;
+    }
+
     const result = await resendRoomRequest({
-      requestId: req.params.id,
+      requestId,
       staffUser: req.user,
     });
     res.json({ success: true, message: 'Attendance request resent', ...result });
@@ -175,7 +197,7 @@ router.post('/requests/:id/resend', protect, authorize('warden', 'admin'), async
 });
 
 // ── 1-Click Request All Routes ───────────────────────────────────────────────
-router.post('/rounds/:id/request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/:id/request-all', '/round/:id/request-all'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const result = await requestAllRoomsInRound({
       roundId: req.params.id,
@@ -192,7 +214,7 @@ router.post('/rounds/:id/request-all', protect, authorize('warden', 'admin'), as
   }
 });
 
-router.post('/rounds/quick-request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/quick-request-all', '/round/quick-request-all'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const hostel = req.body.hostel;
     const floor = req.body.floor || 'All Floors';
@@ -226,7 +248,7 @@ router.post('/rounds/quick-request-all', protect, authorize('warden', 'admin'), 
   }
 });
 
-router.post('/hostels/:hostel/request-all', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/hostels/:hostel/request-all', '/hostel/:hostel/request-all'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { session_name } = req.body;
     const result = await requestEntireHostelAttendance({
@@ -245,7 +267,7 @@ router.post('/hostels/:hostel/request-all', protect, authorize('warden', 'admin'
   }
 });
 
-router.post('/rounds/:id/rooms/:roomNo/skip', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/:id/rooms/:roomNo/skip', '/round/:id/rooms/:roomNo/skip'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { reason } = req.body;
     if (!reason || !reason.trim()) {
@@ -270,7 +292,7 @@ router.post('/rounds/:id/rooms/:roomNo/skip', protect, authorize('warden', 'admi
   }
 });
 
-router.post('/rounds/:id/rooms/:roomNo/reopen', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/:id/rooms/:roomNo/reopen', '/round/:id/rooms/:roomNo/reopen'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const request = await reopenRoom({
       roundId: req.params.id,
@@ -285,17 +307,18 @@ router.post('/rounds/:id/rooms/:roomNo/reopen', protect, authorize('warden', 'ad
 });
 
 // ── Staff: Screen 3 — Room Details & Manual Overrides ────────────────────────
-router.get('/rounds/:id/rooms/:roomNo', protect, authorize('warden', 'admin'), async (req, res) => {
+router.get(['/rounds/:id/rooms/:roomNo', '/round/:id/rooms/:roomNo'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const details = await getRoomDetails(req.params.id, req.params.roomNo);
     res.json({ success: true, ...details });
   } catch (err) {
     logger.error('[Attendance] Error fetching room details', { error: err.message });
-    res.status(400).json({ success: false, message: err.message });
+    const isNotFound = err.message && err.message.toLowerCase().includes('not found');
+    res.status(isNotFound ? 404 : 400).json({ success: false, message: err.message });
   }
 });
 
-router.post('/requests/:id/override', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/requests/:id/override', '/request/:id/override'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { studentId, status, remark } = req.body;
 
@@ -312,7 +335,7 @@ router.post('/requests/:id/override', protect, authorize('warden', 'admin'), asy
     }
 
     const request = await RoomAttendanceRequest.findById(req.params.id);
-    if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (!request) return res.status(404).json({ success: false, message: 'Attendance request not found' });
 
     let resp = await RequestResponse.findOne({
       request_id: request._id,
@@ -372,7 +395,7 @@ router.post('/requests/:id/override', protect, authorize('warden', 'admin'), asy
 });
 
 // ── Complete & Lock Round ────────────────────────────────────────────────────
-router.post('/rounds/:id/complete', protect, authorize('warden', 'admin'), async (req, res) => {
+router.post(['/rounds/:id/complete', '/round/:id/complete'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const result = await completeRound({
       roundId: req.params.id,
@@ -2773,5 +2796,20 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
     res.status(500).json({ success: false, message: 'Failed to generate attendance report' });
   }
 });
+
+if (process.env.NODE_ENV === 'development') {
+  // Log registered attendance endpoints for fast developer diagnostics
+  setTimeout(() => {
+    logger.info('📋 Registered Attendance Routes:');
+    router.stack
+      .filter((r) => r.route)
+      .forEach((r) => {
+        const methods = Object.keys(r.route.methods).join(',').toUpperCase();
+        const path = r.route.path;
+        const displayPath = Array.isArray(path) ? path.join(' | ') : path;
+        logger.info(`   [${methods.padEnd(4)}] /api/attendance${displayPath}`);
+      });
+  }, 500);
+}
 
 module.exports = router;

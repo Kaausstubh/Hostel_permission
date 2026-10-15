@@ -81,9 +81,11 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (allowedRoles) {
     const rolesList = [...allowedRoles];
-    if (rolesList.includes('warden')) rolesList.push('hostel_staff');
+    if (rolesList.includes('warden')) {
+      rolesList.push('hostel_staff', 'staff', 'admin');
+    }
     if (!rolesList.includes(user.role)) {
-      if (['warden', 'hostel_staff'].includes(user.role)) return <Navigate to="/dashboard" replace />;
+      if (['warden', 'hostel_staff', 'staff', 'admin'].includes(user.role)) return <Navigate to="/dashboard" replace />;
       if (user.role === 'security') return <Navigate to="/scanner" replace />;
       if (user.role === 'student') return <Navigate to="/student" replace />;
       return <Navigate to="/login" replace />;
@@ -208,6 +210,11 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
         <Route path="/attendance/round/:roundId" element={
+          <ProtectedRoute allowedRoles={['warden']}>
+            <AppLayout><AttendanceFloorRound /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/attendance/rounds/:roundId" element={
           <ProtectedRoute allowedRoles={['warden']}>
             <AppLayout><AttendanceFloorRound /></AppLayout>
           </ProtectedRoute>

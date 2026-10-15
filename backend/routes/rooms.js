@@ -851,6 +851,8 @@ router.put('/:roomNumber/capacity', protect, authorize('warden', 'admin', 'hoste
     logger.error('[Rooms API] Update capacity error', { error: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
+});
+
 // ─── POST /api/rooms/create-room ──────────────────────────────────────────────
 // Create a new room in a hostel
 router.post('/create-room', protect, authorize('warden', 'admin', 'hostel_staff'), async (req, res) => {

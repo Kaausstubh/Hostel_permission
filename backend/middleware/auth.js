@@ -140,9 +140,10 @@ const protect = async (req, res, next) => {
 // Role-based access control. Always use after protect.
 const authorize = (...roles) => {
   const allowedSet = new Set(roles);
-  if (allowedSet.has('warden') || allowedSet.has('hostel_staff')) {
+  if (allowedSet.has('warden') || allowedSet.has('hostel_staff') || allowedSet.has('staff')) {
     allowedSet.add('warden');
     allowedSet.add('hostel_staff');
+    allowedSet.add('staff');
   }
 
   return (req, res, next) => {

@@ -1,6 +1,6 @@
 /**
- * Attendance Setup Screen: Select Hostel & Session
- * 1-Click Request All Student Attendance with strict building geofence verification.
+ * Attendance Setup Screen: Select Hostel & Floor
+ * Complete floor round execution: Select Hostel -> Select Floor -> Start Round / 1-Click Request.
  */
 
 import { useState, useEffect } from 'react';
@@ -15,6 +15,9 @@ import {
   MdCheckCircle,
   MdBolt,
   MdLocationOn,
+  MdLayers,
+  MdPlayArrow,
+  MdRefresh,
 } from 'react-icons/md';
 import Navbar from '../components/Navbar';
 
@@ -26,6 +29,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Brahmaputra Building',
     coords: "18°45'50.8\"N 73°41'57.4\"E",
     studentCount: 0,
+    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'BH2',
@@ -33,6 +37,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Krishna Building',
     coords: "18°45'47.1\"N 73°41'57.7\"E",
     studentCount: 0,
+    floors: ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH1',
@@ -40,6 +45,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Indrayani Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
+    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
   {
     hostel: 'GH2',
@@ -47,6 +53,7 @@ const DEFAULT_HOSTELS = [
     subtitle: 'Sindhu Building',
     coords: "18°45'54.4\"N 73°41'56.8\"E",
     studentCount: 0,
+    floors: ['All Floors', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'],
   },
 ];
 
@@ -57,8 +64,11 @@ export default function AttendanceRoundSetup() {
   // Instant render with default 4 hostels
   const [hostels, setHostels] = useState(DEFAULT_HOSTELS);
   const [selectedHostel, setSelectedHostel] = useState('BH2');
-  const [sessionName, setSessionName] = useState('Night Attendance');
+  const [selectedFloor, setSelectedFloor] = useState('All Floors');
+  const [sessionName] = useState('Night Attendance');
   const [submitting, setSubmitting] = useState(false);
+  const [loadingHostels, setLoadingHostels] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   const todayStr = new Date().toLocaleDateString('en-US', {
     weekday: 'short',
@@ -69,6 +79,8 @@ export default function AttendanceRoundSetup() {
 
   const fetchHostels = async () => {
     try {
+      setLoadingHostels(true);
+      setLoadError(null);
       const res = await api.get('/attendance/hostels');
       let loadedHostels = [];
       if (res.data?.success && res.data.hostels?.length > 0) {
@@ -88,9 +100,13 @@ export default function AttendanceRoundSetup() {
       const merged = DEFAULT_HOSTELS.map((st) => {
         const found = loadedHostels.find((lh) => lh.hostel === st.hostel);
         if (!found) return st;
+        const combinedFloors = Array.from(
+          new Set(['All Floors', ...(found.floors || []), ...(st.floors || [])])
+        );
         return {
           ...st,
           ...found,
+          floors: combinedFloors,
           studentCount: found.studentCount || st.studentCount,
         };
       });
@@ -105,8 +121,10 @@ export default function AttendanceRoundSetup() {
       if (matched && !selectedHostel) {
         setSelectedHostel(matched.hostel);
       }
-    } catch {
-      // Fallback stays seamlessly on DEFAULT_HOSTELS
+    } catch (err) {
+      setLoadError(err.response?.data?.message || 'Failed to load hostels from server');
+    } finally {
+      setLoadingHostels(false);
     }
   };
 
@@ -115,8 +133,61 @@ export default function AttendanceRoundSetup() {
   }, []);
 
   const currentHostelObj = hostels.find((h) => h.hostel === selectedHostel) || hostels[0];
+  const availableFloors = currentHostelObj?.floors || ['All Floors', 'Basement / Wing B', 'Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
-  // 1-Click Request All Student Attendance for Selected Hostel
+  // Ensure selected floor is valid when hostel changes
+  useEffect(() => {
+    if (availableFloors.length > 0 && !availableFloors.includes(selectedFloor)) {
+      setSelectedFloor(availableFloors[0]);
+    }
+  }, [selectedHostel, availableFloors]);
+
+  // Start / Resume Round for Selected Floor
+  const handleStartRound = async () => {
+    if (!selectedHostel) {
+      toast.error('Please select a hostel');
+      return;
+    }
+    if (!selectedFloor) {
+      toast.error('Please select a floor');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const res = await api.post('/attendance/rounds', {
+        hostel: selectedHostel,
+        floor: selectedFloor,
+        session_name: sessionName,
+      });
+
+      if (res.data?.success && res.data.round?._id) {
+        const roundId = res.data.round._id;
+        if (res.data.resumed) {
+          toast.success(
+            selectedFloor.toLowerCase().includes('all')
+              ? `Resumed active round for All Floors (${selectedHostel})`
+              : `Resumed active round for Floor ${selectedFloor} (${selectedHostel})`
+          );
+        } else {
+          toast.success(
+            selectedFloor.toLowerCase().includes('all')
+              ? `Started attendance round for All Floors (${selectedHostel})`
+              : `Started attendance round for Floor ${selectedFloor} (${selectedHostel})`
+          );
+        }
+        navigate(`/attendance/round/${roundId}`);
+      } else {
+        toast.error('Failed to initialize attendance round');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to start attendance round');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 1-Click Request All Student Attendance for Selected Floor/Hostel
   const handleQuickRequestAll = async () => {
     if (!selectedHostel) {
       toast.error('Please select a hostel');
@@ -126,16 +197,19 @@ export default function AttendanceRoundSetup() {
       setSubmitting(true);
       const res = await api.post('/attendance/rounds/quick-request-all', {
         hostel: selectedHostel,
-        floor: 'All Floors',
+        floor: selectedFloor || 'All Floors',
         session_name: sessionName,
       });
 
-      if (res.data?.success) {
+      if (res.data?.success && res.data.round?._id) {
+        const floorLabel = selectedFloor.toLowerCase().includes('all') ? 'All Floors' : `Floor ${selectedFloor}`;
         toast.success(
-          `⚡ Attendance requested for ${res.data.requestedRoomsCount || 'all'} rooms in ${selectedHostel} (${res.data.totalStudentsNotified || 0} students notified)!`,
+          `⚡ Attendance requested for ${res.data.requestedRoomsCount || 'all'} rooms on ${floorLabel} in ${selectedHostel} (${res.data.totalStudentsNotified || 0} students notified)!`,
           { duration: 6000 }
         );
         navigate(`/attendance/round/${res.data.round._id}`);
+      } else {
+        toast.error('Failed to initialize round');
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to request student attendance');
@@ -173,11 +247,46 @@ export default function AttendanceRoundSetup() {
                   Room-by-Room Attendance
                 </h1>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  1-Click Student Geofence Verification
+                  Hostel Staff Digitized Round Verification
                 </span>
               </div>
             </div>
           </div>
+
+          {loadError && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#ef4444',
+                fontSize: 13,
+                marginBottom: 16,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>{loadError}</span>
+              <button
+                type="button"
+                onClick={fetchHostels}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontWeight: 600,
+                }}
+              >
+                <MdRefresh size={16} /> Retry
+              </button>
+            </div>
+          )}
 
           {/* Main Setup Card */}
           <div
@@ -196,7 +305,7 @@ export default function AttendanceRoundSetup() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                   <MdApartment style={{ color: 'var(--primary, #6366f1)', fontSize: 18 }} />
-                  Select Hostel (All 4 Campus Buildings)
+                  Step 1: Select Hostel
                 </label>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>30m Strict Building Geofence</span>
               </div>
@@ -295,7 +404,58 @@ export default function AttendanceRoundSetup() {
               </div>
             </div>
 
-            {/* Step 2: Session Details */}
+            {/* Step 2: Select Floor */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  <MdLayers style={{ color: '#06b6d4', fontSize: 18 }} />
+                  Step 2: Select Floor
+                </label>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Choose floor or &quot;All Floors&quot;</span>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {availableFloors.map((fl) => {
+                  const isSelected = selectedFloor === fl;
+                  const isAll = fl.toLowerCase().includes('all');
+                  return (
+                    <button
+                      key={fl}
+                      type="button"
+                      onClick={() => setSelectedFloor(fl)}
+                      style={{
+                        padding: '10px 18px',
+                        borderRadius: 10,
+                        border: isSelected
+                          ? (isAll ? '2px solid #8b5cf6' : '2px solid #06b6d4')
+                          : '1px solid var(--border-color, rgba(148, 163, 184, 0.25))',
+                        background: isSelected
+                          ? (isAll ? 'rgba(139, 92, 246, 0.15)' : 'rgba(6, 182, 212, 0.14)')
+                          : 'var(--bg-input, rgba(255, 255, 255, 0.7))',
+                        color: isSelected
+                          ? (isAll ? '#7c3aed' : '#0891b2')
+                          : 'var(--text-primary)',
+                        fontWeight: 700,
+                        fontSize: 13.5,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        boxShadow: isSelected
+                          ? (isAll ? '0 3px 12px rgba(139, 92, 246, 0.25)' : '0 3px 12px rgba(6, 182, 212, 0.2)')
+                          : 'none',
+                      }}
+                    >
+                      {isAll && <span>🏢</span>}
+                      {fl}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Step 3: Session Details */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 28 }}>
               <div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
@@ -357,17 +517,18 @@ export default function AttendanceRoundSetup() {
               </div>
             </div>
 
-            {/* 1-Click Action Button */}
-            <div>
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* PRIMARY: Start Floor Round */}
               <button
                 type="button"
-                onClick={handleQuickRequestAll}
-                disabled={submitting}
+                onClick={handleStartRound}
+                disabled={submitting || loadingHostels}
                 style={{
                   width: '100%',
                   padding: '16px 24px',
                   borderRadius: 14,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
                   color: '#fff',
                   fontWeight: 800,
                   fontSize: 16,
@@ -377,15 +538,45 @@ export default function AttendanceRoundSetup() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 10,
-                  boxShadow: '0 6px 20px rgba(99, 102, 241, 0.4)',
+                  boxShadow: '0 6px 20px rgba(79, 70, 229, 0.4)',
                   transition: 'all 0.2s ease',
                 }}
               >
-                <MdBolt size={24} />
+                <MdPlayArrow size={24} />
                 {submitting ? (
-                  'Requesting All Students…'
+                  'Starting Round…'
                 ) : (
-                  <>1-Click Request All Student Attendance ({selectedHostel})</>
+                  <>Start Round ({selectedHostel} · {selectedFloor})</>
+                )}
+              </button>
+
+              {/* SECONDARY: 1-Click Request All */}
+              <button
+                type="button"
+                onClick={handleQuickRequestAll}
+                disabled={submitting || loadingHostels}
+                style={{
+                  width: '100%',
+                  padding: '13px 20px',
+                  borderRadius: 12,
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  color: 'var(--primary, #6366f1)',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  cursor: submitting ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <MdBolt size={18} />
+                {submitting ? (
+                  'Requesting Students…'
+                ) : (
+                  <>1-Click Instant Request All ({selectedHostel} · {selectedFloor})</>
                 )}
               </button>
             </div>
@@ -403,7 +594,7 @@ export default function AttendanceRoundSetup() {
               lineHeight: 1.6,
             }}
           >
-            ⚡ <strong>1-Click Instant Attendance:</strong> Click <em>&quot;1-Click Request All Student Attendance&quot;</em> to broadcast an active attendance request to all student rooms in {selectedHostel} at once. Students open their portal or phone, tap to verify location, and their GPS is checked against the authoritative building coordinates ({selectedHostel} with a strict 30m building boundary). If inside the building, attendance is recorded as <strong>PRESENT</strong>; otherwise <strong>ABSENT</strong>.
+            💡 <strong>Hostel Floor Round:</strong> Select a hostel and floor, then click <em>&quot;Start Round&quot;</em> to open the mobile room list. From there, you can tap each room to inspect students, trigger inline <strong>Request Attendance</strong>, or <strong>Skip Room</strong> with a mandatory reason.
           </div>
         </div>
       </div>
