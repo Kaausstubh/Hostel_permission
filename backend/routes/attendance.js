@@ -796,6 +796,32 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
       }
     }
 
+    // A previous request may still be evaluating the same GPS fix. It owns a
+    // short lease, so a second click cannot consume another attempt. A stale
+    // lease is safely recovered after a server interruption.
+    if (attemptDoc?.status === 'verifying') {
+      const lockAgeMs = now.getTime() - new Date(attemptDoc.verification_started_at || attemptDoc.updatedAt || now).getTime();
+      if (lockAgeMs < 30 * 1000) {
+        return res.status(200).json({
+          success: true,
+          isMarked: false,
+          status: 'PENDING',
+          code: 'VERIFICATION_IN_PROGRESS',
+          attemptsCount: attemptDoc.attemptsCount,
+          maxAttempts: 3,
+          attemptsRemaining: Math.max(0, 3 - attemptDoc.attemptsCount),
+          expiresAt: attemptDoc.expires_at?.toISOString(),
+          locationStatus: 'VERIFYING',
+          message: 'Location verification is already in progress.',
+        });
+      }
+      attemptDoc = await AttendanceAttempt.findOneAndUpdate(
+        { _id: attemptDoc._id, status: 'verifying' },
+        { $set: { status: 'pending', verification_started_at: null } },
+        { new: true }
+      );
+    }
+
     const expiresAt = new Date(attemptDoc?.expires_at || (now.getTime() + 2 * 60 * 60 * 1000));
     const isExpired = now.getTime() > expiresAt.getTime();
 
@@ -913,6 +939,7 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
       remainingSeconds,
       sessionStart: attemptDoc?.session_start ? new Date(attemptDoc.session_start).toISOString() : now.toISOString(),
       expiresAt: expiresAt.toISOString(),
+      verificationSessionId: attemptDoc?._id?.toString(),
       locationStatus: attemptDoc?.locationStatus || 'NOT CHECKED',
       componentVisible: true,
       isFinalized: false,
@@ -1095,6 +1122,44 @@ async function handleStudentAutoVerify(req, res) {
     const expiresAt = new Date(attemptDoc?.expires_at || (now.getTime() + 2 * 60 * 60 * 1000));
     const isExpired = now.getTime() > expiresAt.getTime();
 
+    if (attemptDoc?.status === 'verifying') {
+      const lockAgeMs = now.getTime() - new Date(attemptDoc.verification_started_at || attemptDoc.updatedAt || now).getTime();
+      if (lockAgeMs < 30 * 1000) {
+        return res.status(200).json({
+          success: true,
+          isMarked: false,
+          status: 'PENDING',
+          code: 'VERIFICATION_IN_PROGRESS',
+          attemptsCount: attemptDoc.attemptsCount,
+          maxAttempts: 3,
+          attemptsRemaining: Math.max(0, 3 - attemptDoc.attemptsCount),
+          expiresAt: attemptDoc.expires_at?.toISOString(),
+          locationStatus: 'VERIFYING',
+          message: 'Location verification is already in progress.',
+        });
+      }
+      attemptDoc = await AttendanceAttempt.findOneAndUpdate(
+        { _id: attemptDoc._id, status: 'verifying' },
+        { $set: { status: 'pending', verification_started_at: null } },
+        { new: true }
+      );
+    }
+
+    // The browser may only operate on the server-created session for this
+    // student/date.  It cannot select a different student, hostel, or create
+    // a replacement session by supplying a client-generated identifier.
+    if (
+      req.body.verificationSessionId &&
+      String(req.body.verificationSessionId) !== String(attemptDoc._id)
+    ) {
+      return res.status(409).json({
+        success: false,
+        status: 'PENDING',
+        code: 'SESSION_MISMATCH',
+        message: 'This verification session is no longer active. Refresh the attendance status and try again.',
+      });
+    }
+
     // If attempt doc is already finalized, expired, or attempts exhausted
     if (attemptDoc && (attemptDoc.status !== 'pending' || attemptDoc.attemptsCount >= 3 || isExpired)) {
       if (attemptDoc.status === 'pending') {
@@ -1165,6 +1230,7 @@ async function handleStudentAutoVerify(req, res) {
       },
       {
         $inc: { attemptsCount: 1 },
+        $set: { status: 'verifying', verification_started_at: now },
       },
       { new: true }
     );
@@ -1172,6 +1238,20 @@ async function handleStudentAutoVerify(req, res) {
     if (!updatedAttemptDoc) {
       // Another concurrent request claimed the final attempt or closed the session
       const freshDoc = await AttendanceAttempt.findById(attemptDoc._id).lean();
+      if (freshDoc?.status === 'verifying') {
+        return res.status(200).json({
+          success: true,
+          isMarked: false,
+          status: 'PENDING',
+          code: 'VERIFICATION_IN_PROGRESS',
+          attemptsCount: freshDoc.attemptsCount,
+          maxAttempts: 3,
+          attemptsRemaining: Math.max(0, 3 - freshDoc.attemptsCount),
+          expiresAt: freshDoc.expires_at?.toISOString(),
+          locationStatus: 'VERIFYING',
+          message: 'Location verification is already in progress.',
+        });
+      }
       const isPresent = freshDoc?.status === 'present';
       return res.status(200).json({
         success: true,
@@ -1296,20 +1376,25 @@ async function handleStudentAutoVerify(req, res) {
     if (
       typeof lat === 'undefined' ||
       typeof lng === 'undefined' ||
-      isNaN(numLat) ||
-      isNaN(numLng) ||
-      !isFinite(numLat) ||
-      !isFinite(numLng) ||
+      typeof accuracy === 'undefined' ||
+      !Number.isFinite(numLat) ||
+      !Number.isFinite(numLng) ||
+      !Number.isFinite(numAccuracy) ||
+      numAccuracy < 0 ||
       numLat < -90 ||
       numLat > 90 ||
       numLng < -180 ||
       numLng > 180
     ) {
-      coordinateError = 'Invalid GPS coordinates received from device.';
+      coordinateError = 'Invalid GPS coordinates or accuracy received from device.';
       errorCode = 'INVALID_COORDINATES';
-    } else if (timestamp && typeof timestamp === 'number') {
-      const ageSeconds = Math.abs(Date.now() - timestamp) / 1000;
-      if (ageSeconds > 120) {
+    } else if (!Number.isFinite(Number(timestamp))) {
+      coordinateError = 'GPS reading timestamp is missing or invalid.';
+      errorCode = 'INVALID_TIMESTAMP';
+    } else {
+      const timestampMs = Number(timestamp);
+      const ageSeconds = (Date.now() - timestampMs) / 1000;
+      if (ageSeconds > 120 || ageSeconds < -30) {
         coordinateError = 'GPS reading is stale. Please acquire a fresh location reading.';
         errorCode = 'STALE_COORDINATES';
       }
@@ -1401,7 +1486,7 @@ async function handleStudentAutoVerify(req, res) {
 
     // 5. Accuracy check
     const accuracyThreshold = geofenceConfig.accuracy_threshold_m ?? 25;
-    if (typeof accuracy === 'number' && numAccuracy > accuracyThreshold) {
+    if (numAccuracy > accuracyThreshold) {
       const accReason = `Location accuracy (±${Math.round(numAccuracy)}m) exceeds threshold (±${accuracyThreshold}m).`;
 
       attemptDoc.locationStatus = 'LOCATION UNAVAILABLE';
@@ -1573,6 +1658,7 @@ async function handleStudentAutoVerify(req, res) {
         formattedDate: exactDate,
         time: exactTime,
         attempt: attemptNum,
+        attemptsUsed: attemptNum,
         maxAttempts: 3,
         attemptsRemaining: 0,
         remainingSeconds: 0,
@@ -1600,105 +1686,84 @@ async function handleStudentAutoVerify(req, res) {
         errorCode: 'OUTSIDE_GEOFENCE',
       });
 
-      if (!isFinalAttempt) {
-        attemptDoc.status = 'pending';
-        await attemptDoc.save();
+      // A valid fix outside the assigned building is conclusive. Unlike a
+      // missing or low-quality fix, it finalizes ABSENT immediately so a BH1
+      // student cannot keep retrying from BH2 (or elsewhere on campus).
+      attemptDoc.status = 'absent';
+      attemptDoc.finalizedAt = now;
+      await attemptDoc.save();
 
-        return res.status(200).json({
-          success: true,
-          isMarked: false,
-          status: 'PENDING',
-          displayStatus: 'Pending Verification',
-          attempt: attemptNum,
-          maxAttempts: 3,
-          attemptsRemaining,
-          remainingSeconds,
-          locationStatus: 'OUTSIDE HOSTEL',
-          hostel: assignedHostel,
-          hostelName: geofenceConfig.name,
-          date: todayDate,
-          formattedDate: formatRecordDate(now, todayDate),
-          distanceMeters: distAway,
-          permittedRadius: geoResult.radiusMeters,
-          message: `Location is outside ${geofenceConfig.name} boundary (${distAway}m from center). Location checks remaining: ${attemptsRemaining}/3.`,
-        });
-      } else {
-        // All 3 checks exhausted outside hostel -> Mark ABSENT!
-        attemptDoc.status = 'absent';
-        attemptDoc.finalizedAt = now;
-        await attemptDoc.save();
+      const absentRemark = `Marked ABSENT: Outside assigned ${geofenceConfig.name} boundary (${distAway}m from center, permitted radius: ${geoResult.radiusMeters}m)`;
 
-        const absentRemark = `Marked ABSENT: Outside ${geofenceConfig.name} boundary on all 3 checks (${distAway}m from center, permitted radius: ${geoResult.radiusMeters}m)`;
-
-        const record = await AttendanceRecord.findOneAndUpdate(
-          { student_id: student._id, date: todayDate, session },
-          {
-            $set: {
-              student_id: student._id,
-              date: todayDate,
-              session,
-              hostel: assignedHostel,
-              floor: student.floor || '',
-              roomNo: student.roomNo || 'Assigned',
-              status: 'absent',
-              method: 'self_approved',
-              verified_by: student._id,
-              attempt_count: 3,
-              verification_timestamp: now,
-              remark: absentRemark,
-            },
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-
-        await syncActiveRoomRound(student, assignedHostel, 'absent', absentRemark, numLat, numLng, numAccuracy);
-        emitSocketAttendance(student, assignedHostel, 'absent', record.createdAt || now);
-
-        const exactTime = formatRecordTime(record.verification_timestamp || record.createdAt || record.updatedAt || now);
-        const exactDate = formatRecordDate(record.verification_timestamp || record.createdAt || record.updatedAt || now, todayDate);
-
-        // Audit log
-        await AttendanceAuditLog.create({
-          actor_id: student._id,
-          actor_role: student.role,
-          actor_name: student.name,
-          action: 'AUTO_ATTENDANCE_MARKED',
-          entity: 'AttendanceRecord',
-          entity_id: record._id.toString(),
-          old_value: null,
-          new_value: {
+      const record = await AttendanceRecord.findOneAndUpdate(
+        { student_id: student._id, date: todayDate, session },
+        {
+          $set: {
+            student_id: student._id,
+            date: todayDate,
+            session,
             hostel: assignedHostel,
+            floor: student.floor || '',
+            roomNo: student.roomNo || 'Assigned',
             status: 'absent',
             method: 'self_approved',
-            distanceMeters: distAway,
-            accuracy: numAccuracy,
-            attempt: 3,
+            verified_by: student._id,
+            attempt_count: attemptNum,
+            verification_timestamp: now,
+            remark: absentRemark,
           },
-          reason: absentRemark,
-        }).catch((err) => logger.warn('[AuditLog] Warning: ' + err.message));
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
 
-        return res.status(200).json({
-          success: true,
-          isMarked: true,
-          status: 'ABSENT',
-          code: 'MARKED_ABSENT',
+      await syncActiveRoomRound(student, assignedHostel, 'absent', absentRemark, numLat, numLng, numAccuracy);
+      emitSocketAttendance(student, assignedHostel, 'absent', record.createdAt || now);
+
+      const exactTime = formatRecordTime(record.verification_timestamp || record.createdAt || record.updatedAt || now);
+      const exactDate = formatRecordDate(record.verification_timestamp || record.createdAt || record.updatedAt || now, todayDate);
+
+      // Audit log
+      await AttendanceAuditLog.create({
+        actor_id: student._id,
+        actor_role: student.role,
+        actor_name: student.name,
+        action: 'AUTO_ATTENDANCE_MARKED',
+        entity: 'AttendanceRecord',
+        entity_id: record._id.toString(),
+        old_value: null,
+        new_value: {
           hostel: assignedHostel,
-          hostelName: geofenceConfig.name,
-          date: todayDate,
-          formattedDate: exactDate,
-          time: exactTime,
-          attempt: 3,
-          maxAttempts: 3,
-          attemptsRemaining: 0,
-          remainingSeconds: 0,
-          locationStatus: 'OUTSIDE HOSTEL',
+          status: 'absent',
+          method: 'self_approved',
           distanceMeters: distAway,
-          permittedRadius: geoResult.radiusMeters,
-          method: 'Automatic',
-          verification: 'Outside Hostel Boundary',
-          message: `Outside ${geofenceConfig.name} boundary on all 3 attempts. Attendance finalized as ABSENT.`,
-        });
-      }
+          accuracy: numAccuracy,
+          attempt: attemptNum,
+        },
+        reason: absentRemark,
+      }).catch((err) => logger.warn('[AuditLog] Warning: ' + err.message));
+
+      return res.status(200).json({
+        success: true,
+        isMarked: true,
+        status: 'ABSENT',
+        code: 'MARKED_ABSENT',
+        hostel: assignedHostel,
+        hostelName: geofenceConfig.name,
+        date: todayDate,
+        formattedDate: exactDate,
+        time: exactTime,
+        attempt: attemptNum,
+        attemptsUsed: attemptNum,
+        maxAttempts: 3,
+        attemptsRemaining: 0,
+        remainingSeconds: 0,
+        locationStatus: 'OUTSIDE HOSTEL',
+        distanceMeters: distAway,
+        permittedRadius: geoResult.radiusMeters,
+        method: 'Automatic',
+        verification: 'Outside Hostel Boundary',
+        message: `Location is outside assigned ${geofenceConfig.name}. Attendance finalized as ABSENT.`,
+      });
     }
   } catch (err) {
     logger.error('[Attendance] Error during auto-verification', { error: err.message });
@@ -2710,4 +2775,3 @@ router.get('/reports', protect, authorize('warden', 'admin'), async (req, res) =
 });
 
 module.exports = router;
-

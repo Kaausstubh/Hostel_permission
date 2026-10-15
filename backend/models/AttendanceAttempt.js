@@ -98,8 +98,14 @@ const attendanceAttemptSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'present', 'absent', 'on_leave'],
+      enum: ['pending', 'verifying', 'present', 'absent', 'on_leave'],
       default: 'pending',
+    },
+    // A short-lived server-side claim prevents concurrent browser requests
+    // from consuming multiple checks while a GPS verification is in flight.
+    verification_started_at: {
+      type: Date,
+      default: null,
     },
     locationStatus: {
       type: String,

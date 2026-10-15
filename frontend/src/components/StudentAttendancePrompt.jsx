@@ -100,7 +100,13 @@ export default function StudentAttendancePrompt({
       const isOnLeave = statusUpper === 'ON_LEAVE' || statusUpper === 'ON APPROVED LEAVE';
       const isFinal = isPresent || isAbsent || isOnLeave || Boolean(data.isFinalized || data.isMarked);
 
-      const count = typeof data.attemptsCount === 'number' ? data.attemptsCount : 0;
+      const count = typeof data.attemptsCount === 'number'
+        ? data.attemptsCount
+        : typeof data.attemptsUsed === 'number'
+          ? data.attemptsUsed
+          : typeof data.attempt === 'number'
+            ? data.attempt
+            : 0;
       const remaining = typeof data.attemptsRemaining === 'number' ? data.attemptsRemaining : Math.max(0, 3 - count);
 
       setSessionData((prev) => ({
@@ -219,9 +225,10 @@ export default function StudentAttendancePrompt({
       // Ask server to finalize as ABSENT
       api.post('/attendance/auto-verify', {
         fetchFailed: false,
-        exhausted: true,
-        expired,
-        hostel: assignedHostel,
+          exhausted: true,
+          expired,
+          hostel: assignedHostel,
+          verificationSessionId: sessionData.verificationSessionId,
       })
         .then((res) => { if (res.data) handleServerResponse(res.data); })
         .catch(() => fetchAttendanceStatus());
@@ -239,6 +246,7 @@ export default function StudentAttendancePrompt({
           code,
           reason: msg,
           hostel: assignedHostel,
+          verificationSessionId: sessionData.verificationSessionId,
         });
         if (res.data) {
           handleServerResponse(res.data);
@@ -249,7 +257,7 @@ export default function StudentAttendancePrompt({
         toast.error(serverMsg);
       }
     },
-    [assignedHostel, handleServerResponse]
+    [assignedHostel, handleServerResponse, sessionData.verificationSessionId]
   );
 
   // ── Core Presence Verification Logic ────────────────────────────────────────
@@ -260,6 +268,7 @@ export default function StudentAttendancePrompt({
 
     setVerifying(true);
     setErrorMessage(null);
+    setSessionData((prev) => ({ ...prev, locationStatus: 'VERIFYING' }));
 
     if (!navigator.geolocation) {
       await handleGpsFailure('Geolocation is not supported by your browser or device.', 'GEO_NOT_SUPPORTED');
@@ -275,8 +284,9 @@ export default function StudentAttendancePrompt({
             lat: latitude,
             lng: longitude,
             accuracy,
-            timestamp: Date.now(),
+            timestamp: position.timestamp,
             hostel: assignedHostel,
+            verificationSessionId: sessionData.verificationSessionId,
           });
 
           if (res.data?.success) {
@@ -385,11 +395,15 @@ export default function StudentAttendancePrompt({
     locBadgeBg = 'rgba(245, 158, 11, 0.15)';
     locBadgeColor = '#f59e0b';
     locBadgeBorder = '1px solid rgba(245, 158, 11, 0.35)';
+  } else if (locStatus === 'VERIFYING') {
+    locBadgeBg = 'rgba(56, 189, 248, 0.15)';
+    locBadgeColor = '#38bdf8';
+    locBadgeBorder = '1px solid rgba(56, 189, 248, 0.35)';
   }
 
   const isExpired = sessionData.remainingSeconds <= 0;
   const isExhausted = sessionData.attemptsRemaining <= 0;
-  const isButtonDisabled = verifying || isExpired || isExhausted || isFinalized;
+  const isButtonDisabled = verifying || locStatus === 'VERIFYING' || isExpired || isExhausted || isFinalized;
 
   return (
     <div

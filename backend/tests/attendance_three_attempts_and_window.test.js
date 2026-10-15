@@ -3,9 +3,9 @@
  *
  * Validates scenarios A through M:
  * - Scenario A: Verified within 2-hour window inside hostel -> PRESENT, unmounts pop-up.
- * - Scenario B: Outside hostel on attempt 1 -> NOT PRESENT, OUTSIDE HOSTEL, checks remaining 2/3.
+ * - Scenario B: Outside hostel on attempt 1 -> immediate ABSENT.
  * - Scenario C: GPS fetch failure (permission denied/timeout) -> counts as attempt, checks remaining 2/3.
- * - Scenario D: 3 failed/outside attempts -> ABSENT on 3rd attempt, attempts exhausted.
+ * - Scenario D: 3 unavailable-location attempts -> ABSENT on 3rd attempt.
  * - Scenario E: 2-hour window expired -> auto-finalized as ABSENT, verification disabled.
  * - Scenario F: Approved leave -> ON APPROVED LEAVE, exempt from verification.
  * - Scenario G: Out-of-campus student -> ABSENT preserved until legitimate gate IN scan.
@@ -291,39 +291,28 @@ class AttendanceEngine {
       };
     }
 
-    // Outside hostel geofence -> NEVER PRESENT
+    // A valid location outside the assigned hostel is conclusive: finalise
+    // immediately instead of allowing a student to retry from another hostel.
     attemptDoc.locationStatus = 'OUTSIDE HOSTEL';
-    if (attemptNum >= 3) {
-      attemptDoc.status = 'absent';
-      const absentRec = {
-        student_id: student._id,
-        status: 'absent',
-        date,
-        session,
-        hostel: student.hostel,
-        attempt_count: 3,
-        remark: 'All 3 checks resolved outside hostel geofence',
-        gate_event: this.gateLogs.get(student._id) || null,
-      };
-      this.records.set(key, absentRec);
-
-      return {
-        success: true,
-        isMarked: true,
-        status: 'ABSENT',
-        locationStatus: 'OUTSIDE HOSTEL',
-        attemptsCount: 3,
-        attemptsRemaining: 0,
-      };
-    }
-
+    attemptDoc.status = 'absent';
+    const absentRec = {
+      student_id: student._id,
+      status: 'absent',
+      date,
+      session,
+      hostel: student.hostel,
+      attempt_count: attemptNum,
+      remark: 'Verified outside assigned hostel geofence',
+      gate_event: this.gateLogs.get(student._id) || null,
+    };
+    this.records.set(key, absentRec);
     return {
       success: true,
-      isMarked: false,
-      status: 'PENDING',
+      isMarked: true,
+      status: 'ABSENT',
       locationStatus: 'OUTSIDE HOSTEL',
       attemptsCount: attemptNum,
-      attemptsRemaining: attemptsRem,
+      attemptsRemaining: 0,
     };
   }
 }
@@ -352,7 +341,7 @@ async function runTests() {
   assert.strictEqual(statusA.componentVisible, false, 'Component must unmount after PRESENT');
   console.log('✅ Scenario A passed!\n');
 
-  // ── Scenario B: Outside geofence on Attempt 1 -> NOT PRESENT, OUTSIDE HOSTEL, 2/3 remaining ──
+  // ── Scenario B: Outside geofence on Attempt 1 -> immediate ABSENT ─────────
   console.log('Test Scenario B: Outside geofence on Attempt 1');
   const studentB = { _id: 'std_002', name: 'Amit Verma', hostel: 'BH2' };
   const resB = await engine.verify(studentB, {
@@ -361,10 +350,10 @@ async function runTests() {
     accuracy: 12,
   });
   assert.notStrictEqual(resB.status, 'PRESENT', 'GPS outside must NEVER mark PRESENT');
-  assert.strictEqual(resB.status, 'PENDING');
+  assert.strictEqual(resB.status, 'ABSENT');
   assert.strictEqual(resB.locationStatus, 'OUTSIDE HOSTEL');
-  assert.strictEqual(resB.attemptsRemaining, 2, 'Must have 2/3 attempts remaining');
-  assert.strictEqual(resB.isMarked, false);
+  assert.strictEqual(resB.attemptsRemaining, 0, 'Outside-hostel location finalizes the session');
+  assert.strictEqual(resB.isMarked, true);
   console.log('✅ Scenario B passed!\n');
 
   // ── Scenario C: GPS fetch failure -> counts as attempt, 2/3 remaining ─────
@@ -382,22 +371,19 @@ async function runTests() {
   assert.strictEqual(resC.attemptsRemaining, 2);
   console.log('✅ Scenario C passed!\n');
 
-  // ── Scenario D: All 3 attempts exhausted -> finalizes as ABSENT ───────────
+  // ── Scenario D: Three unavailable GPS attempts -> finalizes as ABSENT ──────
   console.log('Test Scenario D: 3 failed attempts exhaustion');
-  // Attempt 2 for studentB
-  const resB2 = await engine.verify(studentB, { lat: 18.760000, lng: 73.699000, accuracy: 15 });
-  assert.strictEqual(resB2.status, 'PENDING');
-  assert.strictEqual(resB2.attemptsRemaining, 1);
+  const studentD = { _id: 'std_009', name: 'Mihir Shah', hostel: 'BH2' };
+  await engine.verify(studentD, { fetchFailed: true, gpsError: true });
+  await engine.verify(studentD, { fetchFailed: true, gpsError: true });
+  const resD3 = await engine.verify(studentD, { fetchFailed: true, gpsError: true });
+  assert.strictEqual(resD3.status, 'ABSENT', 'Must be finalized as ABSENT on attempt 3');
+  assert.strictEqual(resD3.isMarked, true);
+  assert.strictEqual(resD3.attemptsRemaining, 0);
 
-  // Attempt 3 for studentB
-  const resB3 = await engine.verify(studentB, { lat: 18.760000, lng: 73.699000, accuracy: 15 });
-  assert.strictEqual(resB3.status, 'ABSENT', 'Must be finalized as ABSENT on attempt 3');
-  assert.strictEqual(resB3.isMarked, true);
-  assert.strictEqual(resB3.attemptsRemaining, 0);
-
-  const statusB_final = engine.getToday(studentB);
-  assert.strictEqual(statusB_final.status, 'ABSENT');
-  assert.strictEqual(statusB_final.componentVisible, false, 'Pop-up must unmount once finalized as ABSENT');
+  const statusD_final = engine.getToday(studentD);
+  assert.strictEqual(statusD_final.status, 'ABSENT');
+  assert.strictEqual(statusD_final.componentVisible, false, 'Pop-up must unmount once finalized as ABSENT');
   console.log('✅ Scenario D passed!\n');
 
   // ── Scenario E: 2-hour window expired -> auto-finalizes as ABSENT ─────────
@@ -435,9 +421,7 @@ async function runTests() {
     out_time: new Date('2026-10-15T18:30:00Z'),
     place: 'Market',
   });
-  // Student fails 3 attempts while outside
-  await engine.verify(studentG, { lat: 18.75, lng: 73.68, accuracy: 10 });
-  await engine.verify(studentG, { lat: 18.75, lng: 73.68, accuracy: 10 });
+  // A confirmed outside location finalizes immediately.
   await engine.verify(studentG, { lat: 18.75, lng: 73.68, accuracy: 10 });
 
   const statusG = engine.getToday(studentG);
@@ -461,8 +445,8 @@ async function runTests() {
   // ── Scenario I: Page refresh persistence ──────────────────────────────────
   console.log('Test Scenario I: Persistence across page refreshes');
   const studentI = { _id: 'std_008', name: 'Tanvi Shinde', hostel: 'GH2' };
-  // 1 attempt used
-  await engine.verify(studentI, { lat: 18.75, lng: 73.68, accuracy: 10 });
+  // One unavailable location attempt used; this must remain pending and persist.
+  await engine.verify(studentI, { fetchFailed: true, gpsError: true });
   // Reload / Re-query GET /today
   const statusReload = engine.getToday(studentI);
   assert.strictEqual(statusReload.attemptsCount, 1, 'Attempt count must persist from DB');
