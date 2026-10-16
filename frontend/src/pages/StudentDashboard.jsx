@@ -996,6 +996,11 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (id === 'attendance_records' || id === 'flow_attendance') {
+      setAttendanceHistoryOpen(true);
+      return;
+    }
+
     if (id.startsWith('qr_')) {
       const entry = hvData?.[id];
       const payload =
@@ -2207,12 +2212,12 @@ export default function StudentDashboard() {
         setHvData(prev => ({ ...prev, ...qrMap }));
       }
 
-      if (statusButtons.length > 0) {
-        statusMsg += '\n\n📲 Tap a button below to open your home visit QR.';
-        botSay(statusMsg, 'buttons', { buttons: statusButtons });
-      } else {
-        botSay(statusMsg);
-      }
+      statusButtons.push({
+        id: 'attendance_records',
+        label: '📋 View Attendance Records',
+      });
+
+      botSay(statusMsg, 'buttons', { buttons: statusButtons });
 
       // Daily in/out only — home visit QR opens via button (prevents duplicate cards).
       if (s.pendingInOutRequest?.qrDataUrl) {
@@ -3237,7 +3242,7 @@ export default function StudentDashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  if (!attendanceStatus?.isMarked && !attendanceStatus?.todayRecord?.status) {
+                  if (attendanceStatus?.hasPending) {
                     setAttendancePromptOpenTrigger((prev) => prev + 1);
                   } else {
                     setAttendanceHistoryOpen(true);

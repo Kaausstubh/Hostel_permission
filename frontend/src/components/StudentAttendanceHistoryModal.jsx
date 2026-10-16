@@ -257,7 +257,7 @@ export default function StudentAttendanceHistoryModal({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>ATTENDANCE STATUS</div>
-                  <div style={{ fontWeight: 800, color: todayBadgeColor }}>{effectiveToday.status?.toUpperCase() || todayLabel}</div>
+                  <div style={{ fontWeight: 800, color: todayBadgeColor }}>{effectiveToday.status ? effectiveToday.status.replace(/_/g, ' ').toUpperCase() : todayLabel.toUpperCase()}</div>
                 </div>
                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>VERIFICATION TIME</div>
@@ -468,14 +468,14 @@ export default function StudentAttendanceHistoryModal({
                         <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
                           📅 {record.formattedDate || record.date}
                         </span>
-                        {recordTime && (
+                        {recordTime ? (
                           <span
                             style={{
                               fontSize: 12,
                               fontWeight: 700,
                               color: 'var(--primary-light)',
                               background: 'rgba(99, 102, 241, 0.12)',
-                              padding: '1px 8px',
+                              padding: '2px 8px',
                               borderRadius: 6,
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -483,6 +483,18 @@ export default function StudentAttendanceHistoryModal({
                             }}
                           >
                             ⏰ {recordTime}
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 11.5,
+                              color: 'var(--text-muted)',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                            }}
+                          >
+                            ⏰ Recorded during round
                           </span>
                         )}
                       </div>

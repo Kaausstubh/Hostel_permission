@@ -266,13 +266,13 @@ export default function StudentAttendancePrompt({
   useEffect(() => {
     if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
       lastExternalTriggerRef.current = externalOpenTrigger;
-      if (!isFinalized) {
+      if (!isFinalized && sessionData.hasActiveSession) {
         setIsOpen(true);
       } else {
         if (onOpenHistoryRef.current) onOpenHistoryRef.current();
       }
     }
-  }, [externalOpenTrigger, isFinalized]);
+  }, [externalOpenTrigger, isFinalized, sessionData.hasActiveSession]);
 
   // ── Countdown Timer — always ticks once session is active ───────────────────
   useEffect(() => {
