@@ -18,6 +18,7 @@ const wardenNav = [
   { to: '/attendance',          icon: <MdMeetingRoom />,   label: 'Floor Attendance' },
   { to: '/attendance/reports',  icon: <MdAssessment />,   label: 'Attendance Reports' },
   { to: '/students',            icon: <MdPeople />,       label: 'Students Directory' },
+  { to: '/admin/guardians',     icon: <MdPeople />,       label: 'Parent / Guardians' },
   { to: '/students-out',        icon: <MdExitToApp />,    label: 'Students Out' },
   { to: '/not-returned',        icon: <MdWarning />,       label: 'Not Returned', alert: true },
   { to: '/visitors',            icon: <MdAssignmentInd />, label: 'Visitor Logs' },

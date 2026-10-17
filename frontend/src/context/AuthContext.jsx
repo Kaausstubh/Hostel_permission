@@ -146,6 +146,12 @@ export const AuthProvider = ({ children }) => {
     window.location.href = `${backendUrl}/api/auth/google?portal=${portal}`;
   }, []);
 
+  // ── initiateDevLogin: redirects to dev-login bypass for local dev ────────────
+  const initiateDevLogin = useCallback((portal) => {
+    const backendUrl = resolveBackendOrigin();
+    window.location.href = `${backendUrl}/api/auth/dev-login?portal=${portal}`;
+  }, []);
+
   // ── logout ───────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     const currentToken = token || localStorage.getItem('token');
@@ -180,7 +186,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loginWithOAuth, initiateGoogleOAuth, logout, loading, isAuthenticated, updateUser }}
+      value={{ user, token, loginWithOAuth, initiateGoogleOAuth, initiateDevLogin, logout, loading, isAuthenticated, updateUser }}
     >
       {children}
     </AuthContext.Provider>

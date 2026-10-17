@@ -1,15 +1,30 @@
 /**
- * Register Page — Student Self-Registration
- * Only @iiitpune.ac.in emails are accepted.
+ * Register Page — Student Self-Registration with Digital Parent Linking
+ *
+ * Requirements:
+ * 1. College email validation (allowed college domains)
+ * 2. 3 distinct phone numbers (student, guardian 1, guardian 2) with 10-digit Indian validation
+ * 3. 2 distinct parent emails (non-college personal emails)
+ * 4. Guardian 1 and Guardian 2 names & relationships
+ * 5. 2-Step OTP verification before account creation
  */
+
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { validateIndianPhone } from '../utils/phone';
 
-const COLLEGE_DOMAIN = 'iiitpune.ac.in';
+const ALLOWED_COLLEGE_DOMAINS = [
+  'iiitpune.ac.in',
+  'cse.iiitp.ac.in',
+  'ece.iiitp.ac.in',
+  'cysec.iiitp.ac.in',
+  'aids.iiitp.ac.in',
+  'mevd.iiitp.ac.in',
+  'iiitp.ac.in',
+  'college.edu',
+];
 
 const extractMisFromEmail = (email = '') => {
   if (!email || typeof email !== 'string') return '';
@@ -20,25 +35,43 @@ const extractMisFromEmail = (email = '') => {
 
 export default function Register() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const [step, setStep] = useState('form'); // 'form' | 'otp'
   const [loading, setLoading] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
-  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [resendingOtp, setResendingOtp] = useState(false);
+
   const [form, setForm] = useState({
     name: '',
     rollNo: '',
     email: '',
     phone: '',
-    parentPhone: '',
-    parentPhone2: '',
     hostel: '',
     password: '',
     confirmPassword: '',
+    guardian1: {
+      name: '',
+      relationship: 'Father',
+      phone: '',
+      email: '',
+    },
+    guardian2: {
+      name: '',
+      relationship: 'Mother',
+      phone: '',
+      email: '',
+    },
   });
 
   const autoMis = extractMisFromEmail(form.email);
 
-  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const setField = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const setG1 = (field) => (e) =>
+    setForm((f) => ({ ...f, guardian1: { ...f.guardian1, [field]: e.target.value } }));
+
+  const setG2 = (field) => (e) =>
+    setForm((f) => ({ ...f, guardian2: { ...f.guardian2, [field]: e.target.value } }));
 
   const handleEmailChange = (e) => {
     const emailVal = e.target.value;
@@ -50,6 +83,12 @@ export default function Register() {
     }));
   };
 
+  const isCollegeDomain = (email) => {
+    if (!email || !email.includes('@')) return false;
+    const domain = email.split('@')[1]?.toLowerCase().trim();
+    return ALLOWED_COLLEGE_DOMAINS.includes(domain);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -57,369 +96,545 @@ export default function Register() {
       return toast.error('Please accept the Hostel Terms and Conditions to proceed.');
     }
 
-    // Client-side validations
-    if (!form.email.toLowerCase().endsWith(`@${COLLEGE_DOMAIN}`)) {
-      return toast.error(`Only @${COLLEGE_DOMAIN} emails are allowed`);
+    const normEmail = form.email.trim().toLowerCase();
+    if (!isCollegeDomain(normEmail)) {
+      return toast.error(`Only authorized college domains (${ALLOWED_COLLEGE_DOMAINS.map((d) => `@${d}`).join(', ')}) are allowed`);
     }
+
     if (form.password !== form.confirmPassword) {
       return toast.error('Passwords do not match');
     }
     if (form.password.length < 6) {
       return toast.error('Password must be at least 6 characters');
     }
-    const phoneCheck = validateIndianPhone(form.phone, 'Your Phone Number');
-    if (!phoneCheck.valid) {
-      return toast.error(phoneCheck.error);
+
+    // Phone checks
+    const spCheck = validateIndianPhone(form.phone, 'Student Phone');
+    if (!spCheck.valid) return toast.error(spCheck.error);
+
+    const g1pCheck = validateIndianPhone(form.guardian1.phone, 'Guardian 1 Phone');
+    if (!g1pCheck.valid) return toast.error(g1pCheck.error);
+
+    const g2pCheck = validateIndianPhone(form.guardian2.phone, 'Guardian 2 Phone');
+    if (!g2pCheck.valid) return toast.error(g2pCheck.error);
+
+    const spDigits = spCheck.digits10;
+    const g1pDigits = g1pCheck.digits10;
+    const g2pDigits = g2pCheck.digits10;
+
+    if (spDigits === g1pDigits || spDigits === g2pDigits) {
+      return toast.error('Student phone cannot be the same as any guardian phone number.');
+    }
+    if (g1pDigits === g2pDigits) {
+      return toast.error('Guardian 1 phone and Guardian 2 phone must be different numbers.');
     }
 
-    const parentCheck = validateIndianPhone(form.parentPhone, 'Parent Contact 1');
-    if (!parentCheck.valid) {
-      return toast.error(parentCheck.error);
-    }
+    // Email checks
+    const g1Email = form.guardian1.email.trim().toLowerCase();
+    const g2Email = form.guardian2.email.trim().toLowerCase();
 
-    const parent2Check = validateIndianPhone(form.parentPhone2, 'Parent Contact 2');
-    if (!parent2Check.valid) {
-      return toast.error(parent2Check.error);
+    if (isCollegeDomain(g1Email) || isCollegeDomain(g2Email)) {
+      return toast.error('Parent emails must be personal emails (cannot use college domains).');
     }
-
-    if (phoneCheck.digits10 === parentCheck.digits10) {
-      return toast.error('Your Phone Number cannot be the same as Parent Contact 1. All 3 phone numbers must be unique.');
+    if (normEmail === g1Email || normEmail === g2Email) {
+      return toast.error('Parent emails cannot be identical to the student college email.');
     }
-    if (phoneCheck.digits10 === parent2Check.digits10) {
-      return toast.error('Your Phone Number cannot be the same as Parent Contact 2. All 3 phone numbers must be unique.');
-    }
-    if (parentCheck.digits10 === parent2Check.digits10) {
-      return toast.error('Parent Contact 1 and Parent Contact 2 cannot be the same number. All 3 phone numbers must be unique.');
+    if (g1Email === g2Email) {
+      return toast.error('Guardian 1 email and Guardian 2 email must be distinct from each other.');
     }
 
     setLoading(true);
     try {
       const res = await api.post('/auth/register', {
-        name:         form.name,
-        rollNo:       (autoMis || form.rollNo).trim().toUpperCase(),
-        email:        form.email.toLowerCase(),
-        phone:        form.phone,
-        parentPhone:  form.parentPhone || undefined,
-        parentPhone2: form.parentPhone2 || undefined,
-        hostel:       form.hostel || undefined,
-        password:     form.password,
+        name: form.name.trim(),
+        rollNo: (autoMis || form.rollNo).trim().toUpperCase(),
+        email: normEmail,
+        phone: form.phone,
+        hostel: form.hostel || undefined,
+        password: form.password,
+        guardian1: {
+          name: form.guardian1.name.trim(),
+          relationship: form.guardian1.relationship,
+          phone: form.guardian1.phone,
+          email: g1Email,
+        },
+        guardian2: {
+          name: form.guardian2.name.trim(),
+          relationship: form.guardian2.relationship,
+          phone: form.guardian2.phone,
+          email: g2Email,
+        },
       });
 
-      // Auto-login after registration
-      const { token, user } = res.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      toast.success(`Welcome, ${user.name}! 🎉`);
-      navigate('/student');
+      toast.success(res.data?.message || 'Verification code sent to your email!');
+      setStep('otp');
     } catch (err) {
-      const msg = err.response?.data?.message
-        || (err.code === 'ERR_NETWORK' ? 'Cannot reach server. Start the backend and check VITE_API_URL.' : null)
-        || 'Registration failed';
+      const msg = err.response?.data?.message || 'Registration failed';
       toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    if (!otp || otp.trim().length !== 6) {
+      return toast.error('Please enter the 6-digit verification code.');
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/verify-registration-otp', {
+        email: form.email.trim().toLowerCase(),
+        otp: otp.trim(),
+      });
+
+      const { token, user } = res.data;
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+
+      if (res.data.mailConfigured) {
+        toast.success(`Welcome, ${user.name}! 🎉 Parent invitations sent to email inboxes.`);
+      } else {
+        toast.success(`Welcome, ${user.name}! (Note: Real email delivery requires SMTP in backend/.env)`, { duration: 6000 });
+      }
+
+      const inviteUrlKeys = Object.keys(res.data?.inviteUrls || {});
+      if (inviteUrlKeys.length > 0) {
+        const firstUrl = res.data.inviteUrls[inviteUrlKeys[0]];
+        navigator.clipboard?.writeText(firstUrl);
+        toast.success('Parent onboarding link copied to clipboard!', { icon: '📋', duration: 7000 });
+      }
+
+      navigate('/student');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Verification failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setResendingOtp(true);
+    try {
+      await api.post('/auth/resend-registration-otp', {
+        email: form.email.trim().toLowerCase(),
+      });
+      toast.success('A new verification code has been dispatched to your email.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resend code');
+    } finally {
+      setResendingOtp(false);
+    }
+  };
+
   return (
-    <div className="login-page">
-      <div className="login-card fade-in" style={{ maxWidth: 480 }}>
-        <div className="login-logo">
+    <div className="login-page" style={{ padding: '30px 16px' }}>
+      <div className="login-card fade-in" style={{ maxWidth: 640, width: '100%' }}>
+        <div className="login-logo" style={{ marginBottom: 20 }}>
           <h1>🏛️ HEIMDALL</h1>
-          <p>Student Registration</p>
+          <p>{step === 'form' ? 'Student Registration with Digital Guardian Linking' : 'Verify College Email'}</p>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          {/* College Email */}
-          <div className="form-group">
-            <label className="form-label">College Email *</label>
-            <input id="reg-email" type="email" className="form-input"
-              placeholder={`112415098@${COLLEGE_DOMAIN}`}
-              value={form.email} onChange={handleEmailChange} required />
-            {form.email && !form.email.toLowerCase().endsWith(`@${COLLEGE_DOMAIN}`) && (
-              <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
-                ⚠️ Must be a @{COLLEGE_DOMAIN} email
-              </div>
-            )}
-          </div>
-
-          {/* Name + Roll No (Locked if extracted from email) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Full Name *</label>
-              <input id="reg-name" type="text" className="form-input"
-                placeholder="Arjun Sharma" value={form.name} onChange={set('name')} required />
+        {step === 'otp' ? (
+          <form onSubmit={handleVerifyOtp} className="fade-in">
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 20,
+              fontSize: 13.5,
+              lineHeight: 1.5,
+            }}>
+              ✉️ We sent a 6-digit verification code to: <br />
+              <strong style={{ color: '#60a5fa', fontSize: 14 }}>{form.email}</strong>
             </div>
+
             <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label className="form-label">MIS / Roll No *</label>
-                {autoMis && (
-                  <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>🔒 Locked</span>
-                )}
-              </div>
+              <label className="form-label" style={{ fontWeight: 700 }}>6-Digit Verification Code *</label>
               <input
-                id="reg-rollno"
+                id="reg-otp"
                 type="text"
                 className="form-input"
-                placeholder="112415098"
-                value={autoMis || form.rollNo}
-                readOnly={Boolean(autoMis)}
-                onChange={set('rollNo')}
+                placeholder="123456"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                autoFocus
                 required
                 style={{
-                  background: autoMis ? 'rgba(255, 255, 255, 0.04)' : undefined,
-                  cursor: autoMis ? 'not-allowed' : undefined,
-                  fontWeight: autoMis ? 700 : undefined,
+                  fontSize: 24,
+                  letterSpacing: 8,
+                  textAlign: 'center',
+                  fontFamily: 'monospace',
+                  padding: 12,
                 }}
               />
             </div>
-          </div>
 
-          {/* Phone */}
-          <div className="form-group">
-            <label className="form-label">Student Phone *</label>
-            <input id="reg-phone" type="tel" className="form-input"
-              placeholder="+919800000000" value={form.phone} onChange={set('phone')} required />
-          </div>
-
-          {/* Parent Phone 1 + Parent Phone 2 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Parent Contact 1 *</label>
-              <input id="reg-parent-phone" type="tel" className="form-input"
-                placeholder="+919700000000" value={form.parentPhone} onChange={set('parentPhone')} required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Parent Contact 2 *</label>
-              <input id="reg-parent-phone-2" type="tel" className="form-input"
-                placeholder="+919600000000" value={form.parentPhone2} onChange={set('parentPhone2')} required />
-            </div>
-          </div>
-
-          {/* Hostel */}
-          <div className="form-group">
-            <label className="form-label">Hostel</label>
-            <select id="reg-hostel" className="form-input" value={form.hostel} onChange={set('hostel')}
-              style={{ cursor: 'pointer' }}>
-              <option value="">Select hostel...</option>
-              <option value="BH1">Brahmaputra (BH1)</option>
-              <option value="BH2">Krishna (BH2)</option>
-              <option value="GH1">Indrayani (GH1)</option>
-              <option value="GH2">Sindhu (GH2)</option>
-            </select>
-          </div>
-
-          {/* Password */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Password *</label>
-              <input id="reg-password" type="password" className="form-input"
-                placeholder="Min 6 characters" value={form.password} onChange={set('password')} required />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Confirm Password *</label>
-              <input id="reg-confirm" type="password" className="form-input"
-                placeholder="Re-enter password" value={form.confirmPassword} onChange={set('confirmPassword')} required />
-            </div>
-          </div>
-
-          {/* Warning Note */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              padding: '10px 14px',
-              borderRadius: '10px',
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.28)',
-              color: '#ef4444',
-              fontSize: '12.5px',
-              lineHeight: '1.45',
-              fontWeight: 600,
-              marginTop: '10px',
-              marginBottom: '6px',
-            }}
-          >
-            <span style={{ fontSize: '17px', flexShrink: 0 }}>⚠️</span>
-            <span>
-              <strong>Note:</strong> Any wrong or false information provided during registration will result in immediate removal from the hostel.
-            </span>
-          </div>
-
-          {/* Terms and Conditions Tick Box */}
-          <div
-            style={{
-              marginTop: '14px',
-              marginBottom: '10px',
-              padding: '12px 14px',
-              borderRadius: '10px',
-              background: agreeTerms ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.04)',
-              border: agreeTerms ? '1.5px solid rgba(16, 185, 129, 0.4)' : '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '10px',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <input
-              id="reg-terms-checkbox"
-              type="checkbox"
-              checked={agreeTerms}
-              onChange={(e) => setAgreeTerms(e.target.checked)}
-              style={{
-                marginTop: '3px',
-                width: '18px',
-                height: '18px',
-                cursor: 'pointer',
-                accentColor: 'var(--primary, #3b82f6)',
-                flexShrink: 0,
-              }}
-              required
-            />
-            <label
-              htmlFor="reg-terms-checkbox"
-              style={{
-                fontSize: '12.5px',
-                lineHeight: '1.45',
-                color: 'var(--text-secondary, #cbd5e1)',
-                cursor: 'pointer',
-                userSelect: 'none',
-              }}
+            <button
+              type="submit"
+              className="btn btn-primary btn-block"
+              disabled={loading || otp.length !== 6}
+              style={{ marginTop: 16, padding: '12px' }}
             >
-              I agree to the{' '}
+              {loading ? <span className="loading-spinner" /> : 'Verify Code & Complete Registration'}
+            </button>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, fontSize: 13 }}>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowTermsModal(true);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--primary-light, #818cf8)',
-                  textDecoration: 'underline',
-                  cursor: 'pointer',
-                  padding: 0,
-                  fontSize: '12.5px',
-                  fontWeight: 700,
-                  display: 'inline',
-                }}
+                onClick={() => setStep('form')}
+                className="btn-link"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
-                Hostel Terms & Conditions
+                ← Back to Edit Details
               </button>
-              , Curfew Rules (8:00 PM), mandatory QR gate verification, and disciplinary policies.
-            </label>
-          </div>
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={resendingOtp}
+                className="btn-link"
+                style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}
+              >
+                {resendingOtp ? 'Resending...' : 'Resend Code'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {/* Section 1: Student Information */}
+            <div style={{
+              fontSize: 13,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              letterSpacing: 1,
+              marginBottom: 10,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              paddingBottom: 4,
+            }}>
+              1. Student Details
+            </div>
 
-          <button
-            id="register-btn"
-            type="submit"
-            className="btn btn-primary"
-            style={{
-              width: '100%',
-              marginTop: 8,
-              justifyContent: 'center',
-              cursor: (!agreeTerms || loading) ? 'not-allowed' : 'pointer',
-              opacity: (!agreeTerms || loading) ? 0.45 : 1,
-              filter: (!agreeTerms || loading) ? 'grayscale(0.7)' : 'none',
-              pointerEvents: (!agreeTerms || loading) ? 'none' : 'auto',
-              transition: 'all 0.2s ease',
-            }}
-            disabled={!agreeTerms || loading}
-            title={!agreeTerms ? 'Tick the Terms and Conditions box to enable registration' : 'Create Student Account'}
-          >
-            {loading
-              ? <><span className="loading-spinner" style={{ width: 16, height: 16 }} /> Registering...</>
-              : (!agreeTerms ? '🔒 Accept Terms to Register' : '🎓 Create Student Account')}
-          </button>
-        </form>
+            {/* College Email */}
+            <div className="form-group">
+              <label className="form-label">College Email *</label>
+              <input
+                id="reg-email"
+                type="email"
+                className="form-input"
+                placeholder="112415098@iiitpune.ac.in"
+                value={form.email}
+                onChange={handleEmailChange}
+                required
+              />
+              {form.email && !isCollegeDomain(form.email) && (
+                <div style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+                  ⚠️ Must be a college email ({ALLOWED_COLLEGE_DOMAINS.map((d) => `@${d}`).join(', ')})
+                </div>
+              )}
+            </div>
 
-        {/* Terms and Conditions Modal */}
-        {showTermsModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0, 0, 0, 0.8)',
-              backdropFilter: 'blur(5px)',
-              zIndex: 9999,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '20px',
-            }}
-          >
-            <div
-              style={{
-                background: 'var(--bg-card, #1e293b)',
-                border: '1px solid var(--border, #334155)',
-                borderRadius: '16px',
-                width: '100%',
-                maxWidth: '540px',
-                maxHeight: '80vh',
-                overflowY: 'auto',
-                padding: '24px',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📜 Hostel Terms & Conditions</h3>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setShowTermsModal(false)}
-                  style={{ padding: '4px 8px' }}
-                >
-                  ✕
-                </button>
+            {/* Name + Roll No */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input
+                  id="reg-name"
+                  type="text"
+                  className="form-input"
+                  placeholder="Arjun Sharma"
+                  value={form.name}
+                  onChange={setField('name')}
+                  required
+                />
               </div>
-              <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <p>
-                  <strong>1. Accurate Contact Details:</strong> All submitted student and parent contact numbers must be valid, active Indian phone numbers and genuinely belong to parents/guardians. Providing false contacts is a serious disciplinary violation.
-                </p>
-                <p>
-                  <strong>2. Curfew Timings:</strong> Daily campus entry curfew is strictly 8:00 PM. Students returning after 8:00 PM without approved permission will be flagged as late or not returned.
-                </p>
-                <p>
-                  <strong>3. Gate Scanning:</strong> Every entry and exit through the hostel campus gate requires mandatory scanning of your personal dynamic QR code at the security checkpoint.
-                </p>
-                <p>
-                  <strong>4. Home Visits & Parental Consent:</strong> Extended home leaves require hostel staff authorization and verified guardian confirmation through phone calls or automated WhatsApp approval links.
-                </p>
-                <p>
-                  <strong>5. Disciplinary Actions:</strong> Violation of hostel norms or impersonation at security gates will lead to immediate revocation of hostel residency rights.
-                </p>
-              </div>
-              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setAgreeTerms(true);
-                    setShowTermsModal(false);
+              <div className="form-group">
+                <label className="form-label">MIS / Roll No *</label>
+                <input
+                  id="reg-rollno"
+                  type="text"
+                  className="form-input"
+                  placeholder="112415098"
+                  value={autoMis || form.rollNo}
+                  readOnly={Boolean(autoMis)}
+                  onChange={setField('rollNo')}
+                  required
+                  style={{
+                    background: autoMis ? 'rgba(255, 255, 255, 0.04)' : undefined,
+                    cursor: autoMis ? 'not-allowed' : undefined,
+                    fontWeight: autoMis ? 700 : undefined,
                   }}
-                >
-                  I Understand & Agree
-                </button>
+                />
               </div>
             </div>
-          </div>
+
+            {/* Student Phone + Hostel */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Student Phone *</label>
+                <input
+                  id="reg-phone"
+                  type="tel"
+                  className="form-input"
+                  placeholder="+919800000000"
+                  value={form.phone}
+                  onChange={setField('phone')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hostel</label>
+                <select
+                  id="reg-hostel"
+                  className="form-input"
+                  value={form.hostel}
+                  onChange={setField('hostel')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <option value="">Select hostel...</option>
+                  <option value="BH1">Brahmaputra (BH1)</option>
+                  <option value="BH2">Krishna (BH2)</option>
+                  <option value="GH1">Indrayani (GH1)</option>
+                  <option value="GH2">Sindhu (GH2)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Section 2: Guardian 1 Details */}
+            <div style={{
+              fontSize: 13,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              color: '#60a5fa',
+              letterSpacing: 1,
+              marginTop: 18,
+              marginBottom: 10,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              paddingBottom: 4,
+            }}>
+              2. Guardian 1 Details (Primary)
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Guardian 1 Name *</label>
+                <input
+                  id="reg-g1-name"
+                  type="text"
+                  className="form-input"
+                  placeholder="Ramesh Sharma"
+                  value={form.guardian1.name}
+                  onChange={setG1('name')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Relationship *</label>
+                <select
+                  id="reg-g1-rel"
+                  className="form-input"
+                  value={form.guardian1.relationship}
+                  onChange={setG1('relationship')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Guardian">Guardian</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Guardian 1 Phone *</label>
+                <input
+                  id="reg-g1-phone"
+                  type="tel"
+                  className="form-input"
+                  placeholder="+919876543211"
+                  value={form.guardian1.phone}
+                  onChange={setG1('phone')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Guardian 1 Email (Personal) *</label>
+                <input
+                  id="reg-g1-email"
+                  type="email"
+                  className="form-input"
+                  placeholder="parent1@gmail.com"
+                  value={form.guardian1.email}
+                  onChange={setG1('email')}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Section 3: Guardian 2 Details */}
+            <div style={{
+              fontSize: 13,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              color: '#a78bfa',
+              letterSpacing: 1,
+              marginTop: 18,
+              marginBottom: 10,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              paddingBottom: 4,
+            }}>
+              3. Guardian 2 Details (Secondary)
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Guardian 2 Name *</label>
+                <input
+                  id="reg-g2-name"
+                  type="text"
+                  className="form-input"
+                  placeholder="Sunita Sharma"
+                  value={form.guardian2.name}
+                  onChange={setG2('name')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Relationship *</label>
+                <select
+                  id="reg-g2-rel"
+                  className="form-input"
+                  value={form.guardian2.relationship}
+                  onChange={setG2('relationship')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <option value="Mother">Mother</option>
+                  <option value="Father">Father</option>
+                  <option value="Guardian">Guardian</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Guardian 2 Phone *</label>
+                <input
+                  id="reg-g2-phone"
+                  type="tel"
+                  className="form-input"
+                  placeholder="+919876543212"
+                  value={form.guardian2.phone}
+                  onChange={setG2('phone')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Guardian 2 Email (Personal) *</label>
+                <input
+                  id="reg-g2-email"
+                  type="email"
+                  className="form-input"
+                  placeholder="parent2@gmail.com"
+                  value={form.guardian2.email}
+                  onChange={setG2('email')}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Section 4: Password & Terms */}
+            <div style={{
+              fontSize: 13,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              letterSpacing: 1,
+              marginTop: 18,
+              marginBottom: 10,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              paddingBottom: 4,
+            }}>
+              4. Password & Agreement
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Password *</label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  className="form-input"
+                  placeholder="Min 6 characters"
+                  value={form.password}
+                  onChange={setField('password')}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Confirm Password *</label>
+                <input
+                  id="reg-confirm"
+                  type="password"
+                  className="form-input"
+                  placeholder="Re-enter password"
+                  value={form.confirmPassword}
+                  onChange={setField('confirmPassword')}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Terms and Conditions Tick Box */}
+            <div
+              style={{
+                marginTop: '14px',
+                marginBottom: '10px',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                background: agreeTerms ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.04)',
+                border: agreeTerms ? '1.5px solid rgba(16, 185, 129, 0.4)' : '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+              }}
+            >
+              <input
+                id="reg-terms-checkbox"
+                type="checkbox"
+                checked={agreeTerms}
+                onChange={(e) => setAgreeTerms(e.target.checked)}
+                style={{
+                  marginTop: '3px',
+                  width: '18px',
+                  height: '18px',
+                  cursor: 'pointer',
+                  accentColor: 'var(--primary, #3b82f6)',
+                  flexShrink: 0,
+                }}
+                required
+              />
+              <label htmlFor="reg-terms-checkbox" style={{ fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer', lineHeight: '1.45' }}>
+                I confirm all contact details provided are accurate. Both guardians will receive invitations to review and approve future home-visit requests.
+              </label>
+            </div>
+
+            <button
+              id="reg-submit-btn"
+              type="submit"
+              className="btn btn-primary btn-block"
+              disabled={loading || !agreeTerms}
+              style={{ marginTop: 14, padding: '12px' }}
+            >
+              {loading ? <span className="loading-spinner" /> : 'Send Verification Code →'}
+            </button>
+          </form>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: 20, color: 'var(--text-muted)', fontSize: 13 }}>
-          Already have an account?{' '}
-          <Link to="/login" style={{ color: 'var(--primary-light)', textDecoration: 'none', fontWeight: 600 }}>
-            Sign In
-          </Link>
-        </div>
-
-        <div style={{
-          marginTop: 16, padding: 12, background: 'var(--glass)',
-          border: 'var(--border)', borderRadius: 'var(--radius-md)',
-          fontSize: 12, color: 'var(--text-muted)',
-        }}>
-          🔒 Only <strong>@{COLLEGE_DOMAIN}</strong> email addresses can register as students.
+        <div className="login-footer" style={{ marginTop: 20 }}>
+          Already have an account? <Link to="/login">Sign in here</Link>
         </div>
       </div>
     </div>

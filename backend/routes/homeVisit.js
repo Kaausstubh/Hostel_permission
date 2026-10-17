@@ -13,6 +13,9 @@ const router = express.Router();
 const HomeVisitLog = require('../models/HomeVisitLog');
 const GatePass = require('../models/GatePass');
 const User = require('../models/User');
+const Guardian = require('../models/Guardian');
+const ParentApproval = require('../models/ParentApproval');
+const ApprovalAuditLog = require('../models/ApprovalAuditLog');
 const { protect, authorize } = require('../middleware/auth');
 const {
   validateQR,
@@ -26,6 +29,8 @@ const {
 } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
+const { sendLeaveRequestEmail } = require('../services/mailService');
+const { recordStaffPhoneOverride } = require('../services/parentApprovalService');
 const logger = require('../utils/logger');
 const { recordDeletionAudit } = require('../services/storageStatsService');
 const { getLogsCache, setLogsCache, invalidateLogsCache } = require('../services/logsCache');
@@ -131,6 +136,9 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
       parent_phone_alt: req.user.parentPhone2 ? normalizeToE164(req.user.parentPhone2) : null,
       qr_token: persistentToken,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
 
     // Mirror to GatePass for single MongoDB source of truth
@@ -144,12 +152,47 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       reason: visit.reason,
     }).catch((gpErr) => console.warn('[HomeVisit] GatePass creation notice:', gpErr.message));
 
-    // In the "warden calls parent" workflow, we do not require parent WhatsApp approval.
-    // (Optional notifications can still be added later if you want.)
+    // Digital Parent Approval: Notify all linked guardians via email
+    try {
+      const guardians = await Guardian.find({
+        student_id: req.user._id,
+        status: { $ne: 'REVOKED' },
+      });
+
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
+
+      for (const g of guardians) {
+        sendLeaveRequestEmail({
+          to: g.email,
+          guardianName: g.name,
+          studentName: req.user.name,
+          leaveDate: visit.leave_date,
+          returnDate: visit.return_date,
+          reason: visit.reason,
+          place: visit.place,
+          requestUrl,
+        }).catch((err) => logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`));
+
+        ApprovalAuditLog.create({
+          event: 'REQUEST_NOTIFIED',
+          home_visit_request_id: visit._id,
+          student_id: req.user._id,
+          guardian_id: g._id,
+          actor_id: req.user._id,
+          actor_role: 'student',
+          actor_email: req.user.email,
+          ip_address: req.ip,
+          details: { requestUrl, guardianEmail: g.email },
+        }).catch(() => {});
+      }
+    } catch (notifyErr) {
+      logger.warn('[HomeVisit] Guardian notification dispatch error:', notifyErr.message);
+    }
 
     res.status(201).json({
       success: true,
-      message: 'Home visit request submitted. Hostel staff will call your parent to confirm.',
+      message: 'Home visit request submitted. Notification emails sent to parents for digital approval.',
       visit,
     });
   } catch (error) {
@@ -180,6 +223,38 @@ router.post('/warden-confirm-call', protect, authorize('warden', 'admin'), async
   } catch (error) {
     console.error('Warden confirm call error:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── Staff Manual Phone Confirmation Override ─────────────────────────────────
+// Allows staff to manually confirm parent permission via phone call when parents
+// have no internet, emergency, or did not respond. Works even when no guardian is linked.
+router.post('/staff-phone-override', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
+  try {
+    const { visit_id, guardian_id, contact_name, contact_phone, override_reason } = req.body;
+    if (!visit_id) {
+      return res.status(400).json({ success: false, message: 'visit_id is required' });
+    }
+
+    const result = await recordStaffPhoneOverride({
+      visitId: visit_id,
+      staffUser: req.user,
+      guardianId: guardian_id || null,
+      contactName: contact_name || '',
+      contactPhone: contact_phone || '',
+      overrideReason: override_reason || '',
+      ip: req.ip,
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Staff phone confirmation override applied successfully.',
+      ...result,
+    });
+  } catch (err) {
+    logger.warn('[HomeVisit] Staff phone override error', { error: err.message });
+    return res.status(400).json({ success: false, message: err.message });
   }
 });
 
@@ -261,8 +336,21 @@ router.post('/warden-approve', protect, authorize('warden', 'admin'), async (req
     const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
 
     if (action === 'approve') {
-      if (!visit.parent_call_confirmed) {
-        return res.status(400).json({ success: false, message: 'Confirm parent call before approving' });
+      const isLegacy = visit.parent_approval_status === 'legacy';
+      if (!isLegacy) {
+        const isParentApproved = visit.parent_approval_status === 'parent_approved';
+        const isPhoneOverride = Boolean(visit.parent_call_confirmed);
+        if (!isParentApproved && !isPhoneOverride) {
+          return res.status(400).json({
+            success: false,
+            message: 'Digital parent approval (or staff phone confirmation override) is required before final approval',
+          });
+        }
+      } else {
+        // Legacy record — backwards compatible with original parent call confirmation
+        if (!visit.parent_call_confirmed) {
+          return res.status(400).json({ success: false, message: 'Confirm parent call before approving' });
+        }
       }
       visit.overall_status = 'approved';
 
@@ -387,11 +475,11 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
 router.get('/list', protect, authorize('warden', 'security'), async (req, res) => {
   const queryStart = Date.now();
   try {
-    const { status, scanStatus, scannedOnly, date, search } = req.query;
+    const { status, parentApprovalStatus, scanStatus, scannedOnly, date, search } = req.query;
     const { page, limit, skip } = getPagination(req.query, 50, 100);
     const searchTrim = (search || '').trim();
 
-    const cacheKey = `logs:home:${status || 'all'}:${scanStatus || 'all'}:${scannedOnly || 'all'}:${date || 'all'}:${searchTrim || 'all'}:${page}:${limit}`;
+    const cacheKey = `logs:home:${status || 'all'}:${parentApprovalStatus || 'all'}:${scanStatus || 'all'}:${scannedOnly || 'all'}:${date || 'all'}:${searchTrim || 'all'}:${page}:${limit}`;
     const cached = await getLogsCache(cacheKey);
     if (cached) {
       res.set('X-Response-Time', `${Date.now() - queryStart}ms`);
@@ -400,6 +488,9 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const conditions = [];
     if (status) conditions.push({ overall_status: status });
+    if (parentApprovalStatus && parentApprovalStatus !== 'all') {
+      conditions.push({ parent_approval_status: parentApprovalStatus });
+    }
     if (scannedOnly === 'true') {
       conditions.push({
         $or: [
@@ -434,10 +525,10 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
 
     const filter = conditions.length > 1 ? { $and: conditions } : (conditions[0] || {});
 
-    // ⚡ Lean projection: load only fields rendered in the table to minimize response payload
-    const [visits, count] = await Promise.all([
+    // ⚡ Lean projection: load fields rendered in the table to minimize response payload
+    const [rawVisits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt')
+        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_approval_status final_parent_decision_at parent_decision_source accompanying parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt')
         .populate('student_id', 'name rollNo hostel roomNo parentPhone parentPhone2 studentPhoto picture')
         .populate('scannedBy', 'name')
         .sort({ createdAt: -1 })
@@ -450,6 +541,35 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
             ? HomeVisitLog.estimatedDocumentCount()
             : HomeVisitLog.countDocuments(filter)),
     ]);
+
+    // Attach linked guardians & parent approvals for audit inspection
+    const visitIds = rawVisits.map((v) => v._id);
+    const studentIds = rawVisits.map((v) => v.student_id?._id || v.student_id).filter(Boolean);
+
+    const [approvals, guardians] = await Promise.all([
+      ParentApproval.find({ home_visit_request_id: { $in: visitIds } }).lean(),
+      Guardian.find({ student_id: { $in: studentIds } }).lean(),
+    ]);
+
+    const approvalMap = new Map();
+    approvals.forEach((a) => {
+      const vId = String(a.home_visit_request_id);
+      if (!approvalMap.has(vId)) approvalMap.set(vId, []);
+      approvalMap.get(vId).push(a);
+    });
+
+    const guardianMap = new Map();
+    guardians.forEach((g) => {
+      const sId = String(g.student_id);
+      if (!guardianMap.has(sId)) guardianMap.set(sId, []);
+      guardianMap.get(sId).push(g);
+    });
+
+    const visits = rawVisits.map((v) => ({
+      ...v,
+      parentApprovals: approvalMap.get(String(v._id)) || [],
+      guardians: guardianMap.get(String(v.student_id?._id || v.student_id)) || [],
+    }));
 
     const finalCount = count !== null ? count : visits.length;
     const hasMore = (skip + visits.length) < finalCount;

@@ -61,6 +61,9 @@ const attendanceRoutes = require('./routes/attendance');
 const allocationRoutes = require('./routes/allocations');
 const visitorRoutes   = require('./routes/visitors');
 const roomRoutes      = require('./routes/rooms');
+const parentRoutes    = require('./routes/parent');
+const adminGuardianRoutes = require('./routes/adminGuardians');
+const { scheduleParentApprovalJob } = require('./jobs/parentApprovalScheduler');
 
 // ── App & HTTP server (shared with Socket.IO) ─────────────────────────────────
 const app = express();
@@ -280,6 +283,8 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/allocations', allocationRoutes);
 app.use('/api/visitors',   visitorRoutes);
 app.use('/api/rooms',      roomRoutes);
+app.use('/api/parent',     parentRoutes);
+app.use('/api/admin/guardians', adminGuardianRoutes);
 
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 const handleHealth = (req, res) => {
@@ -396,6 +401,7 @@ server.listen(PORT, async () => {
   scheduleNotReturnedAlert();
   scheduleQrCleanup();
   scheduleArchiveJob();
+  scheduleParentApprovalJob();
   startWhatsAppWorker();
   startArchiveWorker();
 

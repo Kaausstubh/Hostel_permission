@@ -32,39 +32,67 @@ async function removeExistingStudents() {
   const staffCount = await User.countDocuments({ role: { $in: ['warden', 'admin', 'security'] } });
   console.log(`🛡️ Staff/Admin/Security accounts preserved: ${staffCount}`);
 
-  if (studentCount > 0) {
-    // Delete students
-    const deleteResult = await User.deleteMany({ role: 'student' });
-    console.log(`🗑️ Deleted ${deleteResult.deletedCount} student accounts from User collection.`);
+  const PendingRegistration = mongoose.model('PendingRegistration', new mongoose.Schema({}, { strict: false }));
+  const Guardian = mongoose.model('Guardian', new mongoose.Schema({}, { strict: false }));
+  const GuardianInvitation = mongoose.model('GuardianInvitation', new mongoose.Schema({}, { strict: false }));
+  const HomeVisitLog = mongoose.model('HomeVisitLog', new mongoose.Schema({}, { strict: false }));
+  const ParentApproval = mongoose.model('ParentApproval', new mongoose.Schema({}, { strict: false }));
+  const ApprovalAuditLog = mongoose.model('ApprovalAuditLog', new mongoose.Schema({}, { strict: false }));
 
-    // Delete room allocations
-    const allocResult = await RoomAllocation.deleteMany({});
-    console.log(`🗑️ Cleared ${allocResult.deletedCount} student room allocation records.`);
+  // Delete students and parent users
+  const deleteResult = await User.deleteMany({ role: { $in: ['student', 'parent'] } });
+  console.log(`🗑️ Deleted ${deleteResult.deletedCount} student and parent accounts from User collection.`);
 
-    // Reset all hostel room occupant counts to 0 and vacantBeds to capacity
-    const rooms = await HostelRoom.find({}).lean();
-    for (const r of rooms) {
-      await HostelRoom.updateOne(
-        { _id: r._id },
-        { $set: { occupantsCount: 0, vacantBeds: r.capacity || 2 } }
-      );
-    }
-    console.log(`🏢 Reset occupancy for ${rooms.length} hostel rooms (all vacant, ready for newly registering students).`);
+  // Clear pending registrations & guardian records
+  const pendResult = await PendingRegistration.deleteMany({});
+  console.log(`🗑️ Cleared ${pendResult.deletedCount} pending student registration(s).`);
 
-    // Clean up devices, logs, records for old test students
-    const devResult = await StudentDevice.deleteMany({});
-    console.log(`📱 Cleared ${devResult.deletedCount} student device registration(s).`);
+  const guardResult = await Guardian.deleteMany({});
+  console.log(`🗑️ Cleared ${guardResult.deletedCount} guardian record(s).`);
 
-    const attResult = await AttendanceRecord.deleteMany({});
-    console.log(`📝 Cleared ${attResult.deletedCount} old attendance record(s).`);
+  const invResult = await GuardianInvitation.deleteMany({});
+  console.log(`🗑️ Cleared ${invResult.deletedCount} guardian invitation(s).`);
 
-    const logResult = await InOutLog.deleteMany({ role: 'student' });
-    console.log(`🚪 Cleared ${logResult.deletedCount} old student gate logs.`);
-  } else {
-    console.log('ℹ️ No student accounts found to remove.');
+  const hvResult = await HomeVisitLog.deleteMany({});
+  console.log(`🗑️ Cleared ${hvResult.deletedCount} home visit log(s).`);
+
+  const paResult = await ParentApproval.deleteMany({});
+  console.log(`🗑️ Cleared ${paResult.deletedCount} parent approval(s).`);
+
+  const alResult = await ApprovalAuditLog.deleteMany({});
+  console.log(`🗑️ Cleared ${alResult.deletedCount} approval audit log(s).`);
+
+  // Reset password on any staff accounts that had one set during parent testing
+  await User.updateMany(
+    { email: 'sjyotik2005@gmail.com' },
+    { $set: { role: 'warden', passwordHash: null } }
+  );
+
+  // Delete room allocations
+  const allocResult = await RoomAllocation.deleteMany({});
+  console.log(`🗑️ Cleared ${allocResult.deletedCount} student room allocation records.`);
+
+  // Reset all hostel room occupant counts to 0 and vacantBeds to capacity
+  const rooms = await HostelRoom.find({}).lean();
+  for (const r of rooms) {
+    await HostelRoom.updateOne(
+      { _id: r._id },
+      { $set: { occupantsCount: 0, vacantBeds: r.capacity || 2 } }
+    );
   }
+  console.log(`🏢 Reset occupancy for ${rooms.length} hostel rooms (all vacant, ready for newly registering students).`);
 
-  console.log('\n✨ Student directory is now clean. Newly registered Google Gmail students will be automatically populated upon login and onboarding.');
+  // Clean up devices, logs, records for old test students
+  const devResult = await StudentDevice.deleteMany({});
+  console.log(`📱 Cleared ${devResult.deletedCount} student device registration(s).`);
+
+  const attResult = await AttendanceRecord.deleteMany({});
+  console.log(`📝 Cleared ${attResult.deletedCount} old attendance record(s).`);
+
+  const logResult = await InOutLog.deleteMany({ role: 'student' });
+  console.log(`🚪 Cleared ${logResult.deletedCount} old student gate logs.`);
+
+  console.log('\n✨ Database student and parent records are now completely reset and clean.');
 
   await mongoose.disconnect();
   console.log('🔌 Disconnected from MongoDB');

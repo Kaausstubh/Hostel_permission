@@ -146,8 +146,23 @@ const authorize = (...roles) => {
     allowedSet.add('staff');
   }
 
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const userRole = req.user?.role;
+    if (allowedSet.has('parent') && !allowedSet.has(userRole)) {
+      try {
+        const Guardian = require('../models/Guardian');
+        const isGuardian = await Guardian.exists({
+          $or: [{ user_id: req.user._id }, { email: req.user.email?.toLowerCase() }],
+          status: { $ne: 'REVOKED' },
+        });
+        if (isGuardian) {
+          return next();
+        }
+      } catch (err) {
+        // Fall through to standard role check
+      }
+    }
+
     if (!allowedSet.has(userRole)) {
       logger.warn('[Auth] Unauthorized role access attempt', {
         userId: req.user._id,

@@ -17,16 +17,25 @@
  */
 
 // ── Student domain whitelist ───────────────────────────────────────────────────
-// Students register with their personal or institutional Google Gmail accounts.
-const STUDENT_ALLOWED_DOMAINS = [
-  'gmail.com',
-  'googlemail.com',
-  'cse.iiitp.ac.in',
-  'ece.iiitp.ac.in',
-  'cysec.iiitp.ac.in',
-  'aids.iiitp.ac.in',
-  'mevd.iiitp.ac.in',
-];
+// Students MUST authenticate using their official college institutional domain.
+// Generic personal email providers (gmail.com, googlemail.com, yahoo, etc.) are strictly prohibited.
+const envCollegeDomains = (process.env.ALLOWED_COLLEGE_EMAIL_DOMAINS || '')
+  .split(',')
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
+const STUDENT_ALLOWED_DOMAINS = envCollegeDomains.length > 0
+  ? envCollegeDomains
+  : [
+      'iiitpune.ac.in',
+      'cse.iiitp.ac.in',
+      'ece.iiitp.ac.in',
+      'cysec.iiitp.ac.in',
+      'aids.iiitp.ac.in',
+      'mevd.iiitp.ac.in',
+      'iiitp.ac.in',
+      'college.edu',
+    ];
 
 // ── Hostel Staff (Warden) email whitelist ─────────────────────────────────────
 // Authorized emails permitted to log in to the Hostel Staff Command Centre.
@@ -92,8 +101,9 @@ const SECURITY_ALLOWED_EMAILS = envSecurityEmails.length > 0
 const validateStudentEmail = (email) => {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
-  // Prevent hostel staff from logging in as students
+  // Prevent hostel staff and security from logging in as students
   if (WARDEN_ALLOWED_EMAILS.includes(normalized)) return false;
+  if (SECURITY_ALLOWED_EMAILS.includes(normalized)) return false;
   const domain = normalized.split('@')[1];
   return STUDENT_ALLOWED_DOMAINS.includes(domain);
 };

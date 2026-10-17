@@ -58,12 +58,37 @@ const userSchema = new mongoose.Schema(
     // ── Role & Status ─────────────────────────────────────────────────────────
     role: {
       type: String,
-      enum: ['student', 'warden', 'hostel_staff', 'security', 'admin'],
+      enum: ['student', 'warden', 'hostel_staff', 'security', 'admin', 'parent'],
       default: 'student',
     },
     isActive: {
       type: Boolean,
       default: true,
+    },
+    // Password authentication (for parent portal and local student accounts)
+    passwordHash: {
+      type: String,
+      default: null,
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: true,
+    },
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
+    loginOtpHash: {
+      type: String,
+      default: null,
+    },
+    loginOtpExpires: {
+      type: Date,
+      default: null,
     },
 
     // ── Student-only Fields ───────────────────────────────────────────────────
