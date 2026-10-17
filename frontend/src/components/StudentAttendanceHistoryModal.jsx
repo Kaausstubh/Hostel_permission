@@ -257,7 +257,7 @@ export default function StudentAttendanceHistoryModal({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>ATTENDANCE STATUS</div>
-                  <div style={{ fontWeight: 800, color: todayBadgeColor }}>{effectiveToday.status?.toUpperCase() || todayLabel}</div>
+                  <div style={{ fontWeight: 800, color: todayBadgeColor }}>{effectiveToday.status ? effectiveToday.status.replace(/_/g, ' ').toUpperCase() : todayLabel.toUpperCase()}</div>
                 </div>
                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>VERIFICATION TIME</div>
@@ -281,7 +281,7 @@ export default function StudentAttendanceHistoryModal({
 
               {effectiveToday?.time && (
                 <div>
-                  ⏰ Verified at: <strong style={{ color: 'var(--text-primary)' }}>{effectiveToday.time}</strong>
+                  ⏰ {isPresent ? 'Verified at:' : 'Marked at:'} <strong style={{ color: 'var(--text-primary)' }}>{effectiveToday.time}</strong>
                 </div>
               )}
               {effectiveToday?.method && (
@@ -423,6 +423,31 @@ export default function StudentAttendanceHistoryModal({
                     ? 'Approved Leave (Home Visit)'
                     : record.remark || 'Unverified / Absent during round';
 
+                // Extract timestamp consistently for present, absent, and leave
+                let recordTime = record.time;
+                if (!recordTime) {
+                  const rawTs =
+                    record.markedAt ||
+                    record.verification_timestamp ||
+                    record.createdAt ||
+                    record.updatedAt ||
+                    (record.id && String(record.id).length >= 8
+                      ? new Date(parseInt(String(record.id).substring(0, 8), 16) * 1000)
+                      : null);
+                  if (rawTs) {
+                    const d = new Date(rawTs);
+                    if (!isNaN(d.getTime())) {
+                      recordTime = d.toLocaleTimeString('en-IN', {
+                        timeZone: 'Asia/Kolkata',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true,
+                      });
+                    }
+                  }
+                }
+
                 return (
                   <div
                     key={record.id}
@@ -438,32 +463,48 @@ export default function StudentAttendanceHistoryModal({
                     }}
                   >
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      {/* Row 1: Date & Time Pill (Uniformly displayed across all records) */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                         <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
                           📅 {record.formattedDate || record.date}
                         </span>
-                        {(record.time || record.markedAt) && record.status === 'present' && (
+                        {recordTime ? (
                           <span
                             style={{
                               fontSize: 12,
                               fontWeight: 700,
                               color: 'var(--primary-light)',
                               background: 'rgba(99, 102, 241, 0.12)',
-                              padding: '1px 8px',
+                              padding: '2px 8px',
                               borderRadius: 6,
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: 4,
                             }}
                           >
-                            ⏰ {record.time || new Date(record.markedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                            ⏰ {recordTime}
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 11.5,
+                              color: 'var(--text-muted)',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                            }}
+                          >
+                            ⏰ Recorded during round
                           </span>
                         )}
-                        <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                          {record.hostel ? `${record.hostel} · ` : ''}{record.session || 'Night Attendance'}
-                        </span>
                       </div>
 
+                      {/* Row 2: Hostel & Session Name */}
+                      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 2 }}>
+                        {record.hostel ? `${record.hostel} · ` : ''}{record.session || 'Night Attendance'}
+                      </div>
+
+                      {/* Row 3: Room, Method & Remark */}
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                         Hostel {record.hostel || 'Assigned'}{record.roomNo ? ` · Room ${record.roomNo}` : ''} · {methodDesc}
                         {record.remark && record.status === 'present' && <span> · "{record.remark}"</span>}

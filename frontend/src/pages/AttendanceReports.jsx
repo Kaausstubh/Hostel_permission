@@ -26,7 +26,9 @@ import { exportAttendanceToExcel } from '../utils/excelReportGenerator';
 export default function AttendanceReports() {
   const { user } = useAuth();
   const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(todayStr);
+  // Default to past 14 days so all recent records appear immediately upon opening
+  const defaultStartDate = new Date(Date.now() + 5.5 * 3600 * 1000 - 14 * 86400000).toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(defaultStartDate);
   const [endDate, setEndDate] = useState(todayStr);
   const [hostel, setHostel] = useState('ALL');
   const [floor, setFloor] = useState('ALL');
@@ -61,7 +63,7 @@ export default function AttendanceReports() {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [startDate, endDate, hostel, status]);
 
   const handleExportPdf = async () => {
     if (records.length === 0) {
@@ -111,6 +113,7 @@ export default function AttendanceReports() {
   const presentCount = records.filter((r) => r.status === 'present').length;
   const absentCount = records.filter((r) => r.status === 'absent').length;
   const leaveCount = records.filter((r) => r.status === 'on_leave').length;
+  const pendingCount = records.filter((r) => r.status === 'pending').length;
 
   return (
     <div className="fade-in">
@@ -172,6 +175,10 @@ export default function AttendanceReports() {
         <div className="metric-card" style={{ padding: '16px', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>ON APPROVED LEAVE</div>
           <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4, color: '#3b82f6' }}>{leaveCount}</div>
+        </div>
+        <div className="metric-card" style={{ padding: '16px', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>PENDING</div>
+          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4, color: '#f59e0b' }}>{pendingCount}</div>
         </div>
       </div>
 
@@ -242,6 +249,7 @@ export default function AttendanceReports() {
             <option value="present">Present Only</option>
             <option value="absent">Absent Only</option>
             <option value="on_leave">On Leave Only</option>
+            <option value="pending">Pending Only</option>
           </select>
         </div>
         <div>
@@ -251,6 +259,7 @@ export default function AttendanceReports() {
             value={studentQuery}
             onChange={(e) => setStudentQuery(e.target.value)}
             placeholder="Name or Roll No..."
+            onKeyDown={(e) => { if (e.key === 'Enter') fetchReports(); }}
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13 }}
           />
         </div>
@@ -277,15 +286,16 @@ export default function AttendanceReports() {
                 <th style={{ padding: '12px 14px' }}>Status</th>
                 <th style={{ padding: '12px 14px' }}>Method</th>
                 <th style={{ padding: '12px 14px' }}>Verification Time</th>
+                <th style={{ padding: '12px 14px' }}>Session / Checks</th>
                 <th style={{ padding: '12px 14px' }}>Gate Event</th>
-                <th style={{ padding: '12px 14px' }}>Remark / Note</th>
+                <th style={{ padding: '12px 14px' }}>Latest Result / Reason</th>
                 <th style={{ padding: '12px 14px' }}>Verified By</th>
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     No attendance records found matching the selected filters.
                   </td>
                 </tr>
@@ -293,6 +303,7 @@ export default function AttendanceReports() {
                 records.map((r) => {
                   const isPresent = r.status === 'present';
                   const isLeave = r.status === 'on_leave';
+                  const isPending = r.status === 'pending';
                   return (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}>
                       <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{r.date}</td>
@@ -314,14 +325,14 @@ export default function AttendanceReports() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
-                            background: isPresent ? 'rgba(16,185,129,0.12)' : isLeave ? 'rgba(59,130,246,0.12)' : 'rgba(239,68,68,0.12)',
-                            color: isPresent ? '#10b981' : isLeave ? '#3b82f6' : '#ef4444',
+                            background: isPresent ? 'rgba(16,185,129,0.12)' : isLeave ? 'rgba(59,130,246,0.12)' : isPending ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                            color: isPresent ? '#10b981' : isLeave ? '#3b82f6' : isPending ? '#f59e0b' : '#ef4444',
                           }}
                         >
                           {isPresent && <MdCheckCircle size={13} />}
                           {isLeave && <MdHome size={13} />}
-                          {!isPresent && !isLeave && <MdCancel size={13} />}
-                          {r.status.toUpperCase()}
+                          {!isPresent && !isLeave && !isPending && <MdCancel size={13} />}
+                          {r.status ? r.status.toUpperCase() : 'ABSENT'}
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
@@ -331,10 +342,17 @@ export default function AttendanceReports() {
                           ? 'Approved Leave'
                           : r.status === 'absent'
                           ? 'Unverified'
+                          : r.status === 'pending'
+                          ? 'Awaiting GPS'
                           : 'Staff Override'}
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
                         {r.verificationTime || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
+                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
+                        <strong>{r.attemptsUsed || 0}/3 checks</strong>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontSize: 12.5 }}>
                         <span style={{
@@ -347,8 +365,8 @@ export default function AttendanceReports() {
                           {r.gateEvent || '—'}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 14px', color: 'var(--text-muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {r.remark || '-'}
+                      <td style={{ padding: '12px 14px', color: 'var(--text-muted)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.latestVerificationResult || r.finalizationReason || r.remark || ''}>
+                        {r.latestVerificationResult || r.finalizationReason || r.remark || '-'}
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                         {r.status === 'absent' ? '—' : (r.verifiedBy || 'Self-Approved')}

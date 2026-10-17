@@ -3,18 +3,20 @@
  * Production-ready Attendance Pop-up & Verification for HEIMDALL.
  *
  * Implements:
- * 1. ATTENDANCE POP-UP MODAL: Visible only while attendance verification is pending.
- *    Automatically dismisses/unmounts once attendance is finalized (PRESENT or ABSENT).
- * 2. 2-HOUR VERIFICATION WINDOW: Live countdown in HH:MM:SS format ("Attendance verification expires in 01:59:59")
+ * 1. ATTENDANCE POP-UP MODAL:
+ *    - Automatically opens on app open / login when there is an active pending attendance round.
+ *    - Automatically initiates GPS location verification and displays live real-time progress.
+ *    - Displays celebratory PRESENT or final ABSENT card on verification completion before smoothly auto-closing.
+ *    - Never opens uninvited after attendance is already finalized (persists across refreshes).
+ * 2. 2-HOUR VERIFICATION WINDOW: Live countdown in HH:MM:SS format
  *    calculated from reliable server timestamp (expiresAt) and persisted across reloads.
- * 3. MAXIMUM 3 ATTEMPTS: "Location checks remaining: X/3".
- *    All GPS failures count against the limit. GPS outside hostel never marks PRESENT.
+ * 3. MAXIMUM 3 ACCEPTED GPS CHECKS: "Location checks remaining: X/3".
  * 4. UI CARD / MODAL FIELDS:
- *    - Attendance Status: PENDING / PRESENT / ABSENT / ON APPROVED LEAVE
- *    - Verification Time Remaining: HH:MM:SS
- *    - Location Checks Remaining: X/3
- *    - Location Status: NOT CHECKED / INSIDE HOSTEL / OUTSIDE HOSTEL / LOCATION UNAVAILABLE
- *    - Action button to trigger verification (disabled if 0 attempts, expired, or finalized)
+ *    - Field 1: Attendance Status (VERIFYING / PENDING / PRESENT / ABSENT / ON APPROVED LEAVE)
+ *    - Field 2: Verification Time Remaining (HH:MM:SS)
+ *    - Field 3: Location Checks Remaining (X/3 with visual indicator dots)
+ *    - Field 4: Location Status (VERIFYING / INSIDE HOSTEL / OUTSIDE HOSTEL / LOCATION UNAVAILABLE)
+ *    - Field 5: Action Button with live spinning GPS indicator
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -84,13 +86,20 @@ export default function StudentAttendancePrompt({
     remainingSeconds: 7200,
     locationStatus: 'NOT CHECKED',
     message: null,
+    hasActiveSession: false,
+    verificationSessionId: null,
   });
 
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [verifyingStage, setVerifyingStage] = useState('');
   const [errorMessage, setErrorMessage] = useState(null);
+  const [closingNotice, setClosingNotice] = useState(null);
+
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
   const autoFinalizeTriggeredRef = useRef(false);
+  const autoVerifyStartedRef = useRef(false);
+  const finalizationNoticeRef = useRef(null);
 
   const isFinalized =
     sessionData.isFinalized ||
@@ -101,7 +110,7 @@ export default function StudentAttendancePrompt({
 
   // ── Handle Server Response ──────────────────────────────────────────────────
   const handleServerResponse = useCallback(
-    (data, { isUserAction = false } = {}) => {
+    (data, { isUserAction = false, showClosingDelay = false } = {}) => {
       const statusUpper = String(data.status || 'PENDING').toUpperCase();
       const isPresent = statusUpper === 'PRESENT';
       const isAbsent = statusUpper === 'ABSENT';
@@ -130,24 +139,52 @@ export default function StudentAttendancePrompt({
         locationStatus: data.locationStatus || (isPresent ? 'INSIDE HOSTEL' : count > 0 ? 'OUTSIDE HOSTEL' : 'NOT CHECKED'),
         expiresAt: data.expiresAt || prev.expiresAt,
         remainingSeconds: typeof data.remainingSeconds === 'number' ? data.remainingSeconds : prev.remainingSeconds,
+        hasActiveSession: Boolean(data.hasActiveSession),
+        verificationSessionId: data.verificationSessionId || prev.verificationSessionId,
       }));
 
-      if (data.message) {
+      if (data.locationStatus === 'OUTSIDE HOSTEL' || data.locationStatus === 'LOCATION UNAVAILABLE') {
         setErrorMessage(data.message);
+      } else if (data.status !== 'PENDING') {
+        setErrorMessage(null);
       }
 
       if (isFinal) {
-        setIsOpen(false);
-        // Only trigger toast notifications if triggered by active user interaction
-        if (isUserAction) {
-          if (isPresent) {
-            toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { id: 'attendance-status-toast', duration: 5000 });
-            if (onVerifiedRef.current) onVerifiedRef.current();
-          } else if (isOnLeave) {
-            toast.success('Attendance Status: ON APPROVED LEAVE', { id: 'attendance-status-toast', duration: 5000 });
-          } else if (isAbsent) {
-            toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { id: 'attendance-status-toast', duration: 6000 });
+        if (showClosingDelay || isUserAction) {
+          // Keep modal open to show celebratory / final result banner before auto-closing
+          setClosingNotice({
+            status: statusUpper,
+            time: data.time || 'now',
+            hostel: data.hostel || assignedHostel,
+            message: isPresent
+              ? `Attendance Verified: PRESENT at ${data.time || 'now'}`
+              : isAbsent
+              ? `Attendance Finalized: ABSENT (${data.message || data.remark || '3 checks exhausted or window expired'})`
+              : 'Attendance Status: ON APPROVED LEAVE',
+          });
+
+          const noticeKey = data.recordId || `${data.date || ''}:${statusUpper}:${data.markedAt || data.time || ''}`;
+          if (finalizationNoticeRef.current !== noticeKey) {
+            finalizationNoticeRef.current = noticeKey;
+            if (isPresent) {
+              toast.success(`🎉 Attendance Verified: PRESENT at ${data.time || 'now'}!`, { id: 'attendance-status-toast', duration: 5000 });
+              if (onVerifiedRef.current) onVerifiedRef.current();
+            } else if (isOnLeave) {
+              toast.success('Attendance Status: ON APPROVED LEAVE', { id: 'attendance-status-toast', duration: 5000 });
+            } else if (isAbsent) {
+              toast.error(`Attendance Finalized: ABSENT (${data.message || data.remark || 'Verification window expired or 3 checks exhausted'})`, { id: 'attendance-status-toast', duration: 6000 });
+            }
           }
+
+          // Smoothly close modal after showing result
+          setTimeout(() => {
+            setClosingNotice(null);
+            setIsOpen(false);
+          }, 2600);
+        } else {
+          // If already finalized on initial page load, never open popup
+          setClosingNotice(null);
+          setIsOpen(false);
         }
       } else {
         if (isUserAction) {
@@ -163,7 +200,7 @@ export default function StudentAttendancePrompt({
         onStatusChangeRef.current({
           isMarked: isFinal,
           status: statusUpper,
-          hasPending: !isFinal,
+          hasPending: Boolean(data.hasActiveSession) && !isFinal,
           pendingRequest: !isFinal ? { remainingSeconds: data.remainingSeconds || 7200 } : null,
           todayRecord: isFinal
             ? {
@@ -187,7 +224,11 @@ export default function StudentAttendancePrompt({
     try {
       const res = await api.get('/attendance/today').catch(() => null);
       if (res?.data?.success) {
-        handleServerResponse(res.data, { isUserAction: false });
+        handleServerResponse(res.data, { isUserAction: false, showClosingDelay: false });
+        // If there is an active pending session, open modal automatically so user sees live process
+        if (res.data.hasActiveSession && !res.data.isFinalized && !res.data.isMarked && res.data.status === 'PENDING') {
+          setIsOpen(true);
+        }
       }
     } catch (_) {}
   }, [user, handleServerResponse]);
@@ -196,21 +237,46 @@ export default function StudentAttendancePrompt({
     fetchAttendanceStatus();
   }, [fetchAttendanceStatus]);
 
-  // ── Reopen Modal on External Trigger ─────────────────────────────────────────
+  // ── Real-time Socket.IO trigger: open prompt & verify when staff initiates a round ──
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleAttendanceRequested = () => {
+      autoVerifyStartedRef.current = false;
+      setClosingNotice(null);
+      setIsOpen(true);
+      fetchAttendanceStatus();
+      toast('📍 Night attendance verification requested by hostel staff. Verifying location...', {
+        id: 'attendance-request-toast',
+        icon: '🔔',
+        duration: 5000,
+      });
+    };
+
+    socket.on('attendance_requested', handleAttendanceRequested);
+    socket.on('room_attendance_requested', handleAttendanceRequested);
+
+    return () => {
+      socket.off('attendance_requested', handleAttendanceRequested);
+      socket.off('room_attendance_requested', handleAttendanceRequested);
+    };
+  }, [socket, fetchAttendanceStatus]);
+
+  // ── Reopen Modal on External Trigger (e.g. Header Pill Click) ────────────────
   useEffect(() => {
     if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
       lastExternalTriggerRef.current = externalOpenTrigger;
-      if (!isFinalized) {
+      if (!isFinalized && sessionData.hasActiveSession) {
         setIsOpen(true);
       } else {
         if (onOpenHistoryRef.current) onOpenHistoryRef.current();
       }
     }
-  }, [externalOpenTrigger, isFinalized]);
+  }, [externalOpenTrigger, isFinalized, sessionData.hasActiveSession]);
 
-  // ── Countdown Timer — always ticks once popup is open ───────────────────────
+  // ── Countdown Timer — always ticks once session is active ───────────────────
   useEffect(() => {
-    if (isFinalized) return;
+    if (isFinalized || !sessionData.hasActiveSession) return;
 
     const timer = setInterval(() => {
       setSessionData((prev) => {
@@ -225,11 +291,11 @@ export default function StudentAttendancePrompt({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isFinalized]);
+  }, [isFinalized, sessionData.hasActiveSession]);
 
   // ── When countdown hits 0 or attempts exhausted → finalize via server ───────
   useEffect(() => {
-    if (isFinalized) return;
+    if (isFinalized || !sessionData.hasActiveSession || !sessionData.verificationSessionId) return;
     const expired = sessionData.remainingSeconds <= 0;
     const exhausted = sessionData.attemptsRemaining <= 0;
     if ((expired || exhausted) && sessionData.status === 'PENDING' && !autoFinalizeTriggeredRef.current) {
@@ -242,7 +308,7 @@ export default function StudentAttendancePrompt({
         hostel: assignedHostel,
         verificationSessionId: sessionData.verificationSessionId,
       })
-        .then((res) => { if (res.data) handleServerResponse(res.data, { isUserAction: true }); })
+        .then((res) => { if (res.data) handleServerResponse(res.data, { isUserAction: true, showClosingDelay: true }); })
         .catch(() => fetchAttendanceStatus());
     }
   }, [sessionData.remainingSeconds, sessionData.attemptsRemaining, sessionData.status, isFinalized, assignedHostel, fetchAttendanceStatus, handleServerResponse, sessionData.verificationSessionId]);
@@ -260,12 +326,15 @@ export default function StudentAttendancePrompt({
           verificationSessionId: sessionData.verificationSessionId,
         });
         if (res.data) {
-          handleServerResponse(res.data, { isUserAction: true });
+          handleServerResponse(res.data, { isUserAction: true, showClosingDelay: Boolean(res.data.isFinalized || res.data.status === 'ABSENT') });
         }
       } catch (err) {
         const serverMsg = err.response?.data?.message || msg;
         setErrorMessage(serverMsg);
         toast.error(serverMsg, { id: 'attendance-error-toast' });
+      } finally {
+        setVerifying(false);
+        setVerifyingStage('');
       }
     },
     [assignedHostel, handleServerResponse, sessionData.verificationSessionId]
@@ -273,23 +342,29 @@ export default function StudentAttendancePrompt({
 
   // ── Core Presence Verification Logic ────────────────────────────────────────
   const executePresenceVerification = useCallback(async () => {
-    if (verifying || isFinalized || sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0) {
+    if (
+      verifying || isFinalized || !sessionData.hasActiveSession || !sessionData.verificationSessionId ||
+      sessionData.attemptsRemaining <= 0 || sessionData.remainingSeconds <= 0
+    ) {
       return;
     }
 
     setVerifying(true);
     setErrorMessage(null);
+    setVerifyingStage('🛰️ Acquiring GPS coordinates from device...');
     setSessionData((prev) => ({ ...prev, locationStatus: 'VERIFYING' }));
 
     if (!navigator.geolocation) {
       await handleGpsFailure('Geolocation is not supported by your browser or device.', 'GEO_NOT_SUPPORTED');
       setVerifying(false);
+      setVerifyingStage('');
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+          setVerifyingStage('📍 Validating coordinates with hostel geofence...');
           const { latitude, longitude, accuracy } = position.coords;
           const res = await api.post('/attendance/auto-verify', {
             lat: latitude,
@@ -301,15 +376,17 @@ export default function StudentAttendancePrompt({
           });
 
           if (res.data?.success) {
-            handleServerResponse(res.data, { isUserAction: true });
+            handleServerResponse(res.data, { isUserAction: true, showClosingDelay: true });
           } else {
             await handleGpsFailure(res.data?.message || 'Geofence check failed.', 'OUTSIDE_GEOFENCE');
           }
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'Verification failed.';
-          await handleGpsFailure(msg, 'VERIFY_ERROR');
+          setErrorMessage(msg);
+          fetchAttendanceStatus();
         } finally {
           setVerifying(false);
+          setVerifyingStage('');
         }
       },
       async (error) => {
@@ -329,18 +406,50 @@ export default function StudentAttendancePrompt({
 
         await handleGpsFailure(msg, code);
         setVerifying(false);
+        setVerifyingStage('');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse]);
+  }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse, fetchAttendanceStatus]);
 
-  // ── CORE REQUIREMENT: DO NOT SHOW ACTIVE POPUP ONCE FINALIZED ───────────────
-  if (isFinalized) {
+  // ── AUTOMATIC VERIFICATION ON OPEN / LOGIN ──────────────────────────────────
+  useEffect(() => {
+    if (
+      sessionData.hasActiveSession &&
+      !isFinalized &&
+      sessionData.status === 'PENDING' &&
+      sessionData.verificationSessionId &&
+      sessionData.attemptsRemaining > 0 &&
+      sessionData.remainingSeconds > 0 &&
+      !verifying &&
+      !autoVerifyStartedRef.current
+    ) {
+      autoVerifyStartedRef.current = true;
+      setIsOpen(true);
+      const timer = setTimeout(() => {
+        executePresenceVerification();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    sessionData.hasActiveSession,
+    sessionData.status,
+    sessionData.verificationSessionId,
+    sessionData.attemptsRemaining,
+    sessionData.remainingSeconds,
+    isFinalized,
+    verifying,
+    executePresenceVerification,
+  ]);
+
+  // ── RENDER GUARDS ──
+  // If finalized and no closing celebration notice is running, do NOT render modal
+  if ((isFinalized && !closingNotice) || (!sessionData.hasActiveSession && !closingNotice)) {
     return null;
   }
 
   // If student closed the pop-up modal, render only a discreet sticky prompt banner
-  if (!isOpen) {
+  if (!isOpen && !closingNotice) {
     return (
       <div
         style={{
@@ -367,7 +476,10 @@ export default function StudentAttendancePrompt({
         </div>
         <button
           type="button"
-          onClick={() => setIsOpen(true)}
+          onClick={() => {
+            setIsOpen(true);
+            if (!verifying) executePresenceVerification();
+          }}
           style={{
             background: 'linear-gradient(135deg, #0284c7, #2563eb)',
             color: '#ffffff',
@@ -394,7 +506,7 @@ export default function StudentAttendancePrompt({
   let locBadgeColor = '#94a3b8';
   let locBadgeBorder = '1px solid rgba(148, 163, 184, 0.25)';
 
-  if (locStatus === 'INSIDE HOSTEL') {
+  if (locStatus === 'INSIDE HOSTEL' || closingNotice?.status === 'PRESENT') {
     locBadgeBg = 'rgba(16, 185, 129, 0.15)';
     locBadgeColor = '#10b981';
     locBadgeBorder = '1px solid rgba(16, 185, 129, 0.35)';
@@ -406,7 +518,7 @@ export default function StudentAttendancePrompt({
     locBadgeBg = 'rgba(245, 158, 11, 0.15)';
     locBadgeColor = '#f59e0b';
     locBadgeBorder = '1px solid rgba(245, 158, 11, 0.35)';
-  } else if (locStatus === 'VERIFYING') {
+  } else if (locStatus === 'VERIFYING' || verifying) {
     locBadgeBg = 'rgba(56, 189, 248, 0.15)';
     locBadgeColor = '#38bdf8';
     locBadgeBorder = '1px solid rgba(56, 189, 248, 0.35)';
@@ -414,15 +526,20 @@ export default function StudentAttendancePrompt({
 
   const isExpired = sessionData.remainingSeconds <= 0;
   const isExhausted = sessionData.attemptsRemaining <= 0;
-  const isButtonDisabled = verifying || locStatus === 'VERIFYING' || isExpired || isExhausted || isFinalized;
+  const isButtonDisabled = verifying || locStatus === 'VERIFYING' || isExpired || isExhausted || isFinalized || Boolean(closingNotice);
 
   return (
     <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !closingNotice) {
+          setIsOpen(false);
+        }
+      }}
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 9999,
-        background: 'rgba(15, 23, 42, 0.75)',
+        background: 'rgba(15, 23, 42, 0.8)',
         backdropFilter: 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
@@ -494,45 +611,129 @@ export default function StudentAttendancePrompt({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            title="Minimize to banner"
-            style={{
-              background: 'rgba(255, 255, 255, 0.08)',
-              border: 'none',
-              borderRadius: 8,
-              color: '#cbd5e1',
-              padding: 6,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <MdClose size={18} />
-          </button>
+          {!closingNotice && (
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              title="Minimize to banner"
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: 'none',
+                borderRadius: 8,
+                color: '#cbd5e1',
+                padding: 6,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <MdClose size={18} />
+            </button>
+          )}
         </div>
 
         {/* Modal Body */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Instructions */}
-          <div
-            style={{
-              fontSize: 12.5,
-              lineHeight: 1.5,
-              color: 'var(--text-secondary, #cbd5e1)',
-              background: 'rgba(255, 255, 255, 0.04)',
-              padding: '10px 14px',
-              borderRadius: 10,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-            }}
-          >
-            📍 <strong>Verification Instructions:</strong> You must be physically present inside your designated hostel
-            building (<strong>{sessionData.hostel}</strong>). Make sure your browser has location permission enabled.
-          </div>
+          {/* CELEBRATION / FINALIZATION CARD (When status is marked) */}
+          {closingNotice ? (
+            <div
+              style={{
+                background: closingNotice.status === 'PRESENT'
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(5, 150, 105, 0.3) 100%)'
+                  : 'linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(185, 28, 28, 0.3) 100%)',
+                border: closingNotice.status === 'PRESENT'
+                  ? '1.5px solid rgba(16, 185, 129, 0.6)'
+                  : '1.5px solid rgba(239, 68, 68, 0.6)',
+                borderRadius: 14,
+                padding: '18px',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+                animation: 'fadeInUp 0.25s ease-out',
+              }}
+            >
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: '50%',
+                  background: closingNotice.status === 'PRESENT' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 26,
+                  color: closingNotice.status === 'PRESENT' ? '#10b981' : '#ef4444',
+                }}
+              >
+                {closingNotice.status === 'PRESENT' ? <MdCheckCircle /> : <MdCancel />}
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#ffffff' }}>
+                {closingNotice.status === 'PRESENT' ? '🎉 Attendance Verified: PRESENT' : 'Attendance Finalized: ABSENT'}
+              </div>
+              <div style={{ fontSize: 13, color: closingNotice.status === 'PRESENT' ? '#a7f3d0' : '#fca5a5' }}>
+                {closingNotice.status === 'PRESENT'
+                  ? `Marked at ${closingNotice.time || 'now'} inside ${sessionData.hostelName || sessionData.hostel}`
+                  : closingNotice.message}
+              </div>
+              <div style={{ fontSize: 11.5, color: closingNotice.status === 'PRESENT' ? '#6ee7b7' : '#f87171', marginTop: 4 }}>
+                Closing automatically...
+              </div>
+            </div>
+          ) : verifying ? (
+            /* LIVE VERIFICATION PROGRESS CARD */
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(37, 99, 235, 0.18) 100%)',
+                border: '1.5px solid rgba(56, 189, 248, 0.45)',
+                borderRadius: 14,
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                animation: 'fadeInUp 0.2s ease-out',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#38bdf8', fontWeight: 800, fontSize: 14 }}>
+                <MdGpsFixed className="animate-spin" size={20} />
+                <span>{verifyingStage || 'Acquiring GPS location & verifying geofence...'}</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
+                📡 Acquiring high-accuracy coordinates to verify presence inside <strong>{sessionData.hostelName || sessionData.hostel}</strong>.
+              </div>
+              <div style={{ height: 4, background: 'rgba(255, 255, 255, 0.1)', borderRadius: 2, overflow: 'hidden', marginTop: 4 }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: '100%',
+                    background: 'linear-gradient(90deg, #38bdf8, #818cf8, #38bdf8)',
+                    animation: 'shimmer 1.5s infinite linear',
+                    backgroundSize: '200% 100%',
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            /* Instructions */
+            <div
+              style={{
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                color: 'var(--text-secondary, #cbd5e1)',
+                background: 'rgba(255, 255, 255, 0.04)',
+                padding: '10px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              📍 <strong>Verification Instructions:</strong> You must be physically present inside your designated hostel
+              building (<strong>{sessionData.hostel}</strong>). Make sure your browser has location permission enabled.
+            </div>
+          )}
 
-          {/* 4 EXACT FIELDS SPECIFICATION (Requirement 10) */}
+          {/* 4 EXACT FIELDS SPECIFICATION */}
           <div
             style={{
               display: 'grid',
@@ -565,12 +766,46 @@ export default function StudentAttendancePrompt({
                     borderRadius: 99,
                     fontSize: 12,
                     fontWeight: 800,
-                    background: 'rgba(245, 158, 11, 0.15)',
-                    color: '#f59e0b',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    background: verifying
+                      ? 'rgba(56, 189, 248, 0.15)'
+                      : (closingNotice?.status === 'PRESENT' || sessionData.status === 'PRESENT')
+                      ? 'rgba(16, 185, 129, 0.15)'
+                      : (closingNotice?.status === 'ABSENT' || sessionData.status === 'ABSENT')
+                      ? 'rgba(239, 68, 68, 0.15)'
+                      : 'rgba(245, 158, 11, 0.15)',
+                    color: verifying
+                      ? '#38bdf8'
+                      : (closingNotice?.status === 'PRESENT' || sessionData.status === 'PRESENT')
+                      ? '#10b981'
+                      : (closingNotice?.status === 'ABSENT' || sessionData.status === 'ABSENT')
+                      ? '#ef4444'
+                      : '#f59e0b',
+                    border: verifying
+                      ? '1px solid rgba(56, 189, 248, 0.35)'
+                      : (closingNotice?.status === 'PRESENT' || sessionData.status === 'PRESENT')
+                      ? '1px solid rgba(16, 185, 129, 0.35)'
+                      : (closingNotice?.status === 'ABSENT' || sessionData.status === 'ABSENT')
+                      ? '1px solid rgba(239, 68, 68, 0.35)'
+                      : '1px solid rgba(245, 158, 11, 0.35)',
                   }}
                 >
-                  <MdAccessTime size={14} /> {sessionData.status}
+                  {verifying ? (
+                    <>
+                      <MdGpsFixed className="animate-spin" size={14} /> FETCHING GPS...
+                    </>
+                  ) : closingNotice?.status === 'PRESENT' || sessionData.status === 'PRESENT' ? (
+                    <>
+                      <MdCheckCircle size={14} /> PRESENT
+                    </>
+                  ) : closingNotice?.status === 'ABSENT' || sessionData.status === 'ABSENT' ? (
+                    <>
+                      <MdCancel size={14} /> ABSENT
+                    </>
+                  ) : (
+                    <>
+                      <MdAccessTime size={14} /> {sessionData.status}
+                    </>
+                  )}
                 </span>
               </div>
             </div>
@@ -682,13 +917,25 @@ export default function StudentAttendancePrompt({
                     border: locBadgeBorder,
                   }}
                 >
-                  <MdLocationOn size={13} /> {locStatus}
+                  {verifying ? (
+                    <>
+                      <MdLocationOn className="animate-spin" size={13} /> VERIFYING GEOFENCE...
+                    </>
+                  ) : closingNotice?.status === 'PRESENT' || locStatus === 'INSIDE HOSTEL' ? (
+                    <>
+                      <MdCheckCircle size={13} /> INSIDE HOSTEL
+                    </>
+                  ) : (
+                    <>
+                      <MdLocationOn size={13} /> {locStatus}
+                    </>
+                  )}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Time Expired Notice (Requirement 3) */}
+          {/* Time Expired Notice */}
           <div
             style={{
               fontSize: 12,
@@ -759,7 +1006,11 @@ export default function StudentAttendancePrompt({
               <MdGpsFixed className={verifying ? 'animate-spin' : ''} size={18} />
               <span>
                 {verifying
-                  ? `Verifying GPS Location (${3 - sessionData.attemptsRemaining + 1}/3)...`
+                  ? `Verifying GPS Location (${sessionData.attemptsCount + 1}/3)...`
+                  : closingNotice?.status === 'PRESENT'
+                  ? 'Verified: PRESENT'
+                  : closingNotice?.status === 'ABSENT'
+                  ? 'Finalized: ABSENT'
                   : isExhausted
                   ? 'All 3 Checks Exhausted (Marked Absent)'
                   : isExpired
@@ -779,6 +1030,10 @@ export default function StudentAttendancePrompt({
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
         }
         .animate-spin {
           animation: spin 1s linear infinite;

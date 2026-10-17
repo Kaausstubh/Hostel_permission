@@ -33,6 +33,7 @@ const logger = require('./utils/logger');
 const { scheduleNotReturnedAlert } = require('./jobs/notReturnedAlert');
 const { scheduleQrCleanup } = require('./jobs/qrCleanup');
 const { scheduleArchiveJob } = require('./jobs/archiveScheduler');
+const { scheduleAttendanceExpiration } = require('./jobs/attendanceExpiration');
 const { startWhatsAppWorker, hasQueueInfra } = require('./queues/whatsappQueue');
 const { startArchiveWorker } = require('./queues/archiveQueue');
 const { initScanQueue } = require('./queues/scanQueue');
@@ -293,7 +294,7 @@ const handleHealth = (req, res) => {
     status: 'ok',
     requestId: req.requestId,
     timestamp: new Date().toISOString(),
-    version: '2.0.0',
+    version: '2.1.0',
     service: 'HEIMDALL Smart Campus API',
     uptime: process.uptime(),
   });
@@ -402,6 +403,7 @@ server.listen(PORT, async () => {
   scheduleQrCleanup();
   scheduleArchiveJob();
   scheduleParentApprovalJob();
+  scheduleAttendanceExpiration();
   startWhatsAppWorker();
   startArchiveWorker();
 

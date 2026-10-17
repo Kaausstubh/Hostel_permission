@@ -1,7 +1,8 @@
 /**
  * AttendanceAttempt Model
  * Authoritative server-side tracker for student attendance verification attempts.
- * Enforces maximum of TWO attempts per student per session/date.
+ * Enforces a maximum of three accepted GPS verification attempts per student
+ * per staff-created night-attendance session/date.
  */
 
 const mongoose = require('mongoose');
@@ -48,6 +49,12 @@ const attemptDetailSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Technical events (permission denied, stale location, low accuracy) are
+    // kept for auditability but do not consume a location verification check.
+    counted: {
+      type: Boolean,
+      default: true,
+    },
   },
   { _id: false }
 );
@@ -70,6 +77,14 @@ const attendanceAttemptSchema = new mongoose.Schema(
       default: 'Night Attendance',
       required: true,
       trim: true,
+    },
+    // The staff-created attendance round that owns this student's window.
+    // This is deliberately server assigned; the browser never chooses it.
+    round_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AttendanceRound',
+      default: null,
+      index: true,
     },
     hostel: {
       type: String,

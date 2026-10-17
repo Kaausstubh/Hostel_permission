@@ -17,9 +17,11 @@ const HostelFloor = require('../models/HostelFloor');
 const HostelRoom = require('../models/HostelRoom');
 const RoomAllocation = require('../models/RoomAllocation');
 const { getIO } = require('./socketService');
+const { finalizeExpiredNightAttendance } = require('./nightAttendanceService');
 const logger = require('../utils/logger');
 
 const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '90', 10);
+const NIGHT_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Extract floor identifier from room number string.
@@ -51,6 +53,88 @@ const parseFloorFromRoom = (roomNo) => {
 
 const getTodayDateStr = () => {
   return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+};
+
+const studentIsInRoundFloor = (student, floor) => {
+  const roundAllFloors = String(floor || '').toLowerCase().includes('all');
+  return roundAllFloors || parseFloorFromRoom(student.roomNo) === floor;
+};
+
+const getStudentHostelFilter = (hostel) =>
+  hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : hostel;
+
+/**
+ * A night-attendance session is opened only by staff.  Student dashboard
+ * reads can recover a missing attempt document, but cannot create a new
+ * window because the authoritative start/end timestamps belong to this round.
+ */
+const initializeNightAttendanceAttempts = async (round) => {
+  const studentHostel = getStudentHostelFilter(round.hostel);
+  const students = await User.find({
+    role: 'student',
+    isActive: true,
+    hostel: studentHostel,
+  }).select('_id hostel roomNo').lean();
+
+  const eligibleStudents = students.filter((student) => studentIsInRoundFloor(student, round.floor));
+  if (!eligibleStudents.length) return { eligibleStudents: 0, initializedStudents: 0 };
+
+  // Recover only legacy/unbound documents that have never used a valid GPS
+  // check. This prevents an old dashboard read from blocking the staff-owned
+  // session, without resetting an in-progress or finalized verification.
+  const studentIds = eligibleStudents.map((student) => student._id);
+  const rebound = await AttendanceAttempt.updateMany(
+    {
+      student_id: { $in: studentIds },
+      date: round.date,
+      session: 'Night Attendance',
+      round_id: null,
+      status: 'pending',
+      attemptsCount: 0,
+    },
+    {
+      $set: {
+        round_id: round._id,
+        hostel: round.hostel,
+        session_start: round.window_start,
+        expires_at: round.window_end,
+        locationStatus: 'NOT CHECKED',
+      },
+    }
+  );
+
+  const operations = eligibleStudents.map((student) => ({
+    updateOne: {
+      filter: {
+        student_id: student._id,
+        date: round.date,
+        session: 'Night Attendance',
+      },
+      update: {
+        $setOnInsert: {
+          student_id: student._id,
+          date: round.date,
+          session: 'Night Attendance',
+          round_id: round._id,
+          hostel: round.hostel,
+          attemptsCount: 0,
+          maxAttempts: 3,
+          session_start: round.window_start,
+          expires_at: round.window_end,
+          status: 'pending',
+          locationStatus: 'NOT CHECKED',
+          attempts: [],
+        },
+      },
+      upsert: true,
+    },
+  }));
+
+  const result = await AttendanceAttempt.bulkWrite(operations, { ordered: false });
+  return {
+    eligibleStudents: eligibleStudents.length,
+    initializedStudents: (result.upsertedCount || 0) + (rebound.modifiedCount || 0),
+  };
 };
 
 /**
@@ -245,21 +329,28 @@ const getHostelsAndFloors = async (staffUser = null) => {
  */
 const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attendance', staffUser }) => {
   const date = getTodayDateStr();
+  const now = new Date();
   const cleanHostel = hostel.toUpperCase();
   const cleanFloor = String(floor).trim();
   const permanentSession = 'Night Attendance'; // Fixed permanent session
 
   // 1. Look for existing active round for this staff/hostel/floor/session/date
+  // An expired round is not resumable. Finalize its pending students before a
+  // subsequent staff click opens a fresh two-hour window.
+  await finalizeExpiredNightAttendance(now);
+
   let existingRound = await AttendanceRound.findOne({
     date,
     session_name: permanentSession,
     hostel: cleanHostel,
     floor: cleanFloor,
     status: 'active',
+    window_end: { $gt: now },
   });
 
   if (existingRound) {
-    return { round: existingRound, resumed: true };
+    const initialization = await initializeNightAttendanceAttempts(existingRound);
+    return { round: existingRound, resumed: true, ...initialization };
   }
 
   // 2. Create new round
@@ -269,8 +360,8 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
     hostel: cleanHostel,
     floor: cleanFloor,
     staff_id: staffUser._id,
-    window_start: new Date(),
-    window_end: new Date(Date.now() + 4 * 60 * 60 * 1000), // 4-hour window default
+    window_start: now,
+    window_end: new Date(now.getTime() + NIGHT_ATTENDANCE_WINDOW_MS),
     status: 'active',
   });
 
@@ -286,7 +377,8 @@ const startOrResumeRound = async ({ hostel, floor, session_name = 'Night Attenda
     reason: `Staff started attendance round for Floor ${cleanFloor}`,
   });
 
-  return { round: newRound, resumed: false };
+  const initialization = await initializeNightAttendanceAttempts(newRound);
+  return { round: newRound, resumed: false, ...initialization };
 };
 
 /**
@@ -322,10 +414,34 @@ const getRoundRoomsSummary = async (roundId) => {
       const occupants = allocsByRoomId.get(roomDoc._id.toString()) || [];
       roomsMap.set(roomDoc.room_number.trim().toUpperCase(), occupants);
     }
+
+    // Some older student records predate RoomAllocation.  They still carry a
+    // valid hostel and room number, so use them only for rooms with no active
+    // allocation.  Active allocations remain authoritative when present.
+    const roomsWithoutAllocations = Array.from(roomsMap.entries())
+      .filter(([, occupants]) => occupants.length === 0)
+      .map(([roomNo]) => roomNo);
+
+    if (roomsWithoutAllocations.length > 0) {
+      const legacyStudents = await User.find({
+        role: 'student',
+        isActive: true,
+        hostel: getStudentHostelFilter(round.hostel),
+        roomNo: { $in: roomsWithoutAllocations },
+      })
+        .select('_id name rollNo hostel roomNo studentPhoto picture phone')
+        .lean();
+
+      for (const student of legacyStudents) {
+        const roomNo = (student.roomNo || '').trim().toUpperCase();
+        if (roomsMap.has(roomNo) && roomsMap.get(roomNo).length === 0) {
+          roomsMap.get(roomNo).push(student);
+        }
+      }
+    }
   } else {
     // Fallback to User query
-    const studentHostelFilter =
-      round.hostel === 'GH1' ? { $in: ['GH1', 'GH'] } : round.hostel;
+    const studentHostelFilter = getStudentHostelFilter(round.hostel);
 
     const students = await User.find({
       role: 'student',
@@ -495,7 +611,7 @@ const getRoomDetails = async (roundId, roomNo) => {
     students = await User.find({
       role: 'student',
       isActive: true,
-      hostel: round.hostel,
+      hostel: getStudentHostelFilter(round.hostel),
       roomNo: cleanRoomNo,
     })
       .select('_id name rollNo hostel roomNo phone email studentPhoto picture')
@@ -608,12 +724,13 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
     }
   }
 
-  // Fallback if not found via RoomAllocation
-  if (students.length === 0 && !roomDoc) {
+  // Legacy student records may have a room number but no RoomAllocation yet.
+  // Fall back to that roster when this room has no active allocations.
+  if (students.length === 0) {
     students = await User.find({
       role: 'student',
       isActive: true,
-      hostel: round.hostel,
+      hostel: getStudentHostelFilter(round.hostel),
       roomNo: cleanRoomNo,
     }).lean();
   }
@@ -728,6 +845,7 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
             remark: 'On approved home visit leave',
             round_id: round._id,
             request_id: request._id,
+            verification_timestamp: new Date(),
           },
         },
         { upsert: true, new: true }
@@ -977,6 +1095,7 @@ const completeRound = async ({ roundId, staffUser }) => {
           verified_by: staffUser._id,
           remark: st.remark || null,
           round_id: round._id,
+          verification_timestamp: new Date(),
         },
         { upsert: true, new: true }
       );
