@@ -54,6 +54,12 @@ const AttendanceSummary    = lazyWithRetry(() => import('./pages/AttendanceSumma
 const VisitorManagement   = lazyWithRetry(() => import('./pages/VisitorManagement'));
 const VisitorPassRequest   = lazyWithRetry(() => import('./pages/VisitorPassRequest'));
 const RoomAllocation       = lazyWithRetry(() => import('./pages/RoomAllocation'));
+const ParentOnboard        = lazyWithRetry(() => import('./pages/ParentOnboard'));
+const ParentLogin          = lazyWithRetry(() => import('./pages/ParentLogin'));
+const ParentForgotPassword = lazyWithRetry(() => import('./pages/ParentForgotPassword'));
+const ParentDashboard      = lazyWithRetry(() => import('./pages/ParentDashboard'));
+const ParentRequestDetail  = lazyWithRetry(() => import('./pages/ParentRequestDetail'));
+const GuardianManagement   = lazyWithRetry(() => import('./pages/GuardianManagement'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -88,6 +94,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
       if (['warden', 'hostel_staff', 'staff', 'admin'].includes(user.role)) return <Navigate to="/dashboard" replace />;
       if (user.role === 'security') return <Navigate to="/scanner" replace />;
       if (user.role === 'student') return <Navigate to="/student" replace />;
+      if (user.role === 'parent') return <Navigate to="/parent/dashboard" replace />;
       return <Navigate to="/login" replace />;
     }
   }
@@ -148,6 +155,7 @@ function AppRoutes() {
     if (!user) return '/login';
     if (user.role === 'student')  return '/student';
     if (user.role === 'security') return '/scanner';
+    if (user.role === 'parent')   return '/parent/dashboard';
     return '/dashboard';
   };
 
@@ -168,6 +176,30 @@ function AppRoutes() {
         <Route path="/visitor-pass" element={<VisitorPassRequest />} />
         <Route path="/visitor-entry" element={<Navigate to="/visitor-pass" replace />} />
         <Route path="/visitor-form" element={<Navigate to="/visitor-pass" replace />} />
+
+        {/* Public Parent routes */}
+        <Route path="/parent/login" element={isAuth && user?.role === 'parent' ? <Navigate to="/parent/dashboard" replace /> : <ParentLogin />} />
+        <Route path="/parent/onboard" element={<ParentOnboard />} />
+        <Route path="/parent/forgot-password" element={<ParentForgotPassword />} />
+        <Route path="/parent/reset-password" element={<ParentForgotPassword />} />
+
+        {/* ── Parent Portal ── */}
+        <Route
+          path="/parent/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['parent']}>
+              <ParentDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/parent/requests/:requestId"
+          element={
+            <ProtectedRoute allowedRoles={['parent']}>
+              <ParentRequestDetail />
+            </ProtectedRoute>
+          }
+        />
 
         {/* ── Student Portal (wrapped in StudentLayout for capture-deterrence) ── */}
         <Route
@@ -270,6 +302,12 @@ function AppRoutes() {
             <AppLayout><ScanLogs defaultTab="home" /></AppLayout>
           </ProtectedRoute>
         } />
+        <Route path="/admin/guardians" element={
+          <ProtectedRoute allowedRoles={['warden', 'admin']}>
+            <AppLayout><GuardianManagement /></AppLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/guardians" element={<Navigate to="/admin/guardians" replace />} />
         <Route path="/archived-records" element={<Navigate to="/dashboard" replace />} />
 
         {/* ── Security Routes ── */}

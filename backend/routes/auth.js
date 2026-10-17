@@ -18,10 +18,21 @@
 const express  = require('express');
 const router   = express.Router();
 const jwt      = require('jsonwebtoken');
+const bcrypt   = require('bcryptjs');
+const crypto   = require('crypto');
 const passport = require('../config/passport');
-const { protect, invalidateUserCache } = require('../middleware/auth');
+const { protect, authorize, invalidateUserCache } = require('../middleware/auth');
 const { validatePortalAccess, portalToRole } = require('../config/oauth');
 const User     = require('../models/User');
+const Guardian = require('../models/Guardian');
+const PendingRegistration = require('../models/PendingRegistration');
+const { sendStudentOtpEmail } = require('../services/mailService');
+const {
+  validateCollegeDomain,
+  getAllowedCollegeDomains,
+  validateGuardianInputs,
+  linkInitialGuardians,
+} = require('../services/guardianService');
 const logger   = require('../utils/logger');
 
 // ── Temporary reset endpoint for production correction ─────────────────────────
@@ -135,6 +146,400 @@ const buildErrorRedirect = (baseUrl, errorCode, message) => {
   return `${baseUrl}/auth/callback?${params.toString()}`;
 };
 
+// ── Student Self-Registration ────────────────────────────────────────────────
+router.post('/register', async (req, res) => {
+  try {
+    const {
+      name,
+      rollNo,
+      email,
+      phone,
+      password,
+      hostel,
+      roomNo,
+      guardian1,
+      guardian2,
+    } = req.body;
+
+    if (!name || !rollNo || !email || !phone || !password) {
+      return res.status(400).json({ success: false, message: 'All required student fields must be provided' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    const normEmail = email.trim().toLowerCase();
+    const normRollNo = rollNo.trim().toUpperCase();
+
+    // 1. Strict College Domain Validation
+    if (!validateCollegeDomain(normEmail)) {
+      const allowed = getAllowedCollegeDomains();
+      return res.status(400).json({
+        success: false,
+        message: `Only authorized college domains (${allowed.map((d) => `@${d}`).join(', ')}) are allowed for student registration.`,
+      });
+    }
+
+    // 2. Duplicate Check in User Collection
+    const existingUser = await User.findOne({
+      $or: [{ email: normEmail }, { rollNo: normRollNo }],
+    });
+    if (existingUser) {
+      if (existingUser.email === normEmail) {
+        return res.status(409).json({ success: false, message: 'An account with this college email already exists. Please sign in.' });
+      }
+      return res.status(409).json({ success: false, message: 'An account with this roll number already exists.' });
+    }
+
+    // 3. Validate Guardian Inputs (3 distinct phones, 2 distinct non-college parent emails)
+    const { studentPhoneE164, g1PhoneE164, g2PhoneE164, normG1E, normG2E } = validateGuardianInputs({
+      studentPhone: phone,
+      studentEmail: normEmail,
+      guardian1,
+      guardian2,
+    });
+
+    // 4. Generate 6-digit OTP and store in PendingRegistration (15 min TTL)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const passwordHash = await bcrypt.hash(password, 10);
+    const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    // Upsert into PendingRegistration
+    await PendingRegistration.findOneAndUpdate(
+      { email: normEmail },
+      {
+        $set: {
+          name: name.trim(),
+          email: normEmail,
+          rollNo: normRollNo,
+          phone: studentPhoneE164,
+          hostel: hostel || null,
+          roomNo: roomNo || null,
+          passwordHash,
+          otpHash,
+          otpExpiresAt,
+          otpAttempts: 0,
+          guardian1: {
+            name: guardian1.name.trim(),
+            relationship: guardian1.relationship,
+            phone: g1PhoneE164,
+            email: normG1E,
+          },
+          guardian2: {
+            name: guardian2.name.trim(),
+            relationship: guardian2.relationship,
+            phone: g2PhoneE164,
+            email: normG2E,
+          },
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    // 5. Send OTP Email
+    await sendStudentOtpEmail({
+      to: normEmail,
+      name: name.trim(),
+      otp,
+    });
+
+    logger.info(`[Auth] Registration OTP dispatched to ${normEmail} (OTP: ${otp})`);
+
+    return res.status(200).json({
+      success: true,
+      message: `A 6-digit verification code has been sent to ${normEmail}. Please verify to complete your registration.`,
+      email: normEmail,
+    });
+  } catch (err) {
+    logger.warn('[Auth] Registration error', { error: err.message });
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ── Verify Registration OTP ──────────────────────────────────────────────────
+router.post('/verify-registration-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+    }
+
+    const normEmail = email.trim().toLowerCase();
+    const pending = await PendingRegistration.findOne({ email: normEmail });
+
+    if (!pending) {
+      return res.status(400).json({ success: false, message: 'Registration session expired or not found. Please register again.' });
+    }
+
+    if (new Date() > new Date(pending.otpExpiresAt)) {
+      await PendingRegistration.deleteOne({ _id: pending._id });
+      return res.status(400).json({ success: false, message: 'Verification code has expired. Please register again.' });
+    }
+
+    if (pending.otpAttempts >= 5) {
+      await PendingRegistration.deleteOne({ _id: pending._id });
+      return res.status(400).json({ success: false, message: 'Too many incorrect attempts. Please register again.' });
+    }
+
+    const inputHash = crypto.createHash('sha256').update(String(otp).trim()).digest('hex');
+    if (inputHash !== pending.otpHash) {
+      pending.otpAttempts += 1;
+      await pending.save();
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
+    }
+
+    // OTP verified successfully! Create permanent User record
+    const user = await User.create({
+      name: pending.name,
+      email: pending.email,
+      rollNo: pending.rollNo,
+      phone: pending.phone,
+      hostel: pending.hostel,
+      roomNo: pending.roomNo,
+      role: 'student',
+      passwordHash: pending.passwordHash,
+      isEmailVerified: true,
+      isActive: true,
+    });
+
+    // Automatically link guardians and dispatch invitations
+    let guardianResult = null;
+    try {
+      guardianResult = await linkInitialGuardians({
+        studentId: user._id,
+        guardian1: pending.guardian1,
+        guardian2: pending.guardian2,
+        ip: req.ip,
+      });
+    } catch (guardErr) {
+      logger.error('[Auth] Error linking guardians after verification', { error: guardErr.message });
+    }
+
+    // Cleanup staging record
+    await PendingRegistration.deleteOne({ _id: pending._id });
+
+    const { isMailConfigured } = require('../services/mailService');
+    const mailActive = isMailConfigured();
+    const token = signToken(user._id);
+
+    return res.status(201).json({
+      success: true,
+      mailConfigured: mailActive,
+      message: mailActive
+        ? 'Account verified and registered successfully! Parent invitations sent to email inboxes.'
+        : 'Account registered! (SMTP is not configured in backend/.env — invitations simulated in mock mode).',
+      inviteUrls: guardianResult?.inviteUrls || {},
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        rollNo: user.rollNo,
+        hostel: user.hostel,
+        roomNo: user.roomNo,
+        phone: user.phone,
+        parentPhone: user.parentPhone,
+        parentPhone2: user.parentPhone2,
+      },
+    });
+  } catch (err) {
+    logger.error('[Auth] Verify OTP error', { error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── Resend Registration OTP ──────────────────────────────────────────────────
+router.post('/resend-registration-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+
+    const normEmail = email.trim().toLowerCase();
+    const pending = await PendingRegistration.findOne({ email: normEmail });
+    if (!pending) {
+      return res.status(400).json({ success: false, message: 'Registration session expired. Please fill the form again.' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    pending.otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    pending.otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    pending.otpAttempts = 0;
+    await pending.save();
+
+    await sendStudentOtpEmail({
+      to: normEmail,
+      name: pending.name,
+      otp,
+    });
+
+    return res.json({ success: true, message: 'A new verification code has been sent to your email.' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── Password-Based Sign In (Student / Staff / Parent) ─────────────────────────
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const normEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normEmail });
+
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials. If you registered with Google, please use Google Sign In.' });
+    }
+
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, message: 'This account has been deactivated.' });
+    }
+
+    const match = await bcrypt.compare(password, user.passwordHash);
+    if (!match) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+    }
+
+    user.lastLoginAt = new Date();
+    await user.save();
+    await invalidateUserCache(String(user._id));
+
+    const token = signToken(user._id);
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        rollNo: user.rollNo || null,
+        hostel: user.hostel || null,
+        roomNo: user.roomNo || null,
+        phone: user.phone || null,
+        parentPhone: user.parentPhone || null,
+        parentPhone2: user.parentPhone2 || null,
+      },
+    });
+  } catch (err) {
+    logger.error('[Auth] Login error', { error: err.message });
+    return res.status(500).json({ success: false, message: 'Login failed' });
+  }
+});
+
+// ── Complete Guardian Details (Backward Compatibility for Existing Students) ──
+router.post('/complete-guardian-details', protect, authorize('student'), async (req, res) => {
+  try {
+    const { guardian1, guardian2 } = req.body;
+    if (!guardian1 || !guardian2) {
+      return res.status(400).json({ success: false, message: 'Both Guardian 1 and Guardian 2 details are required' });
+    }
+
+    const result = await linkInitialGuardians({
+      studentId: req.user._id,
+      guardian1,
+      guardian2,
+      ip: req.ip,
+      actorId: req.user._id,
+    });
+
+    const { isMailConfigured } = require('../services/mailService');
+    const mailActive = isMailConfigured();
+
+    return res.json({
+      success: true,
+      mailConfigured: mailActive,
+      message: mailActive
+        ? 'Guardian details saved and invitations dispatched successfully to parent inboxes.'
+        : 'Guardian details saved! SMTP is not configured in backend/.env (Mock mode).',
+      ...result,
+    });
+  } catch (err) {
+    logger.warn('[Auth] Complete guardian details error', { error: err.message });
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ── Dev Fast-Login (Development Only) ─────────────────────────────────────────
+router.get('/dev-login', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ success: false, message: 'Dev login is disabled in production.' });
+  }
+
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const portal = req.query.portal || 'student';
+
+  try {
+    let user = null;
+
+    if (portal === 'warden' || portal === 'hostel_staff') {
+      const authorizedStaffEmail = 'sjyotik2005@gmail.com';
+      user = await User.findOne({ email: authorizedStaffEmail });
+      if (!user) {
+        user = await User.create({
+          name: 'Sjyotik (Hostel Staff)',
+          email: authorizedStaffEmail,
+          role: 'hostel_staff',
+          oauthProvider: 'google',
+        });
+      } else if (user.role !== 'hostel_staff' && user.role !== 'warden') {
+        user.role = 'hostel_staff';
+        await user.save();
+      }
+    } else if (portal === 'security') {
+      const authorizedSecurityEmail = 'kaaustubhkhandare@gmail.com';
+      user = await User.findOne({ email: authorizedSecurityEmail });
+      if (!user) {
+        user = await User.create({
+          name: 'Kaaustubh Khandare (Security)',
+          email: authorizedSecurityEmail,
+          role: 'security',
+          oauthProvider: 'google',
+        });
+      } else if (user.role !== 'security') {
+        user.role = 'security';
+        await user.save();
+      }
+    } else {
+      // Authorized Student with official institutional domain
+      const authorizedStudentEmail = 'aarav.sharma@cse.iiitp.ac.in';
+      user = await User.findOne({ email: authorizedStudentEmail });
+      if (!user) {
+        user = await User.create({
+          name: 'Aarav Sharma',
+          email: authorizedStudentEmail,
+          role: 'student',
+          rollNo: '2023BCSE042',
+          hostel: 'BH1',
+          roomNo: 'A-204',
+          phone: '+919876543210',
+          parentPhone: '+919876543211',
+          gender: 'male',
+          branch: 'CSE',
+          year: '2nd Year',
+          oauthProvider: 'google',
+        });
+      } else if (user.role !== 'student') {
+        user.role = 'student';
+        await user.save();
+      }
+    }
+
+    const token = signToken(user._id);
+    return res.redirect(buildFrontendRedirect(frontendUrl, token, user));
+  } catch (error) {
+    logger.error('[Auth] Dev login failed', { error: error.message });
+    return res.redirect(buildErrorRedirect(frontendUrl, 'dev_login_failed', error.message));
+  }
+});
+
 // ── Initiate Google OAuth ─────────────────────────────────────────────────────
 // Step 1: Frontend calls this URL with ?portal=student|warden|security
 // We store the portal in the session before redirecting to Google.
@@ -152,10 +557,10 @@ router.get('/google', (req, res, next) => {
   // Check if OAuth is configured to avoid Passport crashes
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     logger.error('[Auth] Google OAuth credentials are not set in the backend environment.');
-    return res.status(500).json({
-      success: false,
-      message: 'Google OAuth is not configured on this server. Please add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env',
-    });
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return res.redirect(
+      buildErrorRedirect(frontendUrl, 'oauth_unconfigured', 'Google OAuth credentials are not set in backend/.env.')
+    );
   }
 
   // Pass portal via OAuth state param (more reliable than session on free-tier hosts
@@ -309,6 +714,17 @@ router.get('/me', protect, async (req, res) => {
     }
   }
 
+  let hasGuardians = true;
+  if (u.role === 'student') {
+    try {
+      const Guardian = require('../models/Guardian');
+      const gCount = await Guardian.countDocuments({ student_id: u._id });
+      hasGuardians = gCount > 0;
+    } catch {
+      hasGuardians = true;
+    }
+  }
+
   const effectivePicture = u.studentPhoto || (u.picture && !u.picture.includes('googleusercontent.com') ? u.picture : null);
   res.json({
     success: true,
@@ -325,8 +741,24 @@ router.get('/me', protect, async (req, res) => {
       phone:        u.phone || null,
       parentPhone:  u.parentPhone || null,
       parentPhone2: u.parentPhone2 || null,
+      hasGuardians,
     },
   });
+});
+
+// ── Guardian Status for Student ──────────────────────────────────────────────
+router.get('/guardian-status', protect, authorize('student'), async (req, res) => {
+  try {
+    const Guardian = require('../models/Guardian');
+    const guardians = await Guardian.find({ student_id: req.user._id }).lean();
+    res.json({
+      success: true,
+      hasGuardians: guardians.length > 0,
+      guardians,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ── Logout ────────────────────────────────────────────────────────────────────

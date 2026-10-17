@@ -38,6 +38,7 @@ import StudentAvatar from '../components/StudentAvatar';
 import StudentAttendancePrompt from '../components/StudentAttendancePrompt';
 import StudentAttendanceHistoryModal from '../components/StudentAttendanceHistoryModal';
 import StudentRoomInfoModal from '../components/StudentRoomInfoModal';
+import StudentGuardianPrompt from '../components/StudentGuardianPrompt';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOT = 'bot';
@@ -3094,6 +3095,10 @@ export default function StudentDashboard() {
 
       {/* ── Chat Area ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+        <StudentGuardianPrompt
+          user={user}
+          onComplete={() => updateUser({ hasGuardians: true })}
+        />
         <StudentAttendancePrompt
           user={user}
           socket={activeSocket}

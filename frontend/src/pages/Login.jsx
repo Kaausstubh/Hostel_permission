@@ -1,23 +1,23 @@
 /**
- * Login Page — Google OAuth
+ * Login Page — Institutional Google OAuth Login
  *
- * Three portal cards: Student | Warden | Security
- * Each card has a single "Continue with Google" button.
- * Clicking initiates the Google OAuth flow via backend redirect.
+ * Role Access Control:
+ * - Student Portal: Strictly restricted to official college domains (@cse, @ece, @cysec, @aids, @mevd, @iiitpune.ac.in). Personal Gmail accounts are blocked.
+ * - Hostel Staff Command Centre: Strictly restricted to whitelisted staff emails (sjyotik2005@gmail.com, laxmanshinde@iiitp.ac.in, etc.).
+ * - Security Control: Strictly restricted to whitelisted security personnel (kaaustubhkhandare@gmail.com, etc.).
  *
- * Student Portal shows domain restriction info (@cse.iiitp.ac.in, @ece.iiitp.ac.in).
- * Warden and Security portals are currently open to any Google account.
+ * Authentication is performed solely via Google OAuth.
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings } from 'react-icons/md';
+import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings, MdFamilyRestroom, MdLockOutline } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
 import toast from 'react-hot-toast';
 import iiitLogo from '../assets/iiitpune-logo.webp';
 
-// Google logo SVG (inline — no external dependency)
+// Google logo SVG
 const GoogleIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path
@@ -39,38 +39,39 @@ const GoogleIcon = () => (
   </svg>
 );
 
-// Portal configuration
+// Portal configuration with strict authorization rules
 const PORTALS = {
   student: {
     label:       'Student',
     Icon:        MdSchool,
-    description: 'Your digital key to hostel freedom. Request outpasses, track approvals in real-time, and carry your gate pass — right in your pocket.',
-    restriction: 'Restricted to IIIT Pune student domains (@cse, @ece, @cysec, @aids, @mevd.iiitp.ac.in).',
-    btnText:     '🎓 Enter Student Portal',
+    description: 'Your digital key to hostel freedom. Request outpasses, track approvals in real-time, and carry your gate pass.',
+    restriction: 'Restricted to IIIT Pune student domains (@cse, @ece, @cysec, @aids, @mevd, @iiitpune.ac.in). Personal Gmail accounts are blocked.',
+    btnText:     'Enter Student Portal',
     color:       '#3b82f6',
     glow:        'rgba(59, 130, 246, 0.35)',
   },
   warden: {
     label:       'Hostel Staff',
     Icon:        MdAdminPanelSettings,
-    description: 'Command your hostel block. Approve outpasses, monitor every movement, and keep your students safe — all from one powerful dashboard.',
+    description: 'Command your hostel block. Approve outpasses, monitor student movement, and keep students safe.',
     restriction: 'Restricted to authorized Hostel Staff accounts only.',
-    btnText:     '🛡️ Enter Hostel Staff Command Centre',
+    btnText:     'Enter Hostel Staff Portal',
     color:       '#10b981',
     glow:        'rgba(16, 185, 129, 0.3)',
   },
   security: {
     label:       'Security',
     Icon:        MdSecurity,
-    description: 'You are the last line of defense. Scan QR codes, verify student passes in seconds, and ensure every gate entry is legitimate.',
+    description: 'Main gate access control. Scan QR codes, verify passes in real-time, and log entry & exit.',
     restriction: 'Restricted to authorized Security personnel only.',
-    btnText:     '🔍 Enter Security Control',
+    btnText:     'Enter Security Control',
     color:       '#f59e0b',
     glow:        'rgba(245, 158, 11, 0.3)',
   },
 };
 
 export default function Login() {
+  const navigate = useNavigate();
   const { initiateGoogleOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [selectedPortal, setSelectedPortal] = useState('student');
@@ -88,31 +89,21 @@ export default function Login() {
   useEffect(() => {
     prewarmApiConnection();
 
-    // Check if redirected back with an error parameter in the URL
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const error = searchParams.get('error');
       const message = searchParams.get('message');
       if (error || message) {
-        toast.error(message || 'Authentication failed. Please try again.', { duration: 6000 });
+        toast.error(message || 'Authentication failed. Please check your account authorization.', { duration: 6000 });
         window.history.replaceState({}, '', window.location.pathname);
       }
     } catch {
       // Ignore query string parsing errors
     }
 
-    // Modern browsers (Safari, Chrome) use Back-Forward Cache (bfcache).
-    // When the user clicks the browser Back button after visiting Google or an error page,
-    // the page is restored from memory with its previous state intact (loggingIn = true).
-    // The 'pageshow' event reliably fires on both initial load AND bfcache restoration.
-    const handlePageShow = () => {
-      resetLoginState();
-    };
-
+    const handlePageShow = () => resetLoginState();
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        resetLoginState();
-      }
+      if (document.visibilityState === 'visible') resetLoginState();
     };
 
     window.addEventListener('pageshow', handlePageShow);
@@ -136,8 +127,6 @@ export default function Login() {
     if (loggingIn) return;
     setLoggingIn(true);
 
-    // Safety timeout: In case navigation fails, gets delayed, or user quickly returns,
-    // ensure the button never remains stuck permanently in loading state.
     if (loginTimeoutRef.current) {
       clearTimeout(loginTimeoutRef.current);
     }
@@ -170,33 +159,35 @@ export default function Login() {
         <span>{theme === 'light' ? 'Dark Mode' : 'Bright Mode'}</span>
       </button>
 
-      {/* Main Single Box Login Card — Screen filling */}
+      {/* Main Login Card */}
       <div
         className="login-card login-card-oauth fade-in"
         style={{
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'space-between',
           width: '100%',
-          maxWidth: '560px',
-          height: 'calc(var(--app-viewport-height, 100dvh) - 48px)',
-          maxHeight: '780px',
-          minHeight: '580px',
-          padding: '44px 44px 40px',
+          maxWidth: '520px',
+          maxHeight: '94vh',
+          height: 'auto',
+          overflowY: 'auto',
+          padding: '32px 36px 28px',
           boxSizing: 'border-box',
+          gap: '16px',
         }}
       >
         {/* ── Header ── */}
         <div style={{ textAlign: 'center' }}>
-          <div className="login-eyebrow" style={{ marginBottom: '20px' }}>IIIT Pune · Smart Campus Portal</div>
+          <div className="login-eyebrow" style={{ marginBottom: '10px' }}>
+            IIIT PUNE · SMART CAMPUS PORTAL
+          </div>
 
           {/* Logo */}
           <div
             className="login-mark"
             style={{
-              width: 76,
-              height: 76,
-              margin: '0 auto 20px',
+              width: 56,
+              height: 56,
+              margin: '0 auto 10px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -209,119 +200,100 @@ export default function Login() {
             />
           </div>
 
-          {/* Title */}
-          <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '10px' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 4px 0' }}>
             IIIT Pune Campus
           </h1>
-          <p className="login-subtitle" style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto' }}>
+          <p className="login-subtitle" style={{ fontSize: '13.5px', color: 'var(--text-muted)', lineHeight: 1.4, margin: '0 auto' }}>
             Sign in with your institutional account to access your portal.
           </p>
         </div>
 
-        {/* ── Portal Switcher ── */}
-        <div>
-          <div className="login-portal-switcher" style={{
-            display: 'flex',
-            background: 'rgba(255,255,255,0.04)',
-            borderRadius: '16px',
-            padding: '5px',
-            border: '1px solid rgba(255,255,255,0.08)',
-            gap: '6px',
-            width: '100%',
-            marginBottom: '28px',
-          }}>
-            {Object.entries(PORTALS).map(([id, portal]) => {
-              const isActive = selectedPortal === id;
-              const Icon = portal.Icon;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className="login-portal-btn"
-                  onClick={() => handleSelectPortal(id)}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '7px',
-                    padding: '13px 8px',
-                    borderRadius: '12px',
-                    border: 'none',
-                    background: isActive ? portal.color : 'transparent',
-                    color: isActive ? '#fff' : 'var(--text-muted)',
-                    fontWeight: 700,
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                    boxShadow: isActive ? `0 6px 20px ${portal.glow}` : 'none',
-                  }}
-                >
-                  <Icon size={17} />
-                  {portal.label}
-                </button>
-              );
-            })}
-          </div>
+        {/* ── 3 Portal Switcher Tabs ── */}
+        <div className="login-portal-switcher" style={{
+          display: 'flex',
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: '12px',
+          padding: '4px',
+          border: '1px solid rgba(255,255,255,0.08)',
+          gap: '6px',
+          width: '100%',
+        }}>
+          {Object.entries(PORTALS).map(([id, portal]) => {
+            const isActive = selectedPortal === id;
+            const Icon = portal.Icon;
+            return (
+              <button
+                key={id}
+                type="button"
+                className="login-portal-btn"
+                onClick={() => handleSelectPortal(id)}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '10px 4px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: isActive ? portal.color : 'transparent',
+                  color: isActive ? '#fff' : 'var(--text-muted)',
+                  fontWeight: 700,
+                  fontSize: '13.5px',
+                  cursor: 'pointer',
+                  transition: 'all 0.18s ease',
+                  boxShadow: isActive ? `0 4px 14px ${portal.glow}` : 'none',
+                }}
+              >
+                <Icon size={16} />
+                {portal.label}
+              </button>
+            );
+          })}
+        </div>
 
-          {/* ── Portal Description + Badge ── */}
-          <div className="login-portal-description-area" style={{
-            display: 'flex',
-            flexDirection: 'column',
+        {/* ── Active Portal Description & Restriction Badge ── */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px',
+          textAlign: 'center',
+        }}>
+          <p style={{
+            fontSize: '13.5px',
+            color: 'var(--text-secondary)',
+            lineHeight: 1.5,
+            margin: 0,
+            maxWidth: '400px',
+          }}>
+            {currentPortal.description}
+          </p>
+
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            color: currentPortal.color,
+            background: `${currentPortal.color}14`,
+            border: `1px solid ${currentPortal.color}40`,
+            padding: '7px 16px',
+            borderRadius: '999px',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '14px',
-            textAlign: 'center',
-            marginBottom: '28px',
+            gap: '6px',
+            lineHeight: 1.4,
           }}>
-            {/* Big icon */}
-            <div className="login-portal-icon-wrap" style={{
-              width: 64,
-              height: 64,
-              borderRadius: '50%',
-              background: `${currentPortal.color}18`,
-              border: `2px solid ${currentPortal.color}40`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: `0 0 24px ${currentPortal.glow}`,
-            }}>
-              <currentPortal.Icon size={30} style={{ color: currentPortal.color }} />
-            </div>
-
-            <p className="login-portal-text" style={{
-              fontSize: '15.5px',
-              color: 'var(--text-secondary)',
-              lineHeight: 1.65,
-              margin: 0,
-              maxWidth: '380px',
-            }}>
-              {currentPortal.description}
-            </p>
-
-            <div className="login-portal-restriction" style={{
-              fontSize: '12px',
-              fontWeight: 700,
-              color: currentPortal.color,
-              background: `${currentPortal.color}14`,
-              border: `1.5px solid ${currentPortal.color}40`,
-              padding: '8px 18px',
-              borderRadius: '999px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '7px',
-              letterSpacing: '0.02em',
-            }}>
-              🔒 {currentPortal.restriction}
-            </div>
+            <MdLockOutline size={15} />
+            <span>{currentPortal.restriction}</span>
           </div>
         </div>
 
-        {/* ── Google Sign-In Button ── */}
-        <div style={{ width: '100%' }}>
+        {/* ── Primary Action: Official Google Workspace OAuth Only ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '4px' }}>
           <button
             id={`login-${selectedPortal}-google`}
             type="button"
-            className="login-google-btn"
+            className="btn-google-oauth"
             disabled={loggingIn}
             onClick={() => handleGoogleLogin(selectedPortal)}
             style={{
@@ -330,58 +302,107 @@ export default function Login() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '16px 24px',
+              padding: '14px 20px',
               borderRadius: '14px',
-              border: `2px solid ${currentPortal.color}55`,
-              background: `${currentPortal.color}0e`,
-              color: 'var(--text-primary)',
-              fontFamily: 'Space Grotesk, Inter, sans-serif',
-              fontSize: '16px',
+              border: 'none',
+              background: '#ffffff',
+              color: '#1f2937',
+              fontSize: '15px',
               fontWeight: 700,
               cursor: loggingIn ? 'wait' : 'pointer',
               opacity: loggingIn ? 0.75 : 1,
-              transition: 'all 0.25s ease',
-              letterSpacing: '0.01em',
-              boxShadow: `0 4px 24px ${currentPortal.glow}`,
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
             }}
             onMouseEnter={(e) => {
               if (loggingIn) return;
-              e.currentTarget.style.background = `${currentPortal.color}22`;
-              e.currentTarget.style.borderColor = currentPortal.color;
-              e.currentTarget.style.boxShadow = `0 8px 32px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = `0 6px 24px ${currentPortal.glow}`;
             }}
             onMouseLeave={(e) => {
               if (loggingIn) return;
-              e.currentTarget.style.background = `${currentPortal.color}0e`;
-              e.currentTarget.style.borderColor = `${currentPortal.color}55`;
-              e.currentTarget.style.boxShadow = `0 4px 24px ${currentPortal.glow}`;
               e.currentTarget.style.transform = 'none';
+              e.currentTarget.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.12)';
             }}
           >
             {loggingIn ? (
               <>
-                <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2, marginRight: 4 }} />
-                Redirecting to Google…
+                <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 6 }} />
+                <span>Redirecting to Google…</span>
               </>
             ) : (
               <>
                 <GoogleIcon />
-                {currentPortal.btnText}
+                <span>Sign in with Google ({currentPortal.label})</span>
               </>
             )}
           </button>
-
-          <p style={{
-            textAlign: 'center',
-            fontSize: '11.5px',
-            color: 'var(--text-muted)',
-            marginTop: '16px',
-            lineHeight: 1.5,
-          }}>
-            Secure, password-free login via Google OAuth. Your credentials are never stored.
-          </p>
+          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '2px' }}>
+            Secure, password-free login via Google OAuth. Authenticates role and domain permissions.
+          </div>
         </div>
+
+        {/* ── Footer Navigation Links ── */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '12.5px',
+          color: 'var(--text-muted)',
+          flexWrap: 'wrap',
+          paddingTop: '10px',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          marginTop: '6px',
+        }}>
+          <button
+            type="button"
+            onClick={() => navigate('/parent/login')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ec4899',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '12.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <MdFamilyRestroom size={16} /> Parent Portal →
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => navigate('/register')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--primary)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '12.5px',
+            }}
+          >
+            New Student Register →
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => navigate('/visitor-pass')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '12.5px',
+            }}
+          >
+            Visitor Pass →
+          </button>
+        </div>
+
       </div>
     </div>
   );

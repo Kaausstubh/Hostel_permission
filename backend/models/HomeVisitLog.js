@@ -126,8 +126,34 @@ const homeVisitLogSchema = new mongoose.Schema(
     // ── Overall status ────────────────────────────────────────────────────────
     overall_status: {
       type: String,
-      enum: ['pending', 'parent_approved', 'approved', 'rejected', 'completed'],
+      enum: ['pending', 'parent_approved', 'approved', 'rejected', 'completed', 'parent_no_response'],
       default: 'pending',
+    },
+
+    // ── Digital Parent Approval Workflow ──────────────────────────────────────
+    parent_approval_status: {
+      type: String,
+      enum: ['legacy', 'pending', 'parent_approved', 'parent_rejected', 'parent_no_response'],
+      default: 'pending',
+      index: true,
+    },
+    final_parent_decision_at: {
+      type: Date,
+      default: null,
+    },
+    parent_reminder_sent: {
+      type: Boolean,
+      default: false,
+    },
+    parent_decision_source: {
+      type: String,
+      enum: ['PARENT_PORTAL', 'STAFF_PHONE_OVERRIDE', null],
+      default: null,
+    },
+    accompanying: {
+      type: String,
+      default: '',
+      trim: true,
     },
   },
   {
