@@ -7,12 +7,14 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { MdLogout, MdFamilyRestroom, MdAccessTime, MdCheckCircle, MdCancel, MdRefresh, MdChevronRight, MdHistory } from 'react-icons/md';
 
 export default function ParentDashboard() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [parent, setParent] = useState(null);
   const [wards, setWards] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -50,8 +52,7 @@ export default function ParentDashboard() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    logout();
     toast.success('Logged out successfully');
     navigate('/parent/login');
   };

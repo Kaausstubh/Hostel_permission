@@ -83,7 +83,12 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'));
 
   if (loading) return <PageLoader />;
-  if (!user || !hasToken) return <Navigate to="/login" replace />;
+  if (!user || !hasToken) {
+    if (location.pathname.startsWith('/parent')) {
+      return <Navigate to={`/parent/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+    }
+    return <Navigate to="/login" replace />;
+  }
 
   if (allowedRoles) {
     const rolesList = [...allowedRoles];
@@ -117,7 +122,15 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 // ─── Layout Wrapper (with sidebar — for warden + security) ───────────────────
 const AppLayout = ({ children }) => {
+  const { user } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  if (user?.role === 'parent') {
+    return <Navigate to="/parent/dashboard" replace />;
+  }
+  if (user?.role === 'student') {
+    return <Navigate to="/student" replace />;
+  }
 
   useEffect(() => {
     const onResize = () => {
@@ -167,7 +180,7 @@ function AppRoutes() {
           path="/login"
           element={isAuth ? <Navigate to={defaultRedirect()} replace /> : <Login />}
         />
-        <Route path="/register" element={<Register />} />
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         {/* OAuth callback — must be public and unguarded */}
         <Route path="/auth/callback" element={<OAuthCallback />} />
         <Route path="/simulator" element={<StudentSimulator />} />

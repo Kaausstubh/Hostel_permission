@@ -165,242 +165,235 @@ export default function Login() {
         style={{
           display: 'flex',
           flexDirection: 'column',
+          justifyContent: 'space-between',
           width: '100%',
-          maxWidth: '520px',
+          maxWidth: '540px',
+          minHeight: '620px',
           maxHeight: '94vh',
           height: 'auto',
           overflowY: 'auto',
-          padding: '32px 36px 28px',
+          padding: '42px 40px 30px',
           boxSizing: 'border-box',
-          gap: '16px',
+          gap: '22px',
         }}
       >
-        {/* ── Header ── */}
-        <div style={{ textAlign: 'center' }}>
-          <div className="login-eyebrow" style={{ marginBottom: '10px' }}>
-            IIIT PUNE · SMART CAMPUS PORTAL
+        {/* ── Top Section: Brand & Portals ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Header */}
+          <div style={{ textAlign: 'center' }}>
+            <div className="login-eyebrow" style={{ marginBottom: '12px' }}>
+              IIIT PUNE · SMART CAMPUS PORTAL
+            </div>
+
+            {/* Logo */}
+            <div
+              className="login-mark"
+              style={{
+                width: 62,
+                height: 62,
+                margin: '0 auto 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={iiitLogo}
+                alt="IIIT Pune logo"
+                style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
+              />
+            </div>
+
+            <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 6px 0' }}>
+              IIIT Pune Campus
+            </h1>
+            <p className="login-subtitle" style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 auto' }}>
+              Sign in with your institutional account to access your portal.
+            </p>
           </div>
 
-          {/* Logo */}
-          <div
-            className="login-mark"
-            style={{
-              width: 56,
-              height: 56,
-              margin: '0 auto 10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <img
-              src={iiitLogo}
-              alt="IIIT Pune logo"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
-            />
-          </div>
-
-          <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 4px 0' }}>
-            IIIT Pune Campus
-          </h1>
-          <p className="login-subtitle" style={{ fontSize: '13.5px', color: 'var(--text-muted)', lineHeight: 1.4, margin: '0 auto' }}>
-            Sign in with your institutional account to access your portal.
-          </p>
-        </div>
-
-        {/* ── 3 Portal Switcher Tabs ── */}
-        <div className="login-portal-switcher" style={{
-          display: 'flex',
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '12px',
-          padding: '4px',
-          border: '1px solid rgba(255,255,255,0.08)',
-          gap: '6px',
-          width: '100%',
-        }}>
-          {Object.entries(PORTALS).map(([id, portal]) => {
-            const isActive = selectedPortal === id;
-            const Icon = portal.Icon;
-            return (
-              <button
-                key={id}
-                type="button"
-                className="login-portal-btn"
-                onClick={() => handleSelectPortal(id)}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  padding: '10px 4px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background: isActive ? portal.color : 'transparent',
-                  color: isActive ? '#fff' : 'var(--text-muted)',
-                  fontWeight: 700,
-                  fontSize: '13.5px',
-                  cursor: 'pointer',
-                  transition: 'all 0.18s ease',
-                  boxShadow: isActive ? `0 4px 14px ${portal.glow}` : 'none',
-                }}
-              >
-                <Icon size={16} />
-                {portal.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── Active Portal Description & Restriction Badge ── */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '10px',
-          textAlign: 'center',
-        }}>
-          <p style={{
-            fontSize: '13.5px',
-            color: 'var(--text-secondary)',
-            lineHeight: 1.5,
-            margin: 0,
-            maxWidth: '400px',
+          {/* 3 Portal Switcher Tabs */}
+          <div className="login-portal-switcher" style={{
+            display: 'flex',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '14px',
+            padding: '5px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            gap: '8px',
+            width: '100%',
           }}>
-            {currentPortal.description}
-          </p>
+            {Object.entries(PORTALS).map(([id, portal]) => {
+              const isActive = selectedPortal === id;
+              const Icon = portal.Icon;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className="login-portal-btn"
+                  onClick={() => handleSelectPortal(id)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '11px 6px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: isActive ? portal.color : 'transparent',
+                    color: isActive ? '#fff' : 'var(--text-muted)',
+                    fontWeight: 700,
+                    fontSize: '13.5px',
+                    cursor: 'pointer',
+                    transition: 'all 0.18s ease',
+                    boxShadow: isActive ? `0 4px 14px ${portal.glow}` : 'none',
+                  }}
+                >
+                  <Icon size={16} />
+                  {portal.label}
+                </button>
+              );
+            })}
+          </div>
 
+          {/* Active Portal Description & Restriction Badge */}
           <div style={{
-            fontSize: '12px',
-            fontWeight: 700,
-            color: currentPortal.color,
-            background: `${currentPortal.color}14`,
-            border: `1px solid ${currentPortal.color}40`,
-            padding: '7px 16px',
-            borderRadius: '999px',
-            display: 'inline-flex',
+            display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: '6px',
-            lineHeight: 1.4,
+            gap: '12px',
+            textAlign: 'center',
           }}>
-            <MdLockOutline size={15} />
-            <span>{currentPortal.restriction}</span>
-          </div>
-        </div>
+            <p style={{
+              fontSize: '13.5px',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.5,
+              margin: 0,
+              maxWidth: '420px',
+            }}>
+              {currentPortal.description}
+            </p>
 
-        {/* ── Primary Action: Official Google Workspace OAuth Only ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '4px' }}>
-          <button
-            id={`login-${selectedPortal}-google`}
-            type="button"
-            className="btn-google-oauth"
-            disabled={loggingIn}
-            onClick={() => handleGoogleLogin(selectedPortal)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '12px',
-              padding: '14px 20px',
-              borderRadius: '14px',
-              border: 'none',
-              background: '#ffffff',
-              color: '#1f2937',
-              fontSize: '15px',
+            <div style={{
+              fontSize: '12px',
               fontWeight: 700,
-              cursor: loggingIn ? 'wait' : 'pointer',
-              opacity: loggingIn ? 0.75 : 1,
-              transition: 'all 0.2s ease',
-              boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
-            }}
-            onMouseEnter={(e) => {
-              if (loggingIn) return;
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = `0 6px 24px ${currentPortal.glow}`;
-            }}
-            onMouseLeave={(e) => {
-              if (loggingIn) return;
-              e.currentTarget.style.transform = 'none';
-              e.currentTarget.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.12)';
-            }}
-          >
-            {loggingIn ? (
-              <>
-                <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 6 }} />
-                <span>Redirecting to Google…</span>
-              </>
-            ) : (
-              <>
-                <GoogleIcon />
-                <span>Sign in with Google ({currentPortal.label})</span>
-              </>
-            )}
-          </button>
-          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '2px' }}>
-            Secure, password-free login via Google OAuth. Authenticates role and domain permissions.
-          </div>
-        </div>
-
-        {/* ── Footer Navigation Links ── */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: '12px',
-          fontSize: '12.5px',
-          color: 'var(--text-muted)',
-          flexWrap: 'wrap',
-          paddingTop: '10px',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          marginTop: '6px',
-        }}>
-          <button
-            type="button"
-            onClick={() => navigate('/parent/login')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#ec4899',
-              cursor: 'pointer',
-              fontWeight: 700,
-              fontSize: '12.5px',
+              color: currentPortal.color,
+              background: `${currentPortal.color}14`,
+              border: `1px solid ${currentPortal.color}40`,
+              padding: '8px 18px',
+              borderRadius: '999px',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            <MdFamilyRestroom size={16} /> Parent Portal →
-          </button>
-          <span>•</span>
-          <button
-            type="button"
-            onClick={() => navigate('/register')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--primary)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '12.5px',
-            }}
-          >
-            New Student Register →
-          </button>
-          <span>•</span>
-          <button
-            type="button"
-            onClick={() => navigate('/visitor-pass')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontSize: '12.5px',
-            }}
-          >
-            Visitor Pass →
-          </button>
+              gap: '6px',
+              lineHeight: 1.4,
+            }}>
+              <MdLockOutline size={15} />
+              <span>{currentPortal.restriction}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Bottom Section: Action & Links ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Primary Action: Official Google Workspace OAuth */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+            <button
+              id={`login-${selectedPortal}-google`}
+              type="button"
+              className="btn-google-oauth"
+              disabled={loggingIn}
+              onClick={() => handleGoogleLogin(selectedPortal)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                padding: '15px 22px',
+                borderRadius: '14px',
+                border: 'none',
+                background: '#ffffff',
+                color: '#1f2937',
+                fontSize: '15.5px',
+                fontWeight: 700,
+                cursor: loggingIn ? 'wait' : 'pointer',
+                opacity: loggingIn ? 0.75 : 1,
+                transition: 'all 0.2s ease',
+                boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
+              }}
+              onMouseEnter={(e) => {
+                if (loggingIn) return;
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = `0 6px 24px ${currentPortal.glow}`;
+              }}
+              onMouseLeave={(e) => {
+                if (loggingIn) return;
+                e.currentTarget.style.transform = 'none';
+                e.currentTarget.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.12)';
+              }}
+            >
+              {loggingIn ? (
+                <>
+                  <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 6 }} />
+                  <span>Redirecting to Google…</span>
+                </>
+              ) : (
+                <>
+                  <GoogleIcon />
+                  <span>Sign in with Google ({currentPortal.label})</span>
+                </>
+              )}
+            </button>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '2px' }}>
+              Secure, password-free login via Google OAuth. Authenticates role and domain permissions.
+            </div>
+          </div>
+
+          {/* Footer Navigation Links */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '20px',
+            fontSize: '13px',
+            color: 'var(--text-muted)',
+            flexWrap: 'wrap',
+            paddingTop: '14px',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <button
+              type="button"
+              onClick={() => navigate('/parent/login')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#ec4899',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: '13px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <MdFamilyRestroom size={16} /> Parent Portal →
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={() => navigate('/visitor-pass')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 500,
+              }}
+            >
+              Visitor Pass →
+            </button>
+          </div>
         </div>
 
       </div>

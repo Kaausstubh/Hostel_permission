@@ -43,7 +43,7 @@ const runParentApprovalCycle = async () => {
 
   try {
     const now = new Date();
-    const expiryHours = parseInt(process.env.PARENT_APPROVAL_EXPIRY_HOURS || '24', 10);
+    const expiryHours = parseInt(process.env.PARENT_APPROVAL_EXPIRY_HOURS || '168', 10); // 7 days default
     const expiryThreshold = new Date(now.getTime() - expiryHours * 60 * 60 * 1000);
     const reminderThreshold = new Date(now.getTime() - (expiryHours / 2) * 60 * 60 * 1000);
     const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -52,13 +52,10 @@ const runParentApprovalCycle = async () => {
     let reminderCount = 0;
 
     // ── 1. Process Expired Requests ───────────────────────────────────────────
-    // Query only 'pending' requests (strictly exempts 'legacy' records)
+    // A request only expires if the planned return date has completely passed (return_date < todayStr)
     const expiredCandidates = await HomeVisitLog.find({
       parent_approval_status: 'pending',
-      $or: [
-        { createdAt: { $lte: expiryThreshold } },
-        { leave_date: { $lte: todayStr } },
-      ],
+      return_date: { $lt: todayStr },
     }).limit(100);
 
     for (const visit of expiredCandidates) {
@@ -82,7 +79,7 @@ const runParentApprovalCycle = async () => {
           student_id: visit.student_id,
           actor_role: 'system',
           details: {
-            reason: visit.leave_date <= todayStr ? 'Reached leave departure date' : `Exceeded ${expiryHours}h response window`,
+            reason: `Planned return date (${visit.return_date}) has passed without parent response`,
           },
         });
         logger.info(`[Scheduler] Request ${visit._id} marked parent_no_response`);

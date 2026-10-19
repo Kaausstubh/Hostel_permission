@@ -120,8 +120,11 @@ export default function GuardianManagement() {
     try {
       setActionLoading('saving_link');
       const payload = {
+        studentId: linkModalStudent._id,
         student_id: linkModalStudent._id,
+        guardian1: linkForm.slot1,
         guardian_1: linkForm.slot1,
+        guardian2: linkForm.hasSlot2 ? linkForm.slot2 : undefined,
         guardian_2: linkForm.hasSlot2 ? linkForm.slot2 : undefined
       };
       const res = await api.post('/admin/guardians/link-initial', payload);
@@ -267,24 +270,29 @@ export default function GuardianManagement() {
             />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {['ALL', 'LINKED', 'PARTIAL', 'NOT_LINKED'].map((filter) => (
-              <button
-                key={filter}
-                onClick={() => { setStatusFilter(filter); setPage(1); }}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: statusFilter === filter ? '1px solid var(--primary)' : '1px solid var(--border)',
-                  background: statusFilter === filter ? 'var(--primary-light, #2563eb18)' : 'var(--bg-page)',
-                  color: statusFilter === filter ? 'var(--primary)' : 'var(--text-secondary)',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  cursor: 'pointer'
-                }}
-              >
-                {filter.replace('_', ' ')}
-              </button>
-            ))}
+            {['ALL', 'LINKED', 'PARTIAL', 'NOT_LINKED'].map((filter) => {
+              const isActive = statusFilter === filter;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => { setStatusFilter(filter); setPage(1); }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: isActive ? '1px solid #2563eb' : '1px solid var(--border)',
+                    background: isActive ? '#2563eb' : 'var(--bg-page)',
+                    color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    boxShadow: isActive ? '0 2px 8px rgba(37, 99, 235, 0.35)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {filter.replace('_', ' ')}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -303,9 +311,9 @@ export default function GuardianManagement() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {students.map((student) => {
-              const g1 = student.guardians?.find(g => g.slot === 1);
-              const g2 = student.guardians?.find(g => g.slot === 2);
-              const hasGuardians = Boolean(g1 || g2);
+              const g1 = student.guardians?.find(g => (g.guardian_slot === 1 || g.slot === 1));
+              const g2 = student.guardians?.find(g => (g.guardian_slot === 2 || g.slot === 2));
+              const hasGuardians = Boolean(g1 || g2 || (student.guardians && student.guardians.length > 0));
 
               return (
                 <div

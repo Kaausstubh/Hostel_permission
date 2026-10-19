@@ -155,9 +155,10 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
     };
   }
 
-  // 2. Student is inside; check if they have a PENDING pass
+  // 2. Student is inside; check if they have a PENDING daily pass
   const pendingPass = await GatePass.findOne({
     student_id: sId,
+    pass_type: 'IN_OUT',
     status: 'PENDING',
   }).sort({ createdAt: -1 });
 

@@ -437,9 +437,10 @@ router.post('/login', async (req, res) => {
 // ── Complete Guardian Details (Backward Compatibility for Existing Students) ──
 router.post('/complete-guardian-details', protect, authorize('student'), async (req, res) => {
   try {
-    const { guardian1, guardian2 } = req.body;
-    if (!guardian1 || !guardian2) {
-      return res.status(400).json({ success: false, message: 'Both Guardian 1 and Guardian 2 details are required' });
+    const guardian1 = req.body.guardian1 || req.body.guardian_1;
+    const guardian2 = req.body.guardian2 || req.body.guardian_2;
+    if (!guardian1) {
+      return res.status(400).json({ success: false, message: 'Primary guardian details are required' });
     }
 
     const result = await linkInitialGuardians({

@@ -10,6 +10,8 @@ const Guardian = require('../models/Guardian');
 const ParentApproval = require('../models/ParentApproval');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
 const User = require('../models/User');
+const GatePass = require('../models/GatePass');
+const { issueHomeVisitGatePass } = require('./homeVisitQrService');
 const { sendLeaveOutcomeEmailToStudent } = require('./mailService');
 const logger = require('../utils/logger');
 
@@ -66,7 +68,7 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
   if (policy === 'ANY_ONE') {
     // Conditional atomic update on parent_approval_status === 'pending'
     const finalParentStatus = decision === 'APPROVED' ? 'parent_approved' : 'parent_rejected';
-    const finalOverallStatus = decision === 'APPROVED' ? 'parent_approved' : 'rejected';
+    const finalOverallStatus = decision === 'APPROVED' ? 'approved' : 'rejected';
 
     const updatedVisit = await HomeVisitLog.findOneAndUpdate(
       {
@@ -77,6 +79,7 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
         $set: {
           parent_approval_status: finalParentStatus,
           overall_status: finalOverallStatus,
+          warden_status: decision === 'APPROVED' ? 'approved' : 'rejected',
           parent_decision_source: 'PARENT_PORTAL',
           final_parent_decision_at: new Date(),
         },
@@ -123,6 +126,27 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       details: { decision, remarks: cleanRemarks, policy: 'ANY_ONE' },
     });
 
+    // If approved, issue scannable QR gate pass immediately; if rejected, cancel GatePass
+    if (decision === 'APPROVED') {
+      try {
+        const passLean = updatedVisit.toObject ? updatedVisit.toObject() : { ...updatedVisit };
+        passLean.student_id = visit.student_id;
+        const { token } = await issueHomeVisitGatePass(passLean);
+        updatedVisit.qr_token = token;
+        await GatePass.updateOne(
+          { home_visit_id: updatedVisit._id },
+          { $set: { status: 'PENDING', qr_token: token } }
+        ).catch(() => {});
+      } catch (passErr) {
+        logger.warn('[ParentApproval] GatePass generation notice:', { error: passErr.message });
+      }
+    } else {
+      await GatePass.updateOne(
+        { home_visit_id: updatedVisit._id },
+        { $set: { status: 'CANCELLED' } }
+      ).catch(() => {});
+    }
+
     // Notify student via email
     if (visit.student_id?.email) {
       sendLeaveOutcomeEmailToStudent({
@@ -149,12 +173,18 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
         $set: {
           parent_approval_status: 'parent_rejected',
           overall_status: 'rejected',
+          warden_status: 'rejected',
           parent_decision_source: 'PARENT_PORTAL',
           final_parent_decision_at: new Date(),
         },
       },
       { new: true }
     );
+
+    await GatePass.updateOne(
+      { home_visit_id: updatedVisit._id },
+      { $set: { status: 'CANCELLED' } }
+    ).catch(() => {});
 
     const approvalRecord = await ParentApproval.create({
       home_visit_request_id: visit._id,
@@ -219,13 +249,27 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       {
         $set: {
           parent_approval_status: 'parent_approved',
-          overall_status: 'parent_approved',
+          overall_status: 'approved',
+          warden_status: 'approved',
           parent_decision_source: 'PARENT_PORTAL',
           final_parent_decision_at: new Date(),
         },
       },
       { new: true }
     );
+
+    try {
+      const passLean = finalVisit.toObject ? finalVisit.toObject() : { ...finalVisit };
+      passLean.student_id = visit.student_id;
+      const { token } = await issueHomeVisitGatePass(passLean);
+      finalVisit.qr_token = token;
+      await GatePass.updateOne(
+        { home_visit_id: finalVisit._id },
+        { $set: { status: 'PENDING', qr_token: token } }
+      ).catch(() => {});
+    } catch (passErr) {
+      logger.warn('[ParentApproval] GatePass generation notice:', { error: passErr.message });
+    }
 
     if (visit.student_id?.email) {
       sendLeaveOutcomeEmailToStudent({
@@ -304,7 +348,8 @@ const recordStaffPhoneOverride = async ({
     {
       $set: {
         parent_approval_status: 'parent_approved',
-        overall_status: 'parent_approved',
+        overall_status: 'approved',
+        warden_status: 'approved',
         parent_call_confirmed: true,
         parent_call_confirmed_at: new Date(),
         parent_call_confirmed_by: staffUser._id,
@@ -317,6 +362,18 @@ const recordStaffPhoneOverride = async ({
 
   if (!updatedVisit) {
     throw new Error('Failed to apply override — request status was updated concurrently');
+  }
+
+  try {
+    const passLean = updatedVisit.toObject ? updatedVisit.toObject() : { ...updatedVisit };
+    passLean.student_id = visit.student_id;
+    const { token } = await issueHomeVisitGatePass(passLean);
+    await GatePass.updateOne(
+      { home_visit_id: updatedVisit._id },
+      { $set: { status: 'PENDING', qr_token: token } }
+    ).catch(() => {});
+  } catch (passErr) {
+    logger.warn('[StaffOverride] GatePass generation notice:', { error: passErr.message });
   }
 
   // Create append-only ParentApproval record (guardian_id can be null)

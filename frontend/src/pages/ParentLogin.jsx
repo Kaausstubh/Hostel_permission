@@ -4,12 +4,16 @@
  */
 
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function ParentLogin() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl') || '/parent/dashboard';
+  const { loginWithOAuth } = useAuth();
   const [authMode, setAuthMode] = useState('password'); // 'password' | 'otp'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,10 +33,9 @@ export default function ParentLogin() {
       });
 
       const { token, user } = res.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
+      loginWithOAuth(token, user);
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/parent/dashboard');
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Login failed. Check your email and password.');
     } finally {
@@ -70,10 +73,9 @@ export default function ParentLogin() {
       });
 
       const { token, user } = res.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
+      loginWithOAuth(token, user);
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/parent/dashboard');
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Invalid or expired code');
     } finally {
