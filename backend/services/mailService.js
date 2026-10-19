@@ -28,6 +28,12 @@ const getTransporter = () => {
     const { host, user, pass } = getCleanCredentials();
     const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
 
+    const timeoutOptions = {
+      connectionTimeout: 10000,
+      greetingTimeout: 8000,
+      socketTimeout: 15000,
+    };
+
     if (isGmail) {
       transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -35,6 +41,7 @@ const getTransporter = () => {
         maxConnections: 1,
         rateDelta: 1000,
         rateLimit: 5,
+        ...timeoutOptions,
         auth: {
           user,
           pass,
@@ -47,6 +54,7 @@ const getTransporter = () => {
         secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
         pool: true,
         maxConnections: 1,
+        ...timeoutOptions,
         auth: {
           user,
           pass,
@@ -90,10 +98,6 @@ const sendMail = async ({ to, subject, html, text }) => {
     return { success: true, messageId: info.messageId };
   } catch (error) {
     logger.error(`[MailService] Failed to send email to ${to}: ${error.message}`);
-    // Non-blocking in non-production, throw in production
-    if (process.env.NODE_ENV === 'production') {
-      throw error;
-    }
     return { success: false, error: error.message };
   }
 };
