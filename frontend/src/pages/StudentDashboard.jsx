@@ -997,6 +997,31 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (id.startsWith('cancel_hv_')) {
+      const visitId = id.replace('cancel_hv_', '');
+      setLoading(true);
+      try {
+        const res = await api.post(`/student/home-visit/${visitId}/cancel`);
+        botSay(
+          `✅ *Request Cancelled*\n\n${res.data?.message || 'Your previous home visit request was cancelled successfully.'}\n\nYou can now submit a new home visit request with your updated dates.`,
+          'buttons',
+          {
+            buttons: [
+              { id: '2', label: '🏠 Apply for Home Visit' },
+              { id: 'flow_menu', label: '🏠 Main menu' },
+            ],
+          }
+        );
+      } catch (err) {
+        botSay(`❌ Failed to cancel request: ${err.response?.data?.message || err.message}`, 'buttons', {
+          buttons: FLOW_RECOVERY_BUTTONS,
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (id === 'attendance_records' || id === 'flow_attendance') {
       setAttendanceHistoryOpen(true);
       return;
@@ -1314,14 +1339,36 @@ export default function StudentDashboard() {
         ...(statusRes.data?.status?.approvedVisits || []),
       ];
 
-      const hasOverlap = activeVisits.some((visit) =>
+      const overlappingVisit = activeVisits.find((visit) =>
         visit.leave_date <= data.return_date && visit.return_date >= data.leave_date
       );
 
-      if (hasOverlap) {
-        showFlowExitOptions(
-          '❌ You already have an active home visit pass for overlapping dates.\n\nUse *View My Status* for your current QR, or *Restart home visit* only if you have not submitted yet.'
+      if (overlappingVisit) {
+        const canCancel = !overlappingVisit.qr_used_out;
+        const conflictDates = `${overlappingVisit.leave_date} → ${overlappingVisit.return_date}`;
+        const conflictStatus = overlappingVisit.overall_status === 'approved' ? 'Approved' : 'Pending Parent Approval';
+
+        const buttons = [];
+        if (canCancel && overlappingVisit._id) {
+          buttons.push({
+            id: `cancel_hv_${overlappingVisit._id}`,
+            label: '🗑️ Cancel Overlapping Request',
+          });
+        }
+        buttons.push({ id: 'flow_restart_hv', label: '🔄 Change Dates' });
+        buttons.push({ id: '4', label: '📊 View My Status' });
+        buttons.push({ id: 'flow_menu', label: '🏠 Main menu' });
+
+        botSay(
+          `❌ *Date Conflict Detected*\n\nYou already have an active home visit request for overlapping dates: *${conflictDates}* (${conflictStatus}).\n\n` +
+          (canCancel
+            ? `If you want to apply for *${data.leave_date} → ${data.return_date}* instead, tap *Cancel Overlapping Request* below to cancel the old request, or tap *Change Dates* to select different dates.`
+            : `Since your previous pass has already been scanned out at the campus gate, you cannot create another overlapping pass.`),
+          'buttons',
+          { buttons }
         );
+        setHvData({});
+        setStep(STEPS.MENU);
         return;
       }
 
@@ -2145,17 +2192,23 @@ export default function StudentDashboard() {
         statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate QR Pass* below to create a 15-minute gate pass.`;
       }
 
+      const statusButtons = [];
+      const qrMap = {};
+
       if (s.pendingVisits?.length > 0) {
         statusMsg += `\n\n🏠 *Pending Home Visits:*`;
         s.pendingVisits.forEach((v, i) => {
           const isAwaiting = v.parent_approval_status === 'pending' || v.overall_status === 'pending';
           const statusText = isAwaiting ? '⏳ Awaiting Parent Approval (Email sent)' : `(${v.overall_status})`;
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ${statusText}`;
+          if (!v.qr_used_out) {
+            statusButtons.push({
+              id: `cancel_hv_${v._id}`,
+              label: `🗑️ Cancel Request (${v.leave_date})`,
+            });
+          }
         });
       }
-
-      const statusButtons = [];
-      const qrMap = {};
 
       if (s.approvedVisits?.length > 0) {
         statusMsg += `\n\n✅ *Active Home Visit Passes:*`;
@@ -2177,6 +2230,12 @@ export default function StudentDashboard() {
               leaveDate: v.leave_date,
               returnDate: v.return_date,
             };
+          }
+          if (!v.qr_used_out) {
+            statusButtons.push({
+              id: `cancel_hv_${v._id}`,
+              label: `🗑️ Cancel Pass (${v.leave_date})`,
+            });
           }
         });
       }

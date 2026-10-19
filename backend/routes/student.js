@@ -858,6 +858,57 @@ router.get('/home-visits', async (req, res) => {
   }
 });
 
+// ── POST /home-visit/:id/cancel ───────────────────────────────────────────────
+// Student withdraws/cancels their own pending unscanned home visit request
+router.post('/home-visit/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const visit = await HomeVisitLog.findOne({
+      _id: id,
+      student_id: req.user._id,
+    });
+
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    if (visit.qr_used_out) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a pass that has already been scanned out at the campus gate.',
+      });
+    }
+
+    visit.overall_status = 'rejected';
+    visit.parent_approval_status = 'parent_rejected';
+    visit.warden_status = 'rejected';
+    await visit.save();
+
+    await GatePass.updateOne(
+      { home_visit_id: visit._id },
+      { status: 'CANCELLED' }
+    ).catch(() => {});
+
+    await ApprovalAuditLog.create({
+      event: 'REQUEST_CANCELLED_BY_STUDENT',
+      home_visit_request_id: visit._id,
+      student_id: req.user._id,
+      actor_id: req.user._id,
+      actor_role: 'student',
+      actor_email: req.user.email,
+      ip_address: req.ip,
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: 'Home visit request cancelled successfully. You may now submit a new request.',
+      visit,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── POST /validate-place ──────────────────────────────────────────────────────
 router.post('/validate-place', async (req, res) => {
   try {
