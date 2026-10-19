@@ -1325,9 +1325,14 @@ export default function StudentDashboard() {
         return;
       }
 
-      await api.post('/student/home-visit', data);
+      const res = await api.post('/student/home-visit', data);
+      const emails = res.data?.guardianEmails || [];
+      const emailNotice = emails.length > 0
+        ? `📧 *Request Emailed to Parents!*\n\nA leave approval request has been emailed to: *${emails.join(', ')}*.\n\nPlease ask your parent to open the Parent Portal link sent to their email and approve your request. Once approved by your parent, your digital QR gate pass will be automatically generated so you can leave the hostel.`
+        : `📧 *Request Emailed to Parents!*\n\nA leave approval request has been emailed to your parent.\n\nPlease ask your parent to open the Parent Portal link sent to their email and approve your request. Once approved by your parent, your digital QR gate pass will be automatically generated so you can leave the hostel.`;
+
       botSay(
-        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n⏳ The hostel staff will call your parent to confirm permission. Once confirmed, your QR gate pass will be generated.`
+        `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n${emailNotice}`
       );
       setHvData({});
       goToMainMenu();
@@ -2143,7 +2148,9 @@ export default function StudentDashboard() {
       if (s.pendingVisits?.length > 0) {
         statusMsg += `\n\n🏠 *Pending Home Visits:*`;
         s.pendingVisits.forEach((v, i) => {
-          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} (${v.overall_status})`;
+          const isAwaiting = v.parent_approval_status === 'pending' || v.overall_status === 'pending';
+          const statusText = isAwaiting ? '⏳ Awaiting Parent Approval (Email sent)' : `(${v.overall_status})`;
+          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ${statusText}`;
         });
       }
 
@@ -2153,7 +2160,7 @@ export default function StudentDashboard() {
       if (s.approvedVisits?.length > 0) {
         statusMsg += `\n\n✅ *Active Home Visit Passes:*`;
         s.approvedVisits.forEach((v, i) => {
-          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — scannable gate pass ready`;
+          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ✅ Parent Approved (Pass Ready)`;
           if (v.qrDataUrl) {
             const phase = v.qr_used_out ? 'return' : 'departure';
             statusButtons.push({

@@ -83,7 +83,13 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'));
 
   if (loading) return <PageLoader />;
-  if (!user || !hasToken) return <Navigate to="/login" replace />;
+  if (!user || !hasToken) {
+    if (location.pathname.startsWith('/parent')) {
+      const returnUrl = encodeURIComponent(location.pathname + location.search);
+      return <Navigate to={`/parent/login?returnUrl=${returnUrl}`} replace />;
+    }
+    return <Navigate to="/login" replace />;
+  }
 
   if (allowedRoles) {
     const rolesList = [...allowedRoles];

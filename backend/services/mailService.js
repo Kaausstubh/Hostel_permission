@@ -181,13 +181,14 @@ const sendLeaveRequestEmail = async ({ to, guardianName, studentName, leaveDate,
         <p><strong>📝 Reason:</strong> ${reason}</p>
       </div>
 
-      <p>Please review and record your decision (Approve or Reject):</p>
-      <div style="text-align: center;">
-        <a href="${requestUrl}" class="btn btn-green">Review & Decide Request</a>
+      <p>Please open the Parent Portal to review the details and submit your decision (Approve or Reject):</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${requestUrl}" class="btn btn-green" style="font-size: 15px; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 700;">Open Parent Portal & Decide Request</a>
       </div>
-      <p style="font-size: 12.5px; color: #9ca3af;">
-        Please respond promptly so that hostel staff can finalize permissions. Direct link:<br>
-        <span style="font-size: 11.5px; word-break: break-all; color: #60a5fa;">${requestUrl}</span>
+      <p style="font-size: 12.5px; color: #9ca3af; line-height: 1.5;">
+        Once approved by you, your ward's digital QR gate pass will be automatically generated so they can leave the hostel.<br><br>
+        Direct Parent Portal link:<br>
+        <a href="${requestUrl}" style="font-size: 12px; word-break: break-all; color: #60a5fa;">${requestUrl}</a>
       </p>
     `
   );

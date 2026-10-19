@@ -107,12 +107,28 @@ const findParentOrGuardianUser = async (email) => {
   const normalized = email.trim().toLowerCase();
   let user = await User.findOne({ email: normalized, role: 'parent' });
   if (!user) {
-    const isGuardian = await Guardian.exists({
-      $or: [{ email: normalized }],
+    const guardian = await Guardian.findOne({
+      email: normalized,
       status: { $ne: 'REVOKED' },
     });
-    if (isGuardian) {
+    if (guardian) {
       user = await User.findOne({ email: normalized });
+      if (!user) {
+        // Auto-provision parent User account for invited guardian
+        user = await User.create({
+          name: guardian.name || 'Parent / Guardian',
+          email: normalized,
+          phone: guardian.phone || null,
+          role: 'parent',
+          isActive: true,
+        });
+      }
+      if (!guardian.user_id) {
+        guardian.user_id = user._id;
+        if (guardian.status === 'INVITED') guardian.status = 'ACTIVE';
+        guardian.linked_at = new Date();
+        await guardian.save();
+      }
     }
   }
   return user;

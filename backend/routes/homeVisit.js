@@ -272,10 +272,22 @@ router.post('/parent-approve', async (req, res) => {
     }
 
     visit.parent_status = action === 'approve' ? 'approved' : 'rejected';
+    visit.parent_approval_status = action === 'approve' ? 'parent_approved' : 'parent_rejected';
     visit.parent_response_time = new Date();
+    visit.warden_status = action === 'approve' ? 'approved' : 'rejected';
+    visit.warden_response_time = new Date();
 
     if (action === 'approve') {
-      visit.overall_status = 'parent_approved';
+      visit.overall_status = 'approved';
+
+      const visitLean = visit.toObject ? visit.toObject() : visit;
+      visitLean.student_id = visit.student_id;
+      const qrRes = await issueHomeVisitGatePass(visitLean).catch((err) => {
+        logger.warn('[HomeVisit] QR pass issuance error on parent approve:', err.message);
+        return { token: visit.qr_token };
+      });
+      visit.qr_token = qrRes?.token || visit.qr_token;
+      await GatePass.updateOne({ home_visit_id: visit._id }, { status: 'APPROVED', qr_token: visit.qr_token }).catch(() => {});
 
       // Notify warden (safe, non-blocking)
       try {
@@ -287,7 +299,7 @@ router.post('/parent-approve', async (req, res) => {
         if (wardenUser && wardenUser.phone) {
           await enqueueWhatsAppMessage({
             to: wardenUser.phone,
-            body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${studentName}* (${studentRoll})\nHostel: ${studentHostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved. Awaiting your decision.\n\nReply:\n✅ *WARDEN_APPROVE ${visit._id}*\n❌ *WARDEN_REJECT ${visit._id}*`,
+            body: `🏠 *Home Visit — Parent Approved*\n\nStudent: *${studentName}* (${studentRoll})\nHostel: ${studentHostel}\n📍 Destination: ${visit.place || 'N/A'}\nReason: ${visit.reason}\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nParent has approved digitally. QR pass generated.`,
           });
         }
       } catch (msgErr) {
@@ -295,6 +307,7 @@ router.post('/parent-approve', async (req, res) => {
       }
     } else {
       visit.overall_status = 'rejected';
+      await GatePass.updateOne({ home_visit_id: visit._id }, { status: 'REJECTED' }).catch(() => {});
       const studentPhone = visit.student_id?.phone || visit.student_phone || visit.phone || null;
       if (studentPhone) {
         try {

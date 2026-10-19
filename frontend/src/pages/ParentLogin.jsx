@@ -32,7 +32,10 @@ export default function ParentLogin() {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/parent/dashboard');
+
+      const searchParams = new URLSearchParams(window.location.search);
+      const returnUrl = searchParams.get('returnUrl') || '/parent/dashboard';
+      navigate(returnUrl);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Login failed. Check your email and password.');
     } finally {
@@ -73,13 +76,18 @@ export default function ParentLogin() {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/parent/dashboard');
+
+      const searchParams = new URLSearchParams(window.location.search);
+      const returnUrl = searchParams.get('returnUrl') || '/parent/dashboard';
+      navigate(returnUrl);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Invalid or expired code');
     } finally {
       setLoading(false);
     }
   };
+
+  const hasReturnUrl = typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('returnUrl'));
 
   return (
     <div className="login-page" style={{ padding: 24, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -88,6 +96,21 @@ export default function ParentLogin() {
           <h1>🏛️ HEIMDALL</h1>
           <p>Parent & Guardian Portal</p>
         </div>
+
+        {hasReturnUrl && (
+          <div style={{
+            background: 'rgba(59, 130, 246, 0.12)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#93c5fd',
+            textAlign: 'center',
+          }}>
+            📋 Please sign in to review and decide your ward's leave request.
+          </div>
+        )}
 
         {/* Tab switch between Password and Email OTP */}
         <div className="tabs" style={{ marginBottom: 20 }}>

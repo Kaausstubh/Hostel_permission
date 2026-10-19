@@ -21,6 +21,9 @@ const HomeVisitLog = require('../models/HomeVisitLog');
 const Complaint = require('../models/Complaint');
 const GatePass = require('../models/GatePass');
 const AttendanceRecord = require('../models/AttendanceRecord');
+const Guardian = require('../models/Guardian');
+const ApprovalAuditLog = require('../models/ApprovalAuditLog');
+const { sendLeaveRequestEmail } = require('../services/mailService');
 const logger = require('../utils/logger');
 const {
   getActivePassForStudent,
@@ -196,7 +199,8 @@ router.get('/status', async (req, res) => {
 
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
-      if (visit.overall_status !== 'approved') return visit;
+      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+      if (!isApproved) return visit;
       // If student already scanned OUT, keep QR valid for return scan regardless of return_date passed
       if (!visit.qr_used_out && visit.return_date < today) return null;
 
@@ -211,14 +215,16 @@ router.get('/status', async (req, res) => {
     const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
     const pendingVisits = activeVisits.filter((visit) => {
-      if (!['pending', 'parent_approved'].includes(visit.overall_status)) return false;
+      if (visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved') return false;
+      if (!['pending'].includes(visit.parent_approval_status || visit.overall_status)) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
     });
 
     const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
-      if (visit.overall_status !== 'approved') return false;
+      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+      if (!isApproved) return false;
       if (visit.qr_used_in) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       const id = String(visit._id);
@@ -629,11 +635,15 @@ router.post('/home-visit', async (req, res) => {
       rollNo: user.rollNo || '',
       student_photo: user.studentPhoto || user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
+      parent_phone_alt: user.parentPhone2 ? normalizeToE164(user.parentPhone2) : null,
       reason,
       leave_date,
       return_date,
       place: String(place).trim().slice(0, 200),
       qr_token: persistentToken,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      warden_status: 'pending',
     });
 
     // Mirror to GatePass model for unified MongoDB tracking
@@ -649,9 +659,55 @@ router.post('/home-visit', async (req, res) => {
       console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
+    // Digital Parent Approval: Notify all linked guardians via email with Parent Portal link
+    const notifiedEmails = [];
+    try {
+      const guardians = await Guardian.find({
+        student_id: user._id,
+        status: { $ne: 'REVOKED' },
+      });
+
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
+
+      for (const g of guardians) {
+        if (g.email) {
+          notifiedEmails.push(g.email);
+          sendLeaveRequestEmail({
+            to: g.email,
+            guardianName: g.name,
+            studentName: user.name,
+            leaveDate: visit.leave_date,
+            returnDate: visit.return_date,
+            reason: visit.reason,
+            place: visit.place,
+            requestUrl,
+          }).catch((err) => logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`));
+
+          ApprovalAuditLog.create({
+            event: 'REQUEST_NOTIFIED',
+            home_visit_request_id: visit._id,
+            student_id: user._id,
+            guardian_id: g._id,
+            actor_id: user._id,
+            actor_role: 'student',
+            actor_email: user.email,
+            ip_address: req.ip,
+            details: { requestUrl, guardianEmail: g.email },
+          }).catch(() => {});
+        }
+      }
+    } catch (notifyErr) {
+      logger.warn('[HomeVisit] Guardian notification dispatch error:', notifyErr.message);
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Home visit request submitted. Awaiting hostel staff confirmation call to parent.',
+      message: notifiedEmails.length > 0
+        ? `Home visit request submitted. Digital approval request sent to parent email (${notifiedEmails.join(', ')}).`
+        : 'Home visit request submitted. Awaiting digital parent approval via Parent Portal.',
+      guardianEmails: notifiedEmails,
+      hasGuardians: notifiedEmails.length > 0,
       visit,
     });
   } catch (err) {

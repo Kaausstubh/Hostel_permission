@@ -28,7 +28,10 @@ const findHomeVisitByScanToken = async (token) => {
   if (!trimmed) return null;
 
   const approvedFilter = {
-    overall_status: 'approved',
+    $or: [
+      { overall_status: 'approved' },
+      { parent_approval_status: 'parent_approved' },
+    ],
     qr_used_in: false,
   };
 
@@ -117,7 +120,8 @@ const syncHomeVisitActiveQR = async (visit, token) => {
  * Migrates legacy JWT qr_token to compact automatically.
  */
 const issueHomeVisitGatePass = async (visit) => {
-  if (visit.overall_status !== 'approved' || visit.qr_used_in) {
+  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+  if (!isApproved || visit.qr_used_in) {
     throw new Error('Visit not approved or pass already closed');
   }
 
@@ -143,7 +147,8 @@ const issueHomeVisitGatePass = async (visit) => {
 
 /** Get or render pass data (token, qrDataUrl) for an approved home visit */
 const getHomeVisitPassData = async (visit) => {
-  if (visit.overall_status !== 'approved' || visit.qr_used_in) return null;
+  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+  if (!isApproved || visit.qr_used_in) return null;
   let token = visit.qr_token;
   if (!token || isLegacyHomeJwtToken(token)) {
     return issueHomeVisitGatePass(visit);
@@ -160,7 +165,8 @@ const getHomeVisitPassData = async (visit) => {
 
 /** Create QR if warden approved but token missing (legacy / failed generation) */
 const ensureHomeVisitQrToken = async (visit) => {
-  if (visit.overall_status !== 'approved' || visit.qr_used_in) return null;
+  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+  if (!isApproved || visit.qr_used_in) return null;
 
   if (visit.qr_token && !isLegacyHomeJwtToken(visit.qr_token)) {
     await syncHomeVisitActiveQR(visit, visit.qr_token);
@@ -191,16 +197,17 @@ const listPendingHomeVisitPasses = async (limit = 500) => {
   for (const visit of awaiting) {
     if (visit.return_date < today) continue;
 
-    const statusNote = visit.overall_status === 'parent_approved'
-      ? 'Parent OK — hostel staff must approve to enable QR scan'
+    const isParentApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+    const statusNote = isParentApproved
+      ? 'Approved by Parent — scannable gate pass ready'
       : visit.parent_call_confirmed
-        ? 'Call confirmed — hostel staff must approve'
-        : 'Waiting for hostel staff (call parent & approve)';
+        ? 'Call confirmed — gate pass ready'
+        : 'Waiting for parent digital approval via Parent Portal email';
 
     items.push(
       buildPassMeta(visit, null, {
-        scanType: 'AWAITING HOSTEL STAFF',
-        scannable: false,
+        scanType: isParentApproved ? 'HOME VISIT' : 'AWAITING PARENT APPROVAL',
+        scannable: isParentApproved,
         statusNote,
       })
     );
