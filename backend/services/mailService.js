@@ -70,8 +70,13 @@ const getTransporter = () => {
  */
 const sendMail = async ({ to, subject, html, text }) => {
   if (!isConfigured()) {
-    logger.info(`[MailService:Mock] To: ${to} | Subject: "${subject}"`);
-    return { success: true, mocked: true, messageId: `mock-${Date.now()}` };
+    logger.warn(`[MailService:Mock] SMTP credentials not set (SMTP_USER/SMTP_PASS missing). Skipping live email to: ${to} | Subject: "${subject}"`);
+    return {
+      success: false,
+      mocked: true,
+      error: 'SMTP credentials not configured on backend (SMTP_USER / SMTP_PASS missing)',
+      messageId: `mock-${Date.now()}`,
+    };
   }
 
   const { host, user } = getCleanCredentials();

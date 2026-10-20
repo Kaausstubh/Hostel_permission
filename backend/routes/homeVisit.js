@@ -10,6 +10,7 @@
 
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const HomeVisitLog = require('../models/HomeVisitLog');
 const GatePass = require('../models/GatePass');
 const User = require('../models/User');
@@ -29,7 +30,7 @@ const {
 } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
-const { sendLeaveRequestEmail } = require('../services/mailService');
+const { sendLeaveRequestEmail, sendLeaveOutcomeEmailToStudent } = require('../services/mailService');
 const { recordStaffPhoneOverride } = require('../services/parentApprovalService');
 const logger = require('../utils/logger');
 const { recordDeletionAudit } = require('../services/storageStatsService');
@@ -258,22 +259,71 @@ router.post('/staff-phone-override', protect, authorize('warden', 'hostel_staff'
   }
 });
 
+// ─── Public: Fetch Visit Details for Parent Decision Page (No Login Required) ──
+router.get('/public-details/:visitId', async (req, res) => {
+  try {
+    const { visitId } = req.params;
+    if (!visitId || !mongoose.isValidObjectId(visitId)) {
+      return res.status(400).json({ success: false, message: 'Invalid visit request link' });
+    }
+
+    const visit = await HomeVisitLog.findById(visitId).populate(
+      'student_id',
+      'name rollNo hostel roomNo studentPhoto picture parentPhone'
+    );
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found or expired' });
+    }
+
+    return res.json({
+      success: true,
+      visit: {
+        _id: visit._id,
+        studentName: visit.student_id?.name || visit.name,
+        rollNo: visit.student_id?.rollNo || visit.rollNo,
+        hostel: visit.student_id?.hostel || visit.hostel || 'Hostel Campus',
+        roomNo: visit.student_id?.roomNo || visit.roomNo || 'N/A',
+        studentPhoto: visit.student_id?.studentPhoto || visit.student_photo || visit.student_id?.picture || null,
+        place: visit.place || 'Home',
+        reason: visit.reason,
+        leave_date: visit.leave_date,
+        return_date: visit.return_date,
+        parent_approval_status: visit.parent_approval_status || visit.parent_status || 'pending',
+        overall_status: visit.overall_status,
+        createdAt: visit.createdAt,
+      },
+    });
+  } catch (err) {
+    logger.error('[HomeVisit] Failed to fetch public details:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ─── Parent: Approve or Reject ────────────────────────────────────────────────
-// Called via WhatsApp webhook or direct API (for web fallback)
+// Called via email decision link or direct API (No Login Required)
 router.post('/parent-approve', async (req, res) => {
   try {
-    const { visit_id, action } = req.body; // action: 'approve' | 'reject'
+    const { visit_id, action, remarks } = req.body; // action: 'approve' | 'reject'
+    if (!visit_id || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: "Action must be 'approve' or 'reject'" });
+    }
 
     const visit = await HomeVisitLog.findById(visit_id).populate('student_id');
     if (!visit) return res.status(404).json({ success: false, message: 'Visit request not found' });
 
-    if (visit.parent_status !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Request already responded to by parent' });
+    if (visit.parent_approval_status === 'parent_approved' || visit.overall_status === 'approved') {
+      return res.status(400).json({ success: false, message: 'This request has already been approved' });
+    }
+    if (visit.parent_approval_status === 'parent_rejected' || visit.overall_status === 'rejected') {
+      return res.status(400).json({ success: false, message: 'This request has already been rejected' });
     }
 
+    const cleanRemarks = String(remarks || '').trim().slice(0, 500);
     visit.parent_status = action === 'approve' ? 'approved' : 'rejected';
     visit.parent_approval_status = action === 'approve' ? 'parent_approved' : 'parent_rejected';
     visit.parent_response_time = new Date();
+    visit.final_parent_decision_at = new Date();
+    visit.parent_decision_source = 'PARENT_PORTAL';
     visit.warden_status = action === 'approve' ? 'approved' : 'rejected';
     visit.warden_response_time = new Date();
 
@@ -287,7 +337,24 @@ router.post('/parent-approve', async (req, res) => {
         return { token: visit.qr_token };
       });
       visit.qr_token = qrRes?.token || visit.qr_token;
-      await GatePass.updateOne({ home_visit_id: visit._id }, { status: 'APPROVED', qr_token: visit.qr_token }).catch(() => {});
+      await GatePass.updateOne(
+        { home_visit_id: visit._id },
+        { status: 'APPROVED', qr_token: visit.qr_token }
+      ).catch(() => {});
+
+      // Email confirmation to student
+      if (visit.student_id?.email) {
+        sendLeaveOutcomeEmailToStudent({
+          to: visit.student_id.email,
+          studentName: visit.student_id.name || visit.name,
+          decision: 'APPROVED',
+          parentName: 'Parent / Guardian',
+          remarks: cleanRemarks,
+          place: visit.place,
+          leaveDate: visit.leave_date,
+          returnDate: visit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Student outcome email error:', e.message));
+      }
 
       // Notify warden (safe, non-blocking)
       try {
@@ -307,7 +374,25 @@ router.post('/parent-approve', async (req, res) => {
       }
     } else {
       visit.overall_status = 'rejected';
-      await GatePass.updateOne({ home_visit_id: visit._id }, { status: 'REJECTED' }).catch(() => {});
+      await GatePass.updateOne(
+        { home_visit_id: visit._id },
+        { status: 'CANCELLED' }
+      ).catch(() => {});
+
+      // Email confirmation to student
+      if (visit.student_id?.email) {
+        sendLeaveOutcomeEmailToStudent({
+          to: visit.student_id.email,
+          studentName: visit.student_id.name || visit.name,
+          decision: 'REJECTED',
+          parentName: 'Parent / Guardian',
+          remarks: cleanRemarks,
+          place: visit.place,
+          leaveDate: visit.leave_date,
+          returnDate: visit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Student outcome email error:', e.message));
+      }
+
       const studentPhone = visit.student_id?.phone || visit.student_phone || visit.phone || null;
       if (studentPhone) {
         try {
@@ -323,10 +408,28 @@ router.post('/parent-approve', async (req, res) => {
 
     await visit.save();
 
-    res.json({ success: true, message: `Parent ${action}d the request`, visit });
+    // Create append-only audit log
+    await ApprovalAuditLog.create({
+      event: 'DECISION_MADE',
+      home_visit_request_id: visit._id,
+      student_id: visit.student_id?._id || visit.student_id,
+      actor_role: 'parent',
+      actor_email: visit.parent_phone || 'parent@guardian.portal',
+      ip_address: req.ip,
+      details: { decision: action === 'approve' ? 'APPROVED' : 'REJECTED', remarks: cleanRemarks, source: 'EMAIL_LINK_PORTAL' },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      decision: action === 'approve' ? 'APPROVED' : 'REJECTED',
+      message: action === 'approve'
+        ? 'Leave request approved successfully. Your ward\'s digital gate pass has been generated.'
+        : 'Leave request rejected successfully. Your ward will not be permitted to leave campus for this request.',
+      visit,
+    });
   } catch (error) {
-    console.error('Parent approve error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error('Parent approve error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 

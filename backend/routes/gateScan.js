@@ -258,6 +258,7 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
     if (!pendingRequest) {
       const gatePass = await GatePass.findOne({
         student_id: payload.student_id,
+        pass_type: 'IN_OUT',
         status: { $in: ['PENDING', 'OUTSIDE'] },
       }).sort({ createdAt: -1 }).lean();
 
@@ -329,8 +330,24 @@ const handleInOutScan = async (token, payload, req, scanStart, preloadedPendingR
     };
   }
 
-  // Enforce 15-minute expiration if pending request was loaded from Redis
   if (pendingRequest.scanType === 'OUT') {
+    const unapprovedHomeVisit = await HomeVisitLog.findOne({
+      student_id: payload.student_id,
+      overall_status: 'pending',
+      parent_approval_status: 'pending',
+      qr_used_in: false,
+    });
+    if (unapprovedHomeVisit) {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          code: 'PARENT_APPROVAL_REQUIRED',
+          message: 'Campus exit blocked: Student has an active Home Visit request awaiting parent approval.',
+        },
+      };
+    }
+
     const createdAtTime = new Date(pendingRequest.createdAt || Date.now()).getTime();
     const validUntilTime = pendingRequest.validUntil || pendingRequest.expiresAt
       ? new Date(pendingRequest.validUntil || pendingRequest.expiresAt).getTime()
@@ -616,8 +633,15 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
     }).populate('student_id');
   }
 
-  if (!existing || existing.overall_status !== 'approved') {
-    return { status: 400, body: { success: false, code: 'INVALID', message: 'Visit not found or not approved' } };
+  if (!existing || existing.overall_status !== 'approved' || existing.parent_approval_status !== 'parent_approved') {
+    return {
+      status: 400,
+      body: {
+        success: false,
+        code: 'PARENT_APPROVAL_REQUIRED',
+        message: 'Campus exit blocked: Home visit request must be approved by parents before student can leave campus.',
+      },
+    };
   }
   if (existing.qr_used_in) {
     return { status: 400, body: { success: false, code: 'ALREADY_USED', message: 'QR code already fully used' } };

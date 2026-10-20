@@ -199,8 +199,14 @@ router.get('/status', async (req, res) => {
 
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
-      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
-      if (!isApproved) return visit;
+      const isApproved = visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved';
+      if (!isApproved) {
+        return {
+          ...visit,
+          qr_token: null,
+          qrDataUrl: null,
+        };
+      }
       // If student already scanned OUT, keep QR valid for return scan regardless of return_date passed
       if (!visit.qr_used_out && visit.return_date < today) return null;
 
@@ -215,7 +221,7 @@ router.get('/status', async (req, res) => {
     const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
     const pendingVisits = activeVisits.filter((visit) => {
-      if (visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved') return false;
+      if (visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved') return false;
       if (!['pending'].includes(visit.parent_approval_status || visit.overall_status)) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
@@ -223,7 +229,7 @@ router.get('/status', async (req, res) => {
 
     const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
-      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+      const isApproved = visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved';
       if (!isApproved) return false;
       if (visit.qr_used_in) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
@@ -280,6 +286,7 @@ router.get('/active-qr-pass', async (req, res) => {
     const activeHomeVisit = await HomeVisitLog.findOne({
       student_id: user._id,
       overall_status: 'approved',
+      parent_approval_status: 'parent_approved',
       qr_used_in: false,
     }).sort({ leave_date: -1, createdAt: -1 });
 
@@ -304,6 +311,22 @@ router.get('/active-qr-pass', async (req, res) => {
           hostel: user.hostel,
           picture: user.studentPhoto || user.picture || null,
         },
+      });
+    }
+
+    // 1b. Check if student has a pending home visit awaiting parent approval
+    const pendingHomeVisit = await HomeVisitLog.findOne({
+      student_id: user._id,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      qr_used_in: false,
+    });
+    if (pendingHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
       });
     }
 
@@ -362,6 +385,7 @@ router.post('/get-or-create-pass', async (req, res) => {
     const activeHomeVisit = await HomeVisitLog.findOne({
       student_id: user._id,
       overall_status: 'approved',
+      parent_approval_status: 'parent_approved',
       qr_used_in: false,
     }).sort({ leave_date: -1, createdAt: -1 });
 
@@ -391,6 +415,22 @@ router.post('/get-or-create-pass', async (req, res) => {
           },
         });
       }
+    }
+
+    // 1b. Check if student has a pending home visit awaiting parent approval
+    const pendingHomeVisit = await HomeVisitLog.findOne({
+      student_id: user._id,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      qr_used_in: false,
+    });
+    if (pendingHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
+      });
     }
 
     // 2. Check for active daily In/Out pass (PENDING or OUTSIDE)
@@ -450,6 +490,22 @@ router.post('/request-inout', async (req, res) => {
     }).sort({ timestamp: -1 });
 
     const scanType = existingOut ? 'IN' : 'OUT';
+
+    if (scanType === 'OUT') {
+      const pendingHv = await HomeVisitLog.findOne({
+        student_id: user._id,
+        parent_approval_status: 'pending',
+        overall_status: 'pending',
+        qr_used_in: false,
+      }).sort({ createdAt: -1 });
+
+      if (pendingHv) {
+        return res.status(403).json({
+          success: false,
+          message: `You have an active Home Visit request (${pendingHv.leave_date} to ${pendingHv.return_date}) awaiting parent approval. You cannot leave campus until your parents approve your request via the email link.`,
+        });
+      }
+    }
 
     if (scanType === 'OUT' && (!place || !(await validatePlaceGeo(place)))) {
       return res.status(400).json({
@@ -652,28 +708,33 @@ router.post('/home-visit', async (req, res) => {
       pass_type: 'HOME_VISIT',
       home_visit_id: visit._id,
       qr_token: persistentToken,
-      status: 'PENDING',
+      status: 'AWAITING_APPROVAL',
       place: visit.place,
       reason: visit.reason,
     }).catch((gpErr) => {
       console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
-    // Digital Parent Approval: Notify all linked guardians via email with Parent Portal link
+    // Digital Parent Approval: Notify all linked guardians via email with direct Decision link
     const notifiedEmails = [];
+    let anyEmailSent = false;
+    let isMocked = false;
+    const baseUrl = (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost'))
+      ? process.env.FRONTEND_URL.replace(/\/+$/, '')
+      : 'https://iiitpune-hosteel-gate-management.vercel.app';
+    const requestUrl = `${baseUrl}/home-visit/respond/${visit._id}`;
+
     try {
       const guardians = await Guardian.find({
         student_id: user._id,
         status: { $ne: 'REVOKED' },
       });
 
-      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
-
+      const emailDispatches = [];
       for (const g of guardians) {
         if (g.email) {
           notifiedEmails.push(g.email);
-          sendLeaveRequestEmail({
+          const p = sendLeaveRequestEmail({
             to: g.email,
             guardianName: g.name,
             studentName: user.name,
@@ -682,7 +743,16 @@ router.post('/home-visit', async (req, res) => {
             reason: visit.reason,
             place: visit.place,
             requestUrl,
-          }).catch((err) => logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`));
+          }).then((res) => {
+            if (!res?.success) {
+              logger.warn(`[HomeVisit] Email dispatch to guardian ${g.email} failed: ${res?.error || 'Unknown error'}`);
+            }
+            return { email: g.email, ...res };
+          }).catch((err) => {
+            logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`);
+            return { email: g.email, success: false, error: err.message };
+          });
+          emailDispatches.push(p);
 
           ApprovalAuditLog.create({
             event: 'REQUEST_NOTIFIED',
@@ -697,6 +767,10 @@ router.post('/home-visit', async (req, res) => {
           }).catch(() => {});
         }
       }
+
+      const emailResults = await Promise.all(emailDispatches);
+      anyEmailSent = emailResults.some((r) => r && r.success && !r.mocked);
+      isMocked = emailResults.some((r) => r && r.mocked);
     } catch (notifyErr) {
       logger.warn('[HomeVisit] Guardian notification dispatch error:', notifyErr.message);
     }
@@ -705,13 +779,87 @@ router.post('/home-visit', async (req, res) => {
       success: true,
       message: notifiedEmails.length > 0
         ? `Home visit request submitted. Digital approval request sent to parent email (${notifiedEmails.join(', ')}).`
-        : 'Home visit request submitted. Awaiting digital parent approval via Parent Portal.',
+        : 'Home visit request submitted. Awaiting digital parent approval via email link.',
       guardianEmails: notifiedEmails,
       hasGuardians: notifiedEmails.length > 0,
+      emailSent: anyEmailSent,
+      isMocked,
+      approvalUrl: requestUrl,
       visit,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /home-visit/:id/resend-email ─────────────────────────────────────────
+// Resend parent approval email with direct decision link
+router.post('/home-visit/:id/resend-email', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const visit = await HomeVisitLog.findOne({
+      _id: id,
+      student_id: user._id,
+    });
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    if (visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved') {
+      return res.status(400).json({ success: false, message: 'This request is already approved' });
+    }
+
+    const guardians = await Guardian.find({
+      student_id: user._id,
+      status: { $ne: 'REVOKED' },
+    });
+
+    const baseUrl = (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost'))
+      ? process.env.FRONTEND_URL.replace(/\/+$/, '')
+      : 'https://iiitpune-hosteel-gate-management.vercel.app';
+    const requestUrl = `${baseUrl}/home-visit/respond/${visit._id}`;
+
+    const notifiedEmails = [];
+    const emailDispatches = [];
+    for (const g of guardians) {
+      if (g.email) {
+        notifiedEmails.push(g.email);
+        emailDispatches.push(
+          sendLeaveRequestEmail({
+            to: g.email,
+            guardianName: g.name,
+            studentName: user.name,
+            leaveDate: visit.leave_date,
+            returnDate: visit.return_date,
+            reason: visit.reason,
+            place: visit.place,
+            requestUrl,
+          })
+        );
+      }
+    }
+
+    const results = await Promise.all(emailDispatches);
+    const anyEmailSent = results.some((r) => r && r.success && !r.mocked);
+    const isMocked = results.some((r) => r && r.mocked);
+
+    return res.json({
+      success: true,
+      message: anyEmailSent
+        ? `Approval email successfully resent to ${notifiedEmails.join(', ')}.`
+        : isMocked
+          ? `Server in mock mode (SMTP credentials not configured on backend). Approval link: ${requestUrl}`
+          : `Attempted dispatch to ${notifiedEmails.join(', ')}.`,
+      guardianEmails: notifiedEmails,
+      emailSent: anyEmailSent,
+      isMocked,
+      approvalUrl: requestUrl,
+    });
+  } catch (err) {
+    logger.error('[HomeVisit] Resend email error:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
