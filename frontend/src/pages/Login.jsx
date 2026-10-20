@@ -164,18 +164,20 @@ export default function Login() {
           display: 'flex',
           flexDirection: 'column',
           width: '100%',
-          maxWidth: '620px',
+          maxWidth: '640px',
+          minHeight: 'min(740px, 85vh)',
           maxHeight: '94vh',
           height: 'auto',
           overflowY: 'auto',
-          padding: '42px 46px 36px',
+          padding: '52px 50px 46px',
           boxSizing: 'border-box',
-          gap: '22px',
+          justifyContent: 'space-between',
+          gap: '28px',
         }}
       >
         {/* ── Header ── */}
-        <div style={{ textAlign: 'center' }}>
-          <div className="login-eyebrow" style={{ marginBottom: '12px' }}>
+        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="login-eyebrow" style={{ marginBottom: '16px', padding: '6px 16px' }}>
             IIIT PUNE · SMART CAMPUS PORTAL
           </div>
 
@@ -183,9 +185,9 @@ export default function Login() {
           <div
             className="login-mark"
             style={{
-              width: 68,
-              height: 68,
-              margin: '0 auto 12px',
+              width: 82,
+              height: 82,
+              margin: '0 auto 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -198,10 +200,10 @@ export default function Login() {
             />
           </div>
 
-          <h1 style={{ fontSize: '27px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 6px 0' }}>
+          <h1 style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 8px 0' }}>
             IIIT Pune Campus
           </h1>
-          <p className="login-subtitle" style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 auto', maxWidth: '440px' }}>
+          <p className="login-subtitle" style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 auto', maxWidth: '460px' }}>
             Sign in with your institutional account to access your portal.
           </p>
         </div>
@@ -210,7 +212,7 @@ export default function Login() {
         <div className="login-portal-switcher" style={{
           display: 'flex',
           background: 'rgba(255,255,255,0.05)',
-          borderRadius: '14px',
+          borderRadius: '16px',
           padding: '6px',
           border: '1px solid rgba(255,255,255,0.08)',
           gap: '8px',
@@ -231,19 +233,19 @@ export default function Login() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  padding: '12px 8px',
-                  borderRadius: '10px',
+                  padding: '14px 10px',
+                  borderRadius: '12px',
                   border: 'none',
                   background: isActive ? portal.color : 'transparent',
                   color: isActive ? '#fff' : 'var(--text-muted)',
                   fontWeight: 700,
-                  fontSize: '14.5px',
+                  fontSize: '15px',
                   cursor: 'pointer',
                   transition: 'all 0.18s ease',
-                  boxShadow: isActive ? `0 4px 14px ${portal.glow}` : 'none',
+                  boxShadow: isActive ? `0 4px 16px ${portal.glow}` : 'none',
                 }}
               >
-                <Icon size={18} />
+                <Icon size={19} />
                 {portal.label}
               </button>
             );
@@ -255,39 +257,39 @@ export default function Login() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '12px',
+          gap: '14px',
           textAlign: 'center',
         }}>
           <p style={{
-            fontSize: '14px',
+            fontSize: '15px',
             color: 'var(--text-secondary)',
-            lineHeight: 1.5,
+            lineHeight: 1.6,
             margin: 0,
-            maxWidth: '460px',
+            maxWidth: '480px',
           }}>
             {currentPortal.description}
           </p>
 
           <div style={{
-            fontSize: '12.5px',
+            fontSize: '13px',
             fontWeight: 700,
             color: currentPortal.color,
             background: `${currentPortal.color}14`,
             border: `1px solid ${currentPortal.color}40`,
-            padding: '8px 18px',
+            padding: '10px 20px',
             borderRadius: '999px',
             display: 'inline-flex',
             alignItems: 'center',
             gap: '8px',
-            lineHeight: 1.4,
+            lineHeight: 1.45,
           }}>
-            <MdLockOutline size={16} />
+            <MdLockOutline size={17} />
             <span>{currentPortal.restriction}</span>
           </div>
         </div>
 
         {/* ── Primary Action: Official Google Workspace OAuth Only ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '6px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '4px' }}>
           <button
             id={`login-${selectedPortal}-google`}
             type="button"
@@ -300,17 +302,17 @@ export default function Login() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '16px 24px',
-              borderRadius: '14px',
+              padding: '18px 26px',
+              borderRadius: '16px',
               border: 'none',
               background: '#ffffff',
               color: '#1f2937',
-              fontSize: '16px',
+              fontSize: '16.5px',
               fontWeight: 700,
               cursor: loggingIn ? 'wait' : 'pointer',
               opacity: loggingIn ? 0.75 : 1,
               transition: 'all 0.2s ease',
-              boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.14)',
             }}
             onMouseEnter={(e) => {
               if (loggingIn) return;
@@ -325,7 +327,7 @@ export default function Login() {
           >
             {loggingIn ? (
               <>
-                <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 6 }} />
+                <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2, marginRight: 6 }} />
                 <span>Redirecting to Google…</span>
               </>
             ) : (
@@ -335,7 +337,7 @@ export default function Login() {
               </>
             )}
           </button>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '2px' }}>
+          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '4px' }}>
             Secure, password-free login via Google OAuth. Authenticates role and domain permissions.
           </div>
         </div>
