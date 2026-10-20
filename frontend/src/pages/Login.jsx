@@ -164,15 +164,15 @@ export default function Login() {
           display: 'flex',
           flexDirection: 'column',
           width: '100%',
-          maxWidth: '640px',
-          minHeight: 'min(740px, 85vh)',
+          maxWidth: '560px',
+          minHeight: 'min(720px, 86vh)',
           maxHeight: '94vh',
           height: 'auto',
           overflowY: 'auto',
-          padding: '52px 50px 46px',
+          padding: '50px 42px 44px',
           boxSizing: 'border-box',
           justifyContent: 'space-between',
-          gap: '28px',
+          gap: '26px',
         }}
       >
         {/* ── Header ── */}
