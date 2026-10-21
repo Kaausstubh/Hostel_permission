@@ -1478,11 +1478,12 @@ export default function StudentDashboard() {
         if (overlappingVisit) {
           const canCancel = !overlappingVisit.qr_used_out;
           const conflictDates = `${overlappingVisit.leave_date} → ${overlappingVisit.return_date}`;
+          const targetId = overlappingVisit._id || 'active';
 
           const buttons = [];
-          if (canCancel && overlappingVisit._id) {
+          if (canCancel) {
             buttons.push({
-              id: `cancel_and_create_${overlappingVisit._id}`,
+              id: `cancel_and_create_${targetId}`,
               label: '⚡ Cancel Previous Request & Create New',
             });
           }
@@ -1535,7 +1536,8 @@ export default function StudentDashboard() {
 
       if (isOverlap) {
         let overlappingId = errData?.overlappingVisitId;
-        let canCancel = errData?.canCancel !== false;
+        const isScannedOut = Boolean(errData?.message?.toLowerCase().includes('already been scanned out'));
+        const canCancel = !isScannedOut && errData?.canCancel !== false;
 
         if (!overlappingId) {
           try {
@@ -1549,15 +1551,15 @@ export default function StudentDashboard() {
             ) || allVisits[0];
             if (found) {
               overlappingId = found._id;
-              if (found.qr_used_out) canCancel = false;
             }
           } catch (_) {}
         }
 
+        const targetId = overlappingId || 'active';
         const buttons = [];
-        if (canCancel && overlappingId) {
+        if (canCancel) {
           buttons.push({
-            id: `cancel_and_create_${overlappingId}`,
+            id: `cancel_and_create_${targetId}`,
             label: '⚡ Cancel Previous Request & Create New',
           });
         }
@@ -1566,8 +1568,8 @@ export default function StudentDashboard() {
         botSay(
           `⚠️ *Active Previous Request Exists*\n\n` +
           `${errData?.message || 'An active home visit already exists for overlapping dates.'}\n\n` +
-          (canCancel && overlappingId
-            ? `Tap *Cancel Previous Request & Create New* below to cancel the existing request and create your new pass for *${data.leave_date} → ${data.return_date}*.`
+          (canCancel
+            ? `Tap *Cancel Previous Request & Create New* below to immediately cancel your previous request and create your new pass for *${data.leave_date} → ${data.return_date}*.`
             : `Please complete or cancel your existing pass first before creating a new one.`),
           'buttons',
           { buttons }

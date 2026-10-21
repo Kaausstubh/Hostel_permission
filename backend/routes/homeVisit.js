@@ -132,8 +132,8 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
             message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
           });
         }
-        await HomeVisitLog.updateOne(
-          { _id: overlappingVisit._id },
+        await HomeVisitLog.updateMany(
+          buildOverlappingVisitFilter(req.user._id, leave_date, return_date),
           {
             $set: {
               overall_status: 'rejected',
@@ -143,8 +143,8 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
           }
         );
 
-        await GatePass.updateOne(
-          { home_visit_id: overlappingVisit._id },
+        await GatePass.updateMany(
+          { student_id: req.user._id, pass_type: 'HOME_VISIT', status: { $in: ['PENDING', 'APPROVED', 'AWAITING_APPROVAL'] } },
           { $set: { status: 'CANCELLED' } }
         ).catch(() => {});
 
