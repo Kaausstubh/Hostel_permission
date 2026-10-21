@@ -128,6 +128,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    parentEmail: {
+      // Student's primary parent / guardian email address for approval notifications
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: null,
+    },
+    parentName: {
+      // Student's parent / guardian full name
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   {
     timestamps: true, // createdAt, updatedAt

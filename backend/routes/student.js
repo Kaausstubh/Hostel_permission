@@ -136,6 +136,7 @@ router.get('/status', async (req, res) => {
       recentComplaints,
       todayLogs,
       todayAttendanceRec,
+      primaryGuardianRec,
     ] = await Promise.all([
       // Look for any unreturned OUT log across ALL dates (survives midnight & multi-day movements)
       InOutLog.findOne({
@@ -176,6 +177,12 @@ router.get('/status', async (req, res) => {
         date: today,
       })
         .sort({ createdAt: -1 })
+        .lean(),
+      Guardian.findOne({
+        student_id: studentId,
+        status: { $ne: 'REVOKED' },
+      })
+        .sort({ guardian_slot: 1 })
         .lean(),
     ]);
 
@@ -270,6 +277,9 @@ router.get('/status', async (req, res) => {
             }
           : null,
         studentPhoto: req.user?.studentPhoto || req.user?.picture || null,
+        parentEmail: primaryGuardianRec?.email || req.user?.parentEmail || null,
+        parentName: primaryGuardianRec?.name || req.user?.parentName || null,
+        parentPhone: primaryGuardianRec?.phone || req.user?.parentPhone || null,
       },
     });
   } catch (err) {
@@ -711,6 +721,34 @@ router.post('/home-visit', async (req, res) => {
       }
     }
 
+    if (parentEmail) {
+      await User.findByIdAndUpdate(user._id, {
+        parentEmail,
+        ...(parentName ? { parentName } : {}),
+      }).catch((uErr) => logger.warn('[User] update parentEmail notice:', uErr.message));
+
+      try {
+        const existingGuardian = await Guardian.findOne({ student_id: user._id, guardian_slot: 1 });
+        if (!existingGuardian) {
+          await Guardian.create({
+            student_id: user._id,
+            guardian_slot: 1,
+            name: parentName || 'Parent / Guardian',
+            relationship: 'Guardian',
+            phone: user.parentPhone || '+919999999999',
+            email: parentEmail,
+            status: 'ACTIVE',
+          });
+        } else if (!existingGuardian.email || existingGuardian.email !== parentEmail) {
+          existingGuardian.email = parentEmail;
+          if (parentName) existingGuardian.name = parentName;
+          await existingGuardian.save();
+        }
+      } catch (gErr) {
+        logger.warn('[Guardian] create/update notice:', gErr.message);
+      }
+    }
+
     // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
     const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
 
@@ -839,15 +877,26 @@ router.post('/home-visit/:id/resend-email', async (req, res) => {
       return res.status(400).json({ success: false, message: 'This request is already approved' });
     }
 
-    let recipientEmail = visit.parent_email;
-    if (!recipientEmail) {
-      const primaryGuardian = await Guardian.findOne({
-        student_id: user._id,
-        status: { $ne: 'REVOKED' },
-      }).sort({ guardian_slot: 1 });
-      if (primaryGuardian && primaryGuardian.email) {
-        recipientEmail = primaryGuardian.email.trim().toLowerCase();
-        visit.parent_email = recipientEmail;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    let recipientEmail = null;
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      recipientEmail = String(req.body.parent_email).trim().toLowerCase();
+      visit.parent_email = recipientEmail;
+      await User.findByIdAndUpdate(user._id, { parentEmail: recipientEmail }).catch(() => {});
+    } else {
+      recipientEmail = visit.parent_email;
+      if (!recipientEmail) {
+        const primaryGuardian = await Guardian.findOne({
+          student_id: user._id,
+          status: { $ne: 'REVOKED' },
+        }).sort({ guardian_slot: 1 });
+        if (primaryGuardian && primaryGuardian.email) {
+          recipientEmail = primaryGuardian.email.trim().toLowerCase();
+          visit.parent_email = recipientEmail;
+        } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+          recipientEmail = user.parentEmail.trim().toLowerCase();
+          visit.parent_email = recipientEmail;
+        }
       }
     }
 

@@ -153,6 +153,34 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       }
     }
 
+    if (parentEmail) {
+      await User.findByIdAndUpdate(req.user._id, {
+        parentEmail,
+        ...(parentName ? { parentName } : {}),
+      }).catch(() => {});
+
+      try {
+        const existingGuardian = await Guardian.findOne({ student_id: req.user._id, guardian_slot: 1 });
+        if (!existingGuardian) {
+          await Guardian.create({
+            student_id: req.user._id,
+            guardian_slot: 1,
+            name: parentName || 'Parent / Guardian',
+            relationship: 'Guardian',
+            phone: req.user.parentPhone || '+919999999999',
+            email: parentEmail,
+            status: 'ACTIVE',
+          });
+        } else if (!existingGuardian.email || existingGuardian.email !== parentEmail) {
+          existingGuardian.email = parentEmail;
+          if (parentName) existingGuardian.name = parentName;
+          await existingGuardian.save();
+        }
+      } catch (gErr) {
+        logger.warn('[HomeVisit] Guardian sync error:', gErr.message);
+      }
+    }
+
     // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
     const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
 
@@ -697,15 +725,26 @@ router.post('/resend-notification', protect, async (req, res) => {
       });
     }
 
-    let recipientEmail = visit.parent_email;
-    if (!recipientEmail) {
-      const guardian = await Guardian.findOne({
-        student_id: visit.student_id?._id || visit.student_id,
-        status: { $ne: 'REVOKED' },
-      }).sort({ guardian_slot: 1 });
-      if (guardian && guardian.email) {
-        recipientEmail = guardian.email;
-        visit.parent_email = recipientEmail;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    let recipientEmail = null;
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      recipientEmail = String(req.body.parent_email).trim().toLowerCase();
+      visit.parent_email = recipientEmail;
+      await User.findByIdAndUpdate(visit.student_id?._id || visit.student_id, { parentEmail: recipientEmail }).catch(() => {});
+    } else {
+      recipientEmail = visit.parent_email;
+      if (!recipientEmail) {
+        const guardian = await Guardian.findOne({
+          student_id: visit.student_id?._id || visit.student_id,
+          status: { $ne: 'REVOKED' },
+        }).sort({ guardian_slot: 1 });
+        if (guardian && guardian.email) {
+          recipientEmail = guardian.email;
+          visit.parent_email = recipientEmail;
+        } else if (visit.student_id?.parentEmail && emailRegex.test(visit.student_id.parentEmail)) {
+          recipientEmail = visit.student_id.parentEmail.trim().toLowerCase();
+          visit.parent_email = recipientEmail;
+        }
       }
     }
 

@@ -122,6 +122,7 @@ const STEPS = {
   HV_PLACE:      'HV_PLACE',
   HV_LEAVE:      'HV_LEAVE',
   HV_RETURN:     'HV_RETURN',
+  HV_PARENT_EMAIL: 'HV_PARENT_EMAIL',
   // Complaint
   CPL_TYPE:      'CPL_TYPE',
   CPL_PHOTO:     'CPL_PHOTO',
@@ -529,6 +530,7 @@ export default function StudentDashboard() {
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [hvData, setHvData]     = useState({});
+  const [parentEmailOnRecord, setParentEmailOnRecord] = useState('');
   const [zoomedQR, setZoomedQR] = useState(null);
   const [activePasses, setActivePasses] = useState([]);
   const [qrQuickLoading, setQrQuickLoading] = useState(false);
@@ -1038,7 +1040,33 @@ export default function StudentDashboard() {
           }
         );
       } catch (err) {
-        botSay(`❌ Failed to resend email: ${err.response?.data?.message || err.message}`, 'buttons', {
+        const errMsg = err.response?.data?.message || err.message;
+        if (errMsg && (errMsg.includes('No registered parent email') || errMsg.includes('parent email address'))) {
+          const newEmail = window.prompt('Enter parent/guardian email address to send approval link to:');
+          if (newEmail && newEmail.trim()) {
+            try {
+              const res2 = await api.post(`/student/home-visit/${visitId}/resend-email`, { parent_email: newEmail.trim() });
+              setParentEmailOnRecord(newEmail.trim());
+              botSay(
+                `✉️ *Approval Email Sent*\n\n${res2.data?.message || 'A fresh approval email has been sent to your parent.'}`,
+                'buttons',
+                {
+                  buttons: [
+                    { id: '4', label: '📊 View My Status' },
+                    { id: 'flow_menu', label: '🏠 Main menu' },
+                  ],
+                }
+              );
+              return;
+            } catch (err2) {
+              botSay(`❌ Failed to resend email: ${err2.response?.data?.message || err2.message}`, 'buttons', {
+                buttons: FLOW_RECOVERY_BUTTONS,
+              });
+              return;
+            }
+          }
+        }
+        botSay(`❌ Failed to resend email: ${errMsg}`, 'buttons', {
           buttons: FLOW_RECOVERY_BUTTONS,
         });
       } finally {
@@ -1078,7 +1106,7 @@ export default function StudentDashboard() {
         });
       } else if (id === '2') {
         setStep(STEPS.HV_REASON);
-        botSay('🏠 *Home Visit Request*\n\nStep 1 — Please select a reason below, or type your own:', 'buttons', {
+        botSay('🏠 *Home Visit Request*\n\nStep 1/5 — Please select a reason below, or type your own:', 'buttons', {
           buttons: [
             { id: 'going_home', label: '🏠 Going Home' },
             { id: 'medical_reason', label: '🏥 Medical Reason' },
@@ -1153,7 +1181,18 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: label });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
+      botSay('📍 Step 2/5 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
+    } else if (step === STEPS.HV_PARENT_EMAIL) {
+      if (id === 'use_registered_email') {
+        const targetEmail = parentEmailOnRecord || user?.parentEmail;
+        if (!targetEmail) {
+          botSay('Please enter your parent or guardian email address below:');
+          return;
+        }
+        await submitHomeVisit({ ...hvData, parent_email: targetEmail });
+      } else if (id === 'type_different_email') {
+        botSay('✏️ Please enter the parent or guardian email address (e.g. `parent@gmail.com`) in the message box below:');
+      }
     }
   };
 
@@ -1179,7 +1218,7 @@ export default function StudentDashboard() {
       }
       setHvData({ reason: text });
       setStep(STEPS.HV_PLACE);
-      botSay('📍 Step 2/4 — Where is your destination place (e.g. Satara ,Pune, Home Address)?');
+      botSay('📍 Step 2/5 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
     } else if (step === STEPS.HV_PLACE) {
       setLoading(true);
       try {
@@ -1191,7 +1230,7 @@ export default function StudentDashboard() {
         }
         setHvData((d) => ({ ...d, place: text }));
         setStep(STEPS.HV_LEAVE);
-        botSay('📅 Step 3/4 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+        botSay('📅 Step 3/5 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
           pickerStep: STEPS.HV_LEAVE,
         });
       } catch (err) {
@@ -1200,7 +1239,7 @@ export default function StudentDashboard() {
         } else {
           setHvData((d) => ({ ...d, place: text }));
           setStep(STEPS.HV_LEAVE);
-          botSay('📅 Step 3/4 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
+          botSay('📅 Step 3/5 — Please select your *date of leaving* using the calendar below:', 'date_picker', {
             pickerStep: STEPS.HV_LEAVE,
           });
         }
@@ -1224,6 +1263,23 @@ export default function StudentDashboard() {
       }
     } else if (step === STEPS.HV_LEAVE || step === STEPS.HV_RETURN) {
       await processHomeVisitDate(text, step);
+    } else if (step === STEPS.HV_PARENT_EMAIL) {
+      const email = text.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        botSay('❌ Please enter a valid email address (e.g. name@gmail.com).');
+        return;
+      }
+      if (user?.email && email === user.email.toLowerCase()) {
+        botSay('❌ Parent email cannot be your own student login email address. Please enter your parent or guardian\'s email:');
+        return;
+      }
+      const collegeDomains = ['iiitpune.ac.in', 'cse.iiitp.ac.in', 'ece.iiitp.ac.in', 'cysec.iiitp.ac.in', 'aids.iiitp.ac.in', 'mevd.iiitp.ac.in', 'iiitp.ac.in', 'college.edu'];
+      if (collegeDomains.some((d) => email.endsWith('@' + d))) {
+        botSay('❌ Parent email must be a personal email address (e.g. Gmail/Yahoo/Outlook), not a college domain:');
+        return;
+      }
+      await submitHomeVisit({ ...hvData, parent_email: email });
     } else if (step === STEPS.CPL_PHOTO) {
       if (complaintPhoto) {
         await submitComplaintWithPhoto(complaintPhoto, text);
@@ -1257,7 +1313,7 @@ export default function StudentDashboard() {
         setAttendanceHistoryOpen(true);
       }
     } else if ([
-      STEPS.HV_REASON, STEPS.HV_PLACE, STEPS.HV_LEAVE, STEPS.HV_RETURN,
+      STEPS.HV_REASON, STEPS.HV_PLACE, STEPS.HV_LEAVE, STEPS.HV_RETURN, STEPS.HV_PARENT_EMAIL,
       STEPS.CPL_PHOTO, STEPS.CPL_TEXT, STEPS.INOUT_OTHER
     ].includes(step)) {
       botSay('You\'re in the middle of a request. Type *menu* for main menu, or use *Restart home visit* if dates are wrong.');
@@ -1398,10 +1454,22 @@ export default function StudentDashboard() {
       }
 
       const res = await api.post('/student/home-visit', data);
-      const emails = res.data?.guardianEmails || [];
-      const emailNotice = emails.length > 0
-        ? `📧 *Request Emailed to Parents!*\n\nA leave approval request has been emailed to: *${emails.join(', ')}*.\n\nPlease ask your parent to open the Parent Portal link sent to their email and approve your request. Once approved by your parent, your digital QR gate pass will be automatically generated so you can leave the hostel.`
-        : `📧 *Request Emailed to Parents!*\n\nA leave approval request has been emailed to your parent.\n\nPlease ask your parent to open the Parent Portal link sent to their email and approve your request. Once approved by your parent, your digital QR gate pass will be automatically generated so you can leave the hostel.`;
+      const emails = res.data?.guardianEmails || (data.parent_email ? [data.parent_email] : []);
+      const emailSent = Boolean(res.data?.emailSent);
+      const emailFailureReason = res.data?.visit?.email_failure_reason;
+
+      if (data.parent_email) {
+        setParentEmailOnRecord(data.parent_email);
+      }
+
+      let emailNotice = '';
+      if (emails.length > 0 && emailSent) {
+        emailNotice = `📧 *Approval Request Emailed to Parent!*\n\nA secure digital approval link has been emailed to: *${emails.join(', ')}*.\n\nPlease ask your parent to open the link in their email inbox and tap *Approve*. Once approved, your digital QR gate pass will be automatically activated so you can leave the hostel.`;
+      } else if (emails.length > 0 && !emailSent) {
+        emailNotice = `⚠️ *Email Relay Status: Pending Delivery*\n\nYour request was recorded for parent email: *${emails.join(', ')}*.\nHowever, the email relay returned: *${emailFailureReason || 'Free relay pending setup'}*.\n\n💡 You can click *✉️ Resend Parent Email* from your status anytime, or have your hostel warden approve it manually.`;
+      } else {
+        emailNotice = `⚠️ *Notice: No Parent Email Registered*\n\nYour request has been logged. Please add your parent's email or contact your hostel warden for manual verification.`;
+      }
 
       botSay(
         `✅ *Home Visit Request Submitted!*\n\n📝 Reason: ${data.reason}\n📍 Destination: ${data.place || 'Not specified'}\n📅 Leave: ${data.leave_date}\n📅 Return: ${data.return_date}\n\n${emailNotice}`
@@ -1436,7 +1504,7 @@ export default function StudentDashboard() {
       setHvData((d) => ({ ...d, leave_date: leaveDate }));
       setStep(STEPS.HV_RETURN);
       botSay(
-        `📅 Step 4/4 — Select your *expected return date* below (after ${leaveDate}).`,
+        `📅 Step 4/5 — Select your *expected return date* below (after ${leaveDate}).`,
         'date_picker',
         { pickerStep: STEPS.HV_RETURN, leaveDate }
       );
@@ -1459,7 +1527,7 @@ export default function StudentDashboard() {
       if (!leaveDate) {
         botSay('❌ Leave date missing. Starting again from step 3.');
         setStep(STEPS.HV_LEAVE);
-        botSay('📅 Step 3/4 — Select your *date of leaving* below:', 'date_picker', {
+        botSay('📅 Step 3/5 — Select your *date of leaving* below:', 'date_picker', {
           pickerStep: STEPS.HV_LEAVE,
         });
         scrollChatToBottom();
@@ -1474,9 +1542,32 @@ export default function StudentDashboard() {
         botSay(`❌ Return date cannot exceed 3.5 months from leave date. Maximum: ${maxReturnDate}.`);
         return;
       }
-      await submitHomeVisit({ ...hvData, return_date: returnDate });
+      const updatedHv = { ...hvData, return_date: returnDate };
+      setHvData(updatedHv);
+      setStep(STEPS.HV_PARENT_EMAIL);
+
+      const knownEmail = parentEmailOnRecord || user?.parentEmail || '';
+      if (knownEmail) {
+        botSay(
+          `📧 Step 5/5 — *Parent Approval Email*\n\nYour home visit pass requires your parent's digital email approval.\n\nRegistered parent email on file:\n📬 *${knownEmail}*\n\nTap *Send to Registered Email* below to proceed, or type a different parent email in the message box:`,
+          'buttons',
+          {
+            buttons: [
+              { id: 'use_registered_email', label: `✅ Send to ${knownEmail}` },
+              { id: 'type_different_email', label: '✏️ Type Different Email' },
+              { id: 'flow_menu', label: '🏠 Main menu' },
+            ],
+          }
+        );
+      } else {
+        botSay(
+          '📧 Step 5/5 — *Parent Approval Email*\n\nYour home visit pass requires your parent\'s digital email approval.\n\nPlease enter your parent or guardian\'s *email address* (e.g. `parent@gmail.com`) in the message box below:'
+        );
+      }
+      scrollChatToBottom();
+      return;
     }
-  }, [loading, hvData, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
+  }, [loading, hvData, parentEmailOnRecord, user, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
 
   const handleComplaintPhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -1657,6 +1748,9 @@ export default function StudentDashboard() {
 
       if (s.studentPhoto && !user?.studentPhoto) {
         updateUser({ studentPhoto: s.studentPhoto, picture: s.studentPhoto });
+      }
+      if (s.parentEmail) {
+        setParentEmailOnRecord(s.parentEmail);
       }
 
       const passes = parseActivePasses(s);
@@ -2190,6 +2284,9 @@ export default function StudentDashboard() {
     try {
       const res = await api.get('/student/status');
       const s = res.data.status;
+      if (s?.parentEmail) {
+        setParentEmailOnRecord(s.parentEmail);
+      }
       const passes = parseActivePasses(s);
       setActivePasses(passes);
 
@@ -3927,8 +4024,8 @@ export default function StudentDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Chat Input Bar — only appears when text input is really needed (e.g. entering destination place, custom reason, or complaint description) */}
-        {[STEPS.INOUT_OTHER, STEPS.INOUT_REASON_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.CPL_TEXT].includes(step) && (
+        {/* Chat Input Bar — only appears when text input is really needed (e.g. entering destination place, custom reason, parent email, or complaint description) */}
+        {[STEPS.INOUT_OTHER, STEPS.INOUT_REASON_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.HV_PARENT_EMAIL, STEPS.CPL_TEXT].includes(step) && (
           <div style={{
             padding: isMobile ? '8px 10px' : '12px 24px',
             background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
@@ -3938,10 +4035,12 @@ export default function StudentDashboard() {
             <form onSubmit={handleSend} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
                 id="chatbot-input"
-                type="text"
+                type={step === STEPS.HV_PARENT_EMAIL ? 'email' : 'text'}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
+                  step === STEPS.HV_PARENT_EMAIL
+                    ? 'Enter parent/guardian email (e.g. parent@gmail.com)...' :
                   step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
                   step === STEPS.HV_PLACE
                     ? 'Type destination place (e.g. Satara, Pune), or menu to exit...' :

@@ -153,10 +153,16 @@ export default function HomeVisits() {
     window.open(`${backendUrl}/api/admin/guardians/export?token=${encodeURIComponent(token)}`, '_blank');
   };
 
-  const handleResendEmail = async (visitId) => {
+  const handleResendEmail = async (visitId, currentEmail) => {
+    let emailToSend = currentEmail;
+    if (!emailToSend) {
+      const inputEmail = window.prompt('Enter parent/guardian email address:');
+      if (!inputEmail || !inputEmail.trim()) return;
+      emailToSend = inputEmail.trim().toLowerCase();
+    }
     setActioning(visitId + 'resend');
     try {
-      const res = await api.post('/homevisit/resend-notification', { visit_id: visitId });
+      const res = await api.post('/homevisit/resend-notification', { visit_id: visitId, parent_email: emailToSend });
       toast.success(res.data?.message || 'Notification resent successfully');
       fetchVisits();
     } catch (err) {
@@ -395,7 +401,7 @@ export default function HomeVisits() {
                             {v.parent_approval_status === 'pending' && (
                               <button
                                 className="btn btn-ghost btn-sm"
-                                onClick={() => handleResendEmail(v._id)}
+                                onClick={() => handleResendEmail(v._id, v.parent_email)}
                                 disabled={actioning === v._id + 'resend'}
                                 title="Resend digital approval email to parent via Google Apps Script"
                                 style={{
