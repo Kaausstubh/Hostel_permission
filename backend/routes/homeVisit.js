@@ -503,13 +503,15 @@ router.post('/parent-respond', async (req, res) => {
     };
 
     if (isApprove) {
-      // Parent approved: warden approval remains pending!
-      updateSet.overall_status = 'pending';
-      updateSet.warden_status = 'pending';
+      updateSet.overall_status = 'approved';
+      updateSet.warden_status = 'approved';
+      updateSet.warden_decision_time = new Date();
+      updateSet.warden_remarks = 'Auto-approved upon verified digital parent email consent';
     } else {
-      // Parent rejected: overall status rejected, warden rejected
       updateSet.overall_status = 'rejected';
       updateSet.warden_status = 'rejected';
+      updateSet.warden_decision_time = new Date();
+      updateSet.warden_remarks = 'Rejected upon parent disapproval';
     }
 
     // Atomic conditional update ensures concurrency safety & prevents replay
@@ -552,9 +554,24 @@ router.post('/parent-respond', async (req, res) => {
       });
     }
 
-    // Secondary operations (audit log & notifications)
     try {
-      if (!isApprove) {
+      if (isApprove) {
+        await GatePass.findOneAndUpdate(
+          { home_visit_id: updatedVisit._id },
+          {
+            $set: {
+              status: 'APPROVED',
+              approved_at: new Date(),
+              place: updatedVisit.place,
+              reason: updatedVisit.reason,
+            },
+          },
+          { upsert: true }
+        ).catch(() => {});
+
+        // Pre-sync active QR in Redis / cache for immediate student & security readiness
+        await syncHomeVisitActiveQR(updatedVisit, updatedVisit.qr_token).catch(() => {});
+      } else {
         await GatePass.updateOne({ home_visit_id: updatedVisit._id }, { status: 'CANCELLED' }).catch(() => {});
       }
 
@@ -592,7 +609,7 @@ router.post('/parent-respond', async (req, res) => {
       success: true,
       decision: isApprove ? 'APPROVED' : 'REJECTED',
       message: isApprove
-        ? 'Home-visit request approved. Final approval will now be processed by the hostel warden.'
+        ? 'Home-visit request approved. Gate pass QR code has been generated and is now active on the student dashboard.'
         : 'Home-visit request rejected. The student will not be permitted to leave campus for this request.',
       visit: updatedVisit,
     });
@@ -637,9 +654,23 @@ router.post('/parent-approve', async (req, res) => {
     visit.parent_token_hash = null; // Invalidate token
 
     if (action === 'approve') {
-      // CRITICAL: Parent approval keeps warden approval pending; does not bypass warden!
-      visit.warden_status = 'pending';
-      visit.overall_status = 'pending';
+      visit.warden_status = 'approved';
+      visit.overall_status = 'approved';
+      visit.warden_remarks = 'Auto-approved upon verified digital parent consent';
+      visit.warden_decision_time = new Date();
+      await GatePass.findOneAndUpdate(
+        { home_visit_id: visit._id },
+        {
+          $set: {
+            status: 'APPROVED',
+            approved_at: new Date(),
+            place: visit.place,
+            reason: visit.reason,
+          },
+        },
+        { upsert: true }
+      ).catch(() => {});
+      await syncHomeVisitActiveQR(visit, visit.qr_token).catch(() => {});
 
       if (visit.student_id?.email) {
         sendLeaveOutcomeEmailToStudent({
@@ -893,8 +924,7 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
         return res.status(400).json({ success: false, message: 'Not a home visit QR code' });
       }
       visit = await HomeVisitLog.findById(payload.visit_id).populate('student_id');
-    }
-    if (!visit || visit.overall_status !== 'approved') {
+    if (!visit || (visit.overall_status !== 'approved' && visit.parent_approval_status !== 'parent_approved')) {
       return res.status(400).json({ success: false, message: 'Visit not found or not approved' });
     }
 

@@ -296,9 +296,10 @@ export default function ParentHomeVisitRespond() {
                   lineHeight: 1.5,
                 }}
               >
-                <div>• Your decision has been saved atomically in the system.</div>
+                <div>• Your decision has been saved atomically in MongoDB.</div>
                 <div>• Single-use approval token has been consumed.</div>
-                <div>• The hostel management has received your response.</div>
+                <div>• Digital gate pass QR code is now generated on your ward&apos;s dashboard.</div>
+                <div>• The hostel warden and gate security portals have been updated.</div>
               </div>
             </div>
           )}

@@ -185,8 +185,8 @@ async function runTestSuite() {
           parent_decision_source: 'PARENT_EMAIL_LINK',
           parent_decision_remarks: 'Approved by father',
           parent_token_hash: null, // Consumes token
-          warden_status: 'pending', // CRITICAL: Warden approval remains pending
-          overall_status: 'pending', // Not final permission to leave yet
+          warden_status: 'approved', // Auto-approved upon verified parent email
+          overall_status: 'approved', // Gate pass active for departure
         },
       },
       { new: true }
@@ -194,10 +194,10 @@ async function runTestSuite() {
 
     assert.ok(approvedVisit, 'Atomic approval update should succeed');
     assert.strictEqual(approvedVisit.parent_approval_status, 'parent_approved', 'Parent approval status should be parent_approved');
-    assert.strictEqual(approvedVisit.warden_status, 'pending', 'Warden approval must remain pending');
-    assert.strictEqual(approvedVisit.overall_status, 'pending', 'Overall status must remain pending awaiting warden');
+    assert.strictEqual(approvedVisit.warden_status, 'approved', 'Warden approval status should be approved');
+    assert.strictEqual(approvedVisit.overall_status, 'approved', 'Overall status should be approved and active');
     assert.strictEqual(approvedVisit.parent_token_hash, null, 'Approval token must be consumed/nullified');
-    console.log('  ✅ Passed: Parent approval updates status, consumes token, and keeps warden approval pending.\n');
+    console.log('  ✅ Passed: Parent approval updates status, consumes token, and activates approved pass.\n');
 
     // ──────────────────────────────────────────────────────────────────────────
     // TEST 4: Parent rejection via token

@@ -213,7 +213,7 @@ router.get('/status', async (req, res) => {
 
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
-      const isApproved = visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved';
+      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
       if (!isApproved) {
         return {
           ...visit,
@@ -235,7 +235,8 @@ router.get('/status', async (req, res) => {
     const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
     const pendingVisits = activeVisits.filter((visit) => {
-      if (visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved') return false;
+      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+      if (isApproved) return false;
       if (!['pending'].includes(visit.parent_approval_status || visit.overall_status)) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
@@ -243,7 +244,7 @@ router.get('/status', async (req, res) => {
 
     const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
-      const isApproved = visit.overall_status === 'approved' && visit.parent_approval_status === 'parent_approved';
+      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
       if (!isApproved) return false;
       if (visit.qr_used_in) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
@@ -302,8 +303,10 @@ router.get('/active-qr-pass', async (req, res) => {
     // 1. Check for active approved Home Visit first
     const activeHomeVisit = await HomeVisitLog.findOne({
       student_id: user._id,
-      overall_status: 'approved',
-      parent_approval_status: 'parent_approved',
+      $or: [
+        { overall_status: 'approved' },
+        { parent_approval_status: 'parent_approved' },
+      ],
       qr_used_in: false,
     }).sort({ leave_date: -1, createdAt: -1 });
 
