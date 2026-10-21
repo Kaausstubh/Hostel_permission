@@ -1006,12 +1006,32 @@ export default function StudentDashboard() {
       setLoading(true);
       try {
         const savedAttempt = lastAttemptedHvDataRef.current || hvData;
-        if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
-          // Attempt cancellation of old visit, then create new visit with cancel_previous flag
+
+        // 1. Cancel all active unscanned visits via dedicated endpoint
+        await api.post('/student/home-visit/cancel-active').catch(() => {});
+
+        // 2. Also attempt explicit ID cancellation if valid ID provided
+        if (visitId && visitId !== 'active') {
           await api.post(`/student/home-visit/${visitId}/cancel`).catch(() => {});
+        }
+
+        // 3. Status sweep fallback: cancel any unscanned pending or approved visits
+        try {
+          const stRes = await api.get('/student/status');
+          const allVisits = [
+            ...(stRes.data?.status?.pendingVisits || []),
+            ...(stRes.data?.status?.approvedVisits || []),
+          ];
+          for (const v of allVisits) {
+            if (v._id && !v.qr_used_out) {
+              await api.post(`/student/home-visit/${v._id}/cancel`).catch(() => {});
+            }
+          }
+        } catch (_) {}
+
+        if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
           await submitHomeVisit({ ...savedAttempt, cancel_previous: true });
         } else {
-          await api.post(`/student/home-visit/${visitId}/cancel`);
           botSay('✅ Previous request cancelled. Let\'s create your new home visit pass:');
           restartHomeVisitFlow();
         }
@@ -1535,6 +1555,23 @@ export default function StudentDashboard() {
         (errData?.message && errData.message.toLowerCase().includes('already exists'));
 
       if (isOverlap) {
+        if (data.cancel_previous) {
+          botSay(
+            `⚠️ *Unable to Automatically Replace Previous Pass*\n\n` +
+            `${errData?.message || 'An active home visit request is still present in the system.'}\n\n` +
+            `Please tap below to check your status and cancel your previous pass manually:`,
+            'buttons',
+            {
+              buttons: [
+                { id: '4', label: '📊 View My Status & Cancel' },
+                { id: 'flow_menu', label: '🏠 Main menu' },
+              ],
+            }
+          );
+          setStep(STEPS.MENU);
+          return;
+        }
+
         let overlappingId = errData?.overlappingVisitId;
         const isScannedOut = Boolean(errData?.message?.toLowerCase().includes('already been scanned out'));
         const canCancel = !isScannedOut && errData?.canCancel !== false;

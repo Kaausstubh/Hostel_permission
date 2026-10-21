@@ -118,22 +118,29 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       });
     }
 
-    const overlappingVisit = await HomeVisitLog.findOne(
-      buildOverlappingVisitFilter(req.user._id, leave_date, return_date)
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+    const shouldCancelPrevious =
+      req.body.cancel_previous === true ||
+      req.body.cancel_previous === 'true' ||
+      String(req.body.cancel_previous).toLowerCase() === 'true';
 
-    if (overlappingVisit) {
-      if (req.body.cancel_previous === true) {
-        if (overlappingVisit.qr_used_out) {
-          return res.status(400).json({
-            success: false,
-            message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
-          });
-        }
+    if (shouldCancelPrevious) {
+      const activeUnscanned = await HomeVisitLog.find({
+        student_id: req.user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+      });
+
+      const alreadyScannedOut = activeUnscanned.some((v) => v.qr_used_out);
+      if (alreadyScannedOut) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
+        });
+      }
+
+      if (activeUnscanned.length > 0) {
+        const visitIds = activeUnscanned.map((v) => v._id);
         await HomeVisitLog.updateMany(
-          buildOverlappingVisitFilter(req.user._id, leave_date, return_date),
+          { _id: { $in: visitIds } },
           {
             $set: {
               overall_status: 'rejected',
@@ -148,27 +155,37 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
           { $set: { status: 'CANCELLED' } }
         ).catch(() => {});
 
-        await ApprovalAuditLog.create({
-          event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
-          home_visit_request_id: overlappingVisit._id,
-          student_id: req.user._id,
-          actor_id: req.user._id,
-          actor_role: 'student',
-          actor_email: req.user.email,
-          ip_address: req.ip,
-        }).catch(() => {});
-      } else {
-        return res.status(409).json({
-          success: false,
-          overlappingVisitId: overlappingVisit._id,
-          canCancel: !overlappingVisit.qr_used_out,
-          conflictDates: {
-            leave_date: overlappingVisit.leave_date,
-            return_date: overlappingVisit.return_date,
-          },
-          message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
-        });
+        for (const v of activeUnscanned) {
+          await ApprovalAuditLog.create({
+            event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
+            home_visit_request_id: v._id,
+            student_id: req.user._id,
+            actor_id: req.user._id,
+            actor_role: 'student',
+            actor_email: req.user.email,
+            ip_address: req.ip,
+          }).catch(() => {});
+        }
       }
+    }
+
+    const overlappingVisit = await HomeVisitLog.findOne(
+      buildOverlappingVisitFilter(req.user._id, leave_date, return_date)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (overlappingVisit) {
+      return res.status(409).json({
+        success: false,
+        overlappingVisitId: overlappingVisit._id,
+        canCancel: !overlappingVisit.qr_used_out,
+        conflictDates: {
+          leave_date: overlappingVisit.leave_date,
+          return_date: overlappingVisit.return_date,
+        },
+        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
+      });
     }
 
     // 1. Resolve parent contact details strictly from registered guardians or verified records

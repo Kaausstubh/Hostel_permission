@@ -755,23 +755,29 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
-    // Prevent multiple active passes from existing for overlapping periods.
-    const overlappingVisit = await HomeVisitLog.findOne(
-      buildOverlappingVisitFilter(user._id, leave_date, return_date)
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+    const shouldCancelPrevious =
+      req.body.cancel_previous === true ||
+      req.body.cancel_previous === 'true' ||
+      String(req.body.cancel_previous).toLowerCase() === 'true';
 
-    if (overlappingVisit) {
-      if (req.body.cancel_previous === true) {
-        if (overlappingVisit.qr_used_out) {
-          return res.status(400).json({
-            success: false,
-            message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
-          });
-        }
+    if (shouldCancelPrevious) {
+      const activeUnscanned = await HomeVisitLog.find({
+        student_id: user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+      });
+
+      const alreadyScannedOut = activeUnscanned.some((v) => v.qr_used_out);
+      if (alreadyScannedOut) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
+        });
+      }
+
+      if (activeUnscanned.length > 0) {
+        const visitIds = activeUnscanned.map((v) => v._id);
         await HomeVisitLog.updateMany(
-          buildOverlappingVisitFilter(user._id, leave_date, return_date),
+          { _id: { $in: visitIds } },
           {
             $set: {
               overall_status: 'rejected',
@@ -786,27 +792,38 @@ router.post('/home-visit', async (req, res) => {
           { $set: { status: 'CANCELLED' } }
         ).catch(() => {});
 
-        await ApprovalAuditLog.create({
-          event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
-          home_visit_request_id: overlappingVisit._id,
-          student_id: user._id,
-          actor_id: user._id,
-          actor_role: 'student',
-          actor_email: user.email,
-          ip_address: req.ip,
-        }).catch(() => {});
-      } else {
-        return res.status(409).json({
-          success: false,
-          overlappingVisitId: overlappingVisit._id,
-          canCancel: !overlappingVisit.qr_used_out,
-          conflictDates: {
-            leave_date: overlappingVisit.leave_date,
-            return_date: overlappingVisit.return_date,
-          },
-          message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
-        });
+        for (const v of activeUnscanned) {
+          await ApprovalAuditLog.create({
+            event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
+            home_visit_request_id: v._id,
+            student_id: user._id,
+            actor_id: user._id,
+            actor_role: 'student',
+            actor_email: user.email,
+            ip_address: req.ip,
+          }).catch(() => {});
+        }
       }
+    }
+
+    // Prevent multiple active passes from existing for overlapping periods.
+    const overlappingVisit = await HomeVisitLog.findOne(
+      buildOverlappingVisitFilter(user._id, leave_date, return_date)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (overlappingVisit) {
+      return res.status(409).json({
+        success: false,
+        overlappingVisitId: overlappingVisit._id,
+        canCancel: !overlappingVisit.qr_used_out,
+        conflictDates: {
+          leave_date: overlappingVisit.leave_date,
+          return_date: overlappingVisit.return_date,
+        },
+        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
+      });
     }
 
     // 1. Resolve parent contact details strictly from registered guardians or verified records
@@ -1221,15 +1238,91 @@ router.get('/home-visits', async (req, res) => {
   }
 });
 
+// ── POST /home-visit/cancel-active ────────────────────────────────────────────
+// Cancel any unscanned active home visit for the logged-in student
+router.post('/home-visit/cancel-active', async (req, res) => {
+  try {
+    const activeVisits = await HomeVisitLog.find({
+      student_id: req.user._id,
+      overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+    });
+
+    if (activeVisits.length === 0) {
+      return res.json({ success: true, message: 'No active home visit requests to cancel', count: 0 });
+    }
+
+    const alreadyScanned = activeVisits.some((v) => v.qr_used_out);
+    if (alreadyScanned) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel pass because it has already been scanned out at the campus gate.',
+      });
+    }
+
+    const ids = activeVisits.map((v) => v._id);
+    await HomeVisitLog.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          overall_status: 'rejected',
+          parent_approval_status: 'parent_rejected',
+          warden_status: 'rejected',
+        },
+      }
+    );
+
+    await GatePass.updateMany(
+      { student_id: req.user._id, pass_type: 'HOME_VISIT', status: { $in: ['PENDING', 'APPROVED', 'AWAITING_APPROVAL'] } },
+      { $set: { status: 'CANCELLED' } }
+    ).catch(() => {});
+
+    for (const v of activeVisits) {
+      await ApprovalAuditLog.create({
+        event: 'REQUEST_CANCELLED_BY_STUDENT',
+        home_visit_request_id: v._id,
+        student_id: req.user._id,
+        actor_id: req.user._id,
+        actor_role: 'student',
+        actor_email: req.user.email,
+        ip_address: req.ip,
+      }).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      message: 'Active home visit request(s) cancelled successfully.',
+      count: activeVisits.length,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── POST /home-visit/:id/cancel ───────────────────────────────────────────────
 // Student withdraws/cancels their own pending unscanned home visit request
 router.post('/home-visit/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
-    const visit = await HomeVisitLog.findOne({
-      _id: id,
-      student_id: req.user._id,
-    });
+    let visit = null;
+
+    if (id === 'active' || id === 'all') {
+      visit = await HomeVisitLog.findOne({
+        student_id: req.user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+        qr_used_out: false,
+      }).sort({ createdAt: -1 });
+    } else if (mongoose.Types.ObjectId.isValid(id)) {
+      visit = await HomeVisitLog.findOne({
+        _id: id,
+        student_id: req.user._id,
+      });
+    } else {
+      visit = await HomeVisitLog.findOne({
+        student_id: req.user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+        qr_used_out: false,
+      }).sort({ createdAt: -1 });
+    }
 
     if (!visit) {
       return res.status(404).json({ success: false, message: 'Home visit request not found' });
