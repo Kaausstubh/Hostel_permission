@@ -153,6 +153,19 @@ export default function HomeVisits() {
     window.open(`${backendUrl}/api/admin/guardians/export?token=${encodeURIComponent(token)}`, '_blank');
   };
 
+  const handleResendEmail = async (visitId) => {
+    setActioning(visitId + 'resend');
+    try {
+      const res = await api.post('/homevisit/resend-notification', { visit_id: visitId });
+      toast.success(res.data?.message || 'Notification resent successfully');
+      fetchVisits();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resend notification');
+    } finally {
+      setActioning(null);
+    }
+  };
+
   const renderParentStatusBadge = (visit) => {
     const pStatus = visit.parent_approval_status;
     const pSource = visit.parent_decision_source;
@@ -176,7 +189,36 @@ export default function HomeVisits() {
     if (pStatus === 'parent_no_response') {
       return <span className="badge badge-rejected" style={{ fontSize: 11, background: 'rgba(239, 68, 68, 0.15)' }}>⌛ Expired (No Response)</span>;
     }
+    if (visit.email_notification_status === 'FAILED') {
+      return <span className="badge badge-rejected" style={{ fontSize: 11, background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5' }}>⚠️ Email Failed</span>;
+    }
     return <span className="badge badge-pending" style={{ fontSize: 11 }}>⏳ Pending Parent Decision</span>;
+  };
+
+  const renderOverallStatusBadge = (v) => {
+    if (v.overall_status === 'approved') {
+      return <span className="badge badge-approved">Approved</span>;
+    }
+    if (v.overall_status === 'rejected') {
+      if (v.parent_approval_status === 'parent_rejected') {
+        return <span className="badge badge-rejected">Parent Rejected</span>;
+      }
+      return <span className="badge badge-rejected">Rejected</span>;
+    }
+    if (v.email_notification_status === 'FAILED') {
+      return <span className="badge badge-rejected" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)' }}>Notification Failed</span>;
+    }
+    if (v.parent_approval_status === 'parent_approved' && v.warden_status === 'pending') {
+      return (
+        <span className="badge badge-pending" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', whiteSpace: 'nowrap' }}>
+          Parent Approved — Awaiting Warden
+        </span>
+      );
+    }
+    if (v.parent_approval_status === 'pending') {
+      return <span className="badge badge-pending" style={{ whiteSpace: 'nowrap' }}>Awaiting Parent Approval</span>;
+    }
+    return <span className={`badge badge-${v.overall_status}`}>{v.overall_status}</span>;
   };
 
   return (
@@ -342,15 +384,37 @@ export default function HomeVisits() {
 
                       {/* Overall Status */}
                       <td>
-                        <span className={`badge badge-${v.overall_status === 'approved' ? 'approved' : v.overall_status === 'rejected' ? 'rejected' : 'pending'}`}>
-                          {v.overall_status}
-                        </span>
+                        {renderOverallStatusBadge(v)}
                       </td>
 
                       {/* Actions */}
                       <td>
                         {v.warden_status === 'pending' ? (
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {/* Resend Parent Email Button */}
+                            {v.parent_approval_status === 'pending' && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => handleResendEmail(v._id)}
+                                disabled={actioning === v._id + 'resend'}
+                                title="Resend digital approval email to parent via Google Apps Script"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#fbbf24',
+                                  background: 'rgba(251, 191, 36, 0.12)',
+                                  border: '1px solid rgba(251, 191, 36, 0.3)',
+                                  padding: '5px 8px',
+                                  borderRadius: 6,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {actioning === v._id + 'resend' ? 'Sending…' : '✉️ Resend'}
+                              </button>
+                            )}
+
                             {/* Staff Phone Confirmation Override Button */}
                             {!canApprove && (
                               <button

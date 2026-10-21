@@ -1022,6 +1022,31 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (id.startsWith('resend_hv_')) {
+      const visitId = id.replace('resend_hv_', '');
+      setLoading(true);
+      try {
+        const res = await api.post(`/student/home-visit/${visitId}/resend-email`);
+        botSay(
+          `✉️ *Approval Email Resent*\n\n${res.data?.message || 'A fresh approval email has been sent to your parent.'}`,
+          'buttons',
+          {
+            buttons: [
+              { id: '4', label: '📊 View My Status' },
+              { id: 'flow_menu', label: '🏠 Main menu' },
+            ],
+          }
+        );
+      } catch (err) {
+        botSay(`❌ Failed to resend email: ${err.response?.data?.message || err.message}`, 'buttons', {
+          buttons: FLOW_RECOVERY_BUTTONS,
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (id === 'attendance_records' || id === 'flow_attendance') {
       setAttendanceHistoryOpen(true);
       return;
@@ -2198,9 +2223,21 @@ export default function StudentDashboard() {
       if (s.pendingVisits?.length > 0) {
         statusMsg += `\n\n🏠 *Pending Home Visits:*`;
         s.pendingVisits.forEach((v, i) => {
-          const isAwaiting = v.parent_approval_status === 'pending' || v.overall_status === 'pending';
-          const statusText = isAwaiting ? '⏳ Awaiting Parent Approval (Email sent)' : `(${v.overall_status})`;
+          let statusText = '⏳ Awaiting Parent Approval';
+          if (v.email_notification_status === 'FAILED') {
+            statusText = '⚠️ Email Failed — Resend Available';
+          } else if (v.parent_approval_status === 'parent_approved' && v.warden_status === 'pending') {
+            statusText = '✅ Parent Approved — Awaiting Warden';
+          } else if (v.parent_approval_status === 'parent_rejected') {
+            statusText = '❌ Parent Rejected';
+          }
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ${statusText}`;
+          if (v.parent_approval_status === 'pending' || v.email_notification_status === 'FAILED') {
+            statusButtons.push({
+              id: `resend_hv_${v._id}`,
+              label: `✉️ Resend Parent Email (${v.leave_date})`,
+            });
+          }
           if (!v.qr_used_out) {
             statusButtons.push({
               id: `cancel_hv_${v._id}`,

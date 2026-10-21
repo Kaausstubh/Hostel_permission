@@ -178,6 +178,7 @@ function AppRoutes() {
         <Route path="/auth/callback" element={<OAuthCallback />} />
         <Route path="/simulator" element={<StudentSimulator />} />
         <Route path="/home-visit/respond/:visitId" element={<ParentHomeVisitRespond />} />
+        <Route path="/home-visit/respond/:visitId/:token" element={<ParentHomeVisitRespond />} />
         {/* Public Visitor Check-in — replaces Google Form with live MongoDB student lookup */}
         <Route path="/visitor-pass" element={<VisitorPassRequest />} />
         <Route path="/visitor-entry" element={<Navigate to="/visitor-pass" replace />} />

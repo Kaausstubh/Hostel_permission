@@ -24,6 +24,13 @@ const AttendanceRecord = require('../models/AttendanceRecord');
 const Guardian = require('../models/Guardian');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
 const { sendLeaveRequestEmail } = require('../services/mailService');
+const {
+  generateParentApprovalToken,
+  hashParentToken,
+} = require('../utils/parentToken');
+const {
+  sendParentApprovalEmail,
+} = require('../services/gasMailService');
 const logger = require('../utils/logger');
 const {
   getActivePassForStudent,
@@ -682,9 +689,33 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
-    // Generate unique persistent token right upon creation
-    const persistentToken = createHomeVisitCompactToken();
+    // 1. Resolve parent contact details
+    let parentEmail = null;
+    let parentName = '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      parentEmail = String(req.body.parent_email).trim().toLowerCase();
+      parentName = String(req.body.parent_name || '').trim();
+    } else {
+      const primaryGuardian = await Guardian.findOne({
+        student_id: user._id,
+        status: { $ne: 'REVOKED' },
+      }).sort({ guardian_slot: 1 });
+
+      if (primaryGuardian && primaryGuardian.email) {
+        parentEmail = primaryGuardian.email.trim().toLowerCase();
+        parentName = primaryGuardian.name || '';
+      } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+        parentEmail = user.parentEmail.trim().toLowerCase();
+      }
+    }
+
+    // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
+    const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
+
+    // 3. Create the request record with unique persistent token and pending statuses
+    const persistentToken = createHomeVisitCompactToken();
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       name: user.name,
@@ -692,14 +723,23 @@ router.post('/home-visit', async (req, res) => {
       student_photo: user.studentPhoto || user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       parent_phone_alt: user.parentPhone2 ? normalizeToE164(user.parentPhone2) : null,
+      parent_email: parentEmail,
+      parent_name: parentName,
+      departure_time: req.body.departure_time || '09:00 AM',
+      return_time: req.body.return_time || '08:00 PM',
       reason,
       leave_date,
       return_date,
       place: String(place).trim().slice(0, 200),
       qr_token: persistentToken,
+      parent_token_hash: tokenHash,
+      parent_token_expires_at: expiresAt,
       parent_approval_status: 'pending',
       overall_status: 'pending',
       warden_status: 'pending',
+      email_notification_status: parentEmail ? 'PENDING' : 'FAILED',
+      email_failure_reason: parentEmail ? null : 'No registered parent email address found for student',
+      accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
 
     // Mirror to GatePass model for unified MongoDB tracking
@@ -715,77 +755,65 @@ router.post('/home-visit', async (req, res) => {
       console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
-    // Digital Parent Approval: Notify all linked guardians via email with direct Decision link
-    const notifiedEmails = [];
+    // 4. Automated Parent Email Notification via Google Apps Script (Free Tier)
     let anyEmailSent = false;
-    let isMocked = false;
-    const baseUrl = (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost'))
-      ? process.env.FRONTEND_URL.replace(/\/+$/, '')
-      : 'https://iiitpune-hosteel-gate-management.vercel.app';
-    const requestUrl = `${baseUrl}/home-visit/respond/${visit._id}`;
+    let approvalUrl = null;
 
-    try {
-      const guardians = await Guardian.find({
-        student_id: user._id,
-        status: { $ne: 'REVOKED' },
-      });
+    if (parentEmail) {
+      try {
+        const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+        const emailResult = await sendParentApprovalEmail({
+          visit,
+          rawToken,
+          parentEmail,
+          baseUrl,
+        });
 
-      const emailDispatches = [];
-      for (const g of guardians) {
-        if (g.email) {
-          notifiedEmails.push(g.email);
-          const p = sendLeaveRequestEmail({
-            to: g.email,
-            guardianName: g.name,
-            studentName: user.name,
-            leaveDate: visit.leave_date,
-            returnDate: visit.return_date,
-            reason: visit.reason,
-            place: visit.place,
-            requestUrl,
-          }).then((res) => {
-            if (!res?.success) {
-              logger.warn(`[HomeVisit] Email dispatch to guardian ${g.email} failed: ${res?.error || 'Unknown error'}`);
-            }
-            return { email: g.email, ...res };
-          }).catch((err) => {
-            logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`);
-            return { email: g.email, success: false, error: err.message };
-          });
-          emailDispatches.push(p);
+        approvalUrl = emailResult.approvalUrl;
 
-          ApprovalAuditLog.create({
-            event: 'REQUEST_NOTIFIED',
-            home_visit_request_id: visit._id,
-            student_id: user._id,
-            guardian_id: g._id,
-            actor_id: user._id,
-            actor_role: 'student',
-            actor_email: user.email,
-            ip_address: req.ip,
-            details: { requestUrl, guardianEmail: g.email },
-          }).catch(() => {});
+        if (emailResult.success) {
+          anyEmailSent = true;
+          visit.email_notification_status = 'SUBMITTED';
+          visit.email_sent_at = new Date();
+          visit.email_failure_reason = null;
+        } else {
+          visit.email_notification_status = 'FAILED';
+          visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
         }
-      }
+        await visit.save();
 
-      const emailResults = await Promise.all(emailDispatches);
-      anyEmailSent = emailResults.some((r) => r && r.success && !r.mocked);
-      isMocked = emailResults.some((r) => r && r.mocked);
-    } catch (notifyErr) {
-      logger.warn('[HomeVisit] Guardian notification dispatch error:', notifyErr.message);
+        ApprovalAuditLog.create({
+          event: 'REQUEST_NOTIFIED',
+          home_visit_request_id: visit._id,
+          student_id: user._id,
+          actor_id: user._id,
+          actor_role: 'student',
+          actor_email: user.email,
+          ip_address: req.ip,
+          details: { parentEmail, notificationStatus: visit.email_notification_status, error: visit.email_failure_reason },
+        }).catch(() => {});
+      } catch (notifyErr) {
+        logger.warn('[HomeVisit] Parent notification dispatch error:', notifyErr.message);
+        visit.email_notification_status = 'FAILED';
+        visit.email_failure_reason = notifyErr.message;
+        await visit.save();
+      }
     }
+
+    const cleanVisit = visit.toObject ? visit.toObject() : { ...visit };
+    delete cleanVisit.parent_token_hash;
 
     res.status(201).json({
       success: true,
-      message: notifiedEmails.length > 0
-        ? `Home visit request submitted. Digital approval request sent to parent email (${notifiedEmails.join(', ')}).`
-        : 'Home visit request submitted. Awaiting digital parent approval via email link.',
-      guardianEmails: notifiedEmails,
-      hasGuardians: notifiedEmails.length > 0,
+      message: parentEmail
+        ? `Home visit request submitted. Digital approval request sent to parent email (${parentEmail}).`
+        : 'Home visit request submitted. Note: No parent email registered for student.',
+      guardianEmails: parentEmail ? [parentEmail] : [],
+      parentEmail,
+      hasGuardians: Boolean(parentEmail),
       emailSent: anyEmailSent,
-      isMocked,
-      approvalUrl: requestUrl,
-      visit,
+      email_notification_status: visit.email_notification_status,
+      visit: cleanVisit,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -793,7 +821,7 @@ router.post('/home-visit', async (req, res) => {
 });
 
 // ── POST /home-visit/:id/resend-email ─────────────────────────────────────────
-// Resend parent approval email with direct decision link
+// Resend parent approval email with fresh token and direct decision link
 router.post('/home-visit/:id/resend-email', async (req, res) => {
   try {
     const { id } = req.params;
@@ -811,51 +839,56 @@ router.post('/home-visit/:id/resend-email', async (req, res) => {
       return res.status(400).json({ success: false, message: 'This request is already approved' });
     }
 
-    const guardians = await Guardian.find({
-      student_id: user._id,
-      status: { $ne: 'REVOKED' },
-    });
-
-    const baseUrl = (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost'))
-      ? process.env.FRONTEND_URL.replace(/\/+$/, '')
-      : 'https://iiitpune-hosteel-gate-management.vercel.app';
-    const requestUrl = `${baseUrl}/home-visit/respond/${visit._id}`;
-
-    const notifiedEmails = [];
-    const emailDispatches = [];
-    for (const g of guardians) {
-      if (g.email) {
-        notifiedEmails.push(g.email);
-        emailDispatches.push(
-          sendLeaveRequestEmail({
-            to: g.email,
-            guardianName: g.name,
-            studentName: user.name,
-            leaveDate: visit.leave_date,
-            returnDate: visit.return_date,
-            reason: visit.reason,
-            place: visit.place,
-            requestUrl,
-          })
-        );
+    let recipientEmail = visit.parent_email;
+    if (!recipientEmail) {
+      const primaryGuardian = await Guardian.findOne({
+        student_id: user._id,
+        status: { $ne: 'REVOKED' },
+      }).sort({ guardian_slot: 1 });
+      if (primaryGuardian && primaryGuardian.email) {
+        recipientEmail = primaryGuardian.email.trim().toLowerCase();
+        visit.parent_email = recipientEmail;
       }
     }
 
-    const results = await Promise.all(emailDispatches);
-    const anyEmailSent = results.some((r) => r && r.success && !r.mocked);
-    const isMocked = results.some((r) => r && r.mocked);
+    if (!recipientEmail) {
+      visit.email_notification_status = 'FAILED';
+      visit.email_failure_reason = 'No registered parent email address found';
+      await visit.save();
+      return res.status(400).json({ success: false, message: 'No registered parent email address found for student' });
+    }
+
+    // Generate fresh high-entropy approval token
+    const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
+    visit.parent_token_hash = tokenHash;
+    visit.parent_token_expires_at = expiresAt;
+
+    const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+    const emailResult = await sendParentApprovalEmail({
+      visit,
+      rawToken,
+      parentEmail: recipientEmail,
+      baseUrl,
+    });
+
+    if (emailResult.success) {
+      visit.email_notification_status = 'SUBMITTED';
+      visit.email_sent_at = new Date();
+      visit.email_failure_reason = null;
+    } else {
+      visit.email_notification_status = 'FAILED';
+      visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
+    }
+    await visit.save();
 
     return res.json({
-      success: true,
-      message: anyEmailSent
-        ? `Approval email successfully resent to ${notifiedEmails.join(', ')}.`
-        : isMocked
-          ? `Server in mock mode (SMTP credentials not configured on backend). Approval link: ${requestUrl}`
-          : `Attempted dispatch to ${notifiedEmails.join(', ')}.`,
-      guardianEmails: notifiedEmails,
-      emailSent: anyEmailSent,
-      isMocked,
-      approvalUrl: requestUrl,
+      success: emailResult.success,
+      message: emailResult.success
+        ? `Approval email successfully resent to ${recipientEmail}.`
+        : `Email delivery failed: ${emailResult.error}`,
+      email_notification_status: visit.email_notification_status,
+      email_failure_reason: visit.email_failure_reason,
+      emailSent: emailResult.success,
     });
   } catch (err) {
     logger.error('[HomeVisit] Resend email error:', err.message);
