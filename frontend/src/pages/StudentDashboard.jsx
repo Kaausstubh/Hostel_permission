@@ -531,6 +531,8 @@ export default function StudentDashboard() {
   const [loading, setLoading]   = useState(false);
   const [hvData, setHvData]     = useState({});
   const [parentEmailOnRecord, setParentEmailOnRecord] = useState('');
+  const [registeredGuardians, setRegisteredGuardians] = useState([]);
+  const lastAttemptedHvDataRef = useRef(null);
   const [zoomedQR, setZoomedQR] = useState(null);
   const [activePasses, setActivePasses] = useState([]);
   const [qrQuickLoading, setQrQuickLoading] = useState(false);
@@ -1004,15 +1006,26 @@ export default function StudentDashboard() {
       setLoading(true);
       try {
         const res = await api.post(`/student/home-visit/${visitId}/cancel`);
+        const savedAttempt = lastAttemptedHvDataRef.current;
+        const retryButtons = [];
+
+        if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
+          retryButtons.push({
+            id: 'retry_last_hv_submit',
+            label: `🚀 Apply for ${savedAttempt.leave_date} → ${savedAttempt.return_date}`,
+          });
+        }
+        retryButtons.push({ id: '2', label: '🏠 Apply with New Dates' });
+        retryButtons.push({ id: 'flow_menu', label: '🏠 Main menu' });
+
         botSay(
-          `✅ *Request Cancelled*\n\n${res.data?.message || 'Your previous home visit request was cancelled successfully.'}\n\nYou can now submit a new home visit request with your updated dates.`,
+          `✅ *Request Cancelled Successfully*\n\n` +
+          `${res.data?.message || 'Your previous home visit request has been cancelled.'}\n\n` +
+          (savedAttempt && savedAttempt.leave_date
+            ? `You can now instantly apply for *${savedAttempt.leave_date} → ${savedAttempt.return_date}* with one click below, or start fresh:`
+            : `You may now submit a new home visit request.`),
           'buttons',
-          {
-            buttons: [
-              { id: '2', label: '🏠 Apply for Home Visit' },
-              { id: 'flow_menu', label: '🏠 Main menu' },
-            ],
-          }
+          { buttons: retryButtons }
         );
       } catch (err) {
         botSay(`❌ Failed to cancel request: ${err.response?.data?.message || err.message}`, 'buttons', {
@@ -1020,6 +1033,15 @@ export default function StudentDashboard() {
         });
       } finally {
         setLoading(false);
+      }
+      return;
+    }
+
+    if (id === 'retry_last_hv_submit') {
+      if (lastAttemptedHvDataRef.current) {
+        await submitHomeVisit(lastAttemptedHvDataRef.current);
+      } else {
+        restartHomeVisitFlow();
       }
       return;
     }
@@ -1183,15 +1205,32 @@ export default function StudentDashboard() {
       setStep(STEPS.HV_PLACE);
       botSay('📍 Step 2/5 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
     } else if (step === STEPS.HV_PARENT_EMAIL) {
-      if (id === 'use_registered_email') {
-        const targetEmail = parentEmailOnRecord || user?.parentEmail;
+      if (id === 'use_guardian_0') {
+        const g0 = registeredGuardians[0];
+        const targetEmail = g0?.email || parentEmailOnRecord || user?.parentEmail;
+        const targetName = g0?.name || user?.parentName || '';
         if (!targetEmail) {
-          botSay('Please enter your parent or guardian email address below:');
+          botSay('⚠️ No registered parent email found. Please complete guardian registration.');
           return;
         }
-        await submitHomeVisit({ ...hvData, parent_email: targetEmail });
-      } else if (id === 'type_different_email') {
-        botSay('✏️ Please enter the parent or guardian email address (e.g. `parent@gmail.com`) in the message box below:');
+        await submitHomeVisit({ ...hvData, parent_email: targetEmail, parent_name: targetName });
+      } else if (id === 'use_guardian_1') {
+        const g1 = registeredGuardians[1];
+        if (!g1?.email) {
+          botSay('⚠️ Secondary registered parent email not found on file.');
+          return;
+        }
+        await submitHomeVisit({ ...hvData, parent_email: g1.email, parent_name: g1.name || '' });
+      } else if (id === 'use_registered_email') {
+        const targetEmail = parentEmailOnRecord || user?.parentEmail;
+        if (!targetEmail) {
+          botSay('⚠️ No registered parent email found on file.');
+          return;
+        }
+        await submitHomeVisit({ ...hvData, parent_email: targetEmail, parent_name: user?.parentName || '' });
+      } else if (id === 'prompt_guardian_setup') {
+        updateUser({ hasGuardians: false });
+        botSay('📝 The Parent & Guardian registration dialog is now displayed on your screen. Please submit your parent details to continue.');
       }
     }
   };
@@ -1264,22 +1303,8 @@ export default function StudentDashboard() {
     } else if (step === STEPS.HV_LEAVE || step === STEPS.HV_RETURN) {
       await processHomeVisitDate(text, step);
     } else if (step === STEPS.HV_PARENT_EMAIL) {
-      const email = text.trim().toLowerCase();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        botSay('❌ Please enter a valid email address (e.g. name@gmail.com).');
-        return;
-      }
-      if (user?.email && email === user.email.toLowerCase()) {
-        botSay('❌ Parent email cannot be your own student login email address. Please enter your parent or guardian\'s email:');
-        return;
-      }
-      const collegeDomains = ['iiitpune.ac.in', 'cse.iiitp.ac.in', 'ece.iiitp.ac.in', 'cysec.iiitp.ac.in', 'aids.iiitp.ac.in', 'mevd.iiitp.ac.in', 'iiitp.ac.in', 'college.edu'];
-      if (collegeDomains.some((d) => email.endsWith('@' + d))) {
-        botSay('❌ Parent email must be a personal email address (e.g. Gmail/Yahoo/Outlook), not a college domain:');
-        return;
-      }
-      await submitHomeVisit({ ...hvData, parent_email: email });
+      botSay('⚠️ Arbitrary email entry is disabled for safety. Please tap one of your registered parent email buttons above to proceed.');
+      return;
     } else if (step === STEPS.CPL_PHOTO) {
       if (complaintPhoto) {
         await submitComplaintWithPhoto(complaintPhoto, text);
@@ -1413,6 +1438,7 @@ export default function StudentDashboard() {
 
   const submitHomeVisit = async (data) => {
     setLoading(true);
+    lastAttemptedHvDataRef.current = data;
     try {
       const statusRes = await api.get('/student/status');
       const activeVisits = [
@@ -1477,6 +1503,57 @@ export default function StudentDashboard() {
       setHvData({});
       goToMainMenu();
     } catch (err) {
+      const errData = err.response?.data;
+      const isOverlap =
+        err.response?.status === 409 ||
+        Boolean(errData?.overlappingVisitId) ||
+        (errData?.message && errData.message.toLowerCase().includes('already exists'));
+
+      if (isOverlap) {
+        let overlappingId = errData?.overlappingVisitId;
+        let canCancel = errData?.canCancel !== false;
+
+        if (!overlappingId) {
+          try {
+            const stRes = await api.get('/student/status');
+            const allVisits = [
+              ...(stRes.data?.status?.pendingVisits || []),
+              ...(stRes.data?.status?.approvedVisits || []),
+            ];
+            const found = allVisits.find((v) =>
+              v.leave_date <= data.return_date && v.return_date >= data.leave_date
+            ) || allVisits[0];
+            if (found) {
+              overlappingId = found._id;
+              if (found.qr_used_out) canCancel = false;
+            }
+          } catch (_) {}
+        }
+
+        const buttons = [];
+        if (canCancel && overlappingId) {
+          buttons.push({
+            id: `cancel_hv_${overlappingId}`,
+            label: '🗑️ Cancel Overlapping Request',
+          });
+        }
+        buttons.push({ id: 'flow_restart_hv', label: '🔄 Change Dates' });
+        buttons.push({ id: '4', label: '📊 View My Status' });
+        buttons.push({ id: 'flow_menu', label: '🏠 Main menu' });
+
+        botSay(
+          `❌ *Date Conflict Detected*\n\n` +
+          `${errData?.message || 'An active home visit already exists for overlapping dates.'}\n\n` +
+          (canCancel && overlappingId
+            ? `Tap *Cancel Overlapping Request* below to cancel the existing pass and free up your dates, or tap *Change Dates* to select different dates.`
+            : `Please complete or cancel your existing pass first before creating a new one.`),
+          'buttons',
+          { buttons }
+        );
+        setStep(STEPS.MENU);
+        return;
+      }
+
       showFlowExitOptions(`❌ ${err.response?.data?.message || 'Submission failed. Try again.'}`);
     } finally {
       setLoading(false);
@@ -1546,28 +1623,105 @@ export default function StudentDashboard() {
       setHvData(updatedHv);
       setStep(STEPS.HV_PARENT_EMAIL);
 
-      const knownEmail = parentEmailOnRecord || user?.parentEmail || '';
-      if (knownEmail) {
+      let currentGuardians = registeredGuardians;
+      if (!currentGuardians || currentGuardians.length === 0) {
+        try {
+          const stRes = await api.get('/student/status');
+          if (Array.isArray(stRes.data?.status?.guardians) && stRes.data.status.guardians.length > 0) {
+            currentGuardians = stRes.data.status.guardians;
+            setRegisteredGuardians(currentGuardians);
+          }
+        } catch (_) {}
+      }
+
+      if (currentGuardians && currentGuardians.length >= 2) {
+        const g0 = currentGuardians[0];
+        const g1 = currentGuardians[1];
         botSay(
-          `📧 Step 5/5 — *Parent Approval Email*\n\nYour home visit pass requires your parent's digital email approval.\n\nRegistered parent email on file:\n📬 *${knownEmail}*\n\nTap *Send to Registered Email* below to proceed, or type a different parent email in the message box:`,
+          `📧 Step 5/5 — *Select Registered Parent for Approval*\n\n` +
+          `Your home visit pass requires verified digital approval from your registered parent or guardian.\n\n` +
+          `Please click one of your registered parent emails below to send the approval request:\n\n` +
+          `1️⃣ *${g0.name || 'Guardian 1'}* (${g0.relationship || 'Parent'}):\n` +
+          `   📬 \`${g0.email}\`\n\n` +
+          `2️⃣ *${g1.name || 'Guardian 2'}* (${g1.relationship || 'Parent'}):\n` +
+          `   📬 \`${g1.email}\`\n\n` +
+          `Tap a registered email below to send the approval link:`,
           'buttons',
           {
             buttons: [
-              { id: 'use_registered_email', label: `✅ Send to ${knownEmail}` },
-              { id: 'type_different_email', label: '✏️ Type Different Email' },
+              {
+                id: 'use_guardian_0',
+                label: `👨‍👩‍👦 ${g0.relationship || 'Parent 1'}: ${g0.email}`,
+              },
+              {
+                id: 'use_guardian_1',
+                label: `👨‍👩‍👦 ${g1.relationship || 'Parent 2'}: ${g1.email}`,
+              },
+              { id: 'flow_restart_hv', label: '🔄 Change Dates' },
+              { id: 'flow_menu', label: '🏠 Main menu' },
+            ],
+          }
+        );
+      } else if (currentGuardians && currentGuardians.length === 1) {
+        const g0 = currentGuardians[0];
+        botSay(
+          `📧 Step 5/5 — *Registered Parent Approval*\n\n` +
+          `Your home visit pass requires verified digital approval from your registered parent or guardian.\n\n` +
+          `Registered parent on file:\n` +
+          `📬 *${g0.name ? `${g0.name} (${g0.relationship || 'Parent'}) — ` : ''}${g0.email}*\n\n` +
+          `Tap below to send the approval link to this registered parent email:`,
+          'buttons',
+          {
+            buttons: [
+              {
+                id: 'use_guardian_0',
+                label: `✅ Send to ${g0.email}`,
+              },
+              { id: 'flow_restart_hv', label: '🔄 Change Dates' },
               { id: 'flow_menu', label: '🏠 Main menu' },
             ],
           }
         );
       } else {
-        botSay(
-          '📧 Step 5/5 — *Parent Approval Email*\n\nYour home visit pass requires your parent\'s digital email approval.\n\nPlease enter your parent or guardian\'s *email address* (e.g. `parent@gmail.com`) in the message box below:'
-        );
+        const fallbackEmail = parentEmailOnRecord || user?.parentEmail || '';
+        if (fallbackEmail) {
+          botSay(
+            `📧 Step 5/5 — *Registered Parent Approval*\n\n` +
+            `Your home visit pass requires verified digital approval from your registered parent.\n\n` +
+            `Registered parent email on file:\n` +
+            `📬 *${fallbackEmail}*\n\n` +
+            `Tap below to send the approval link:`,
+            'buttons',
+            {
+              buttons: [
+                {
+                  id: 'use_registered_email',
+                  label: `✅ Send to ${fallbackEmail}`,
+                },
+                { id: 'flow_restart_hv', label: '🔄 Change Dates' },
+                { id: 'flow_menu', label: '🏠 Main menu' },
+              ],
+            }
+          );
+        } else {
+          botSay(
+            `⚠️ *No Registered Parent Email Found*\n\n` +
+            `You do not have a registered parent or guardian email on file.\n\n` +
+            `Please register your parent and guardian details first before applying for a home visit.`,
+            'buttons',
+            {
+              buttons: [
+                { id: 'prompt_guardian_setup', label: '📝 Complete Guardian Details' },
+                { id: 'flow_menu', label: '🏠 Main menu' },
+              ],
+            }
+          );
+        }
       }
       scrollChatToBottom();
       return;
     }
-  }, [loading, hvData, parentEmailOnRecord, user, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
+  }, [loading, hvData, parentEmailOnRecord, registeredGuardians, user, botSay, userSay, scrollChatToBottom, submitHomeVisit]);
 
   const handleComplaintPhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -1751,6 +1905,9 @@ export default function StudentDashboard() {
       }
       if (s.parentEmail) {
         setParentEmailOnRecord(s.parentEmail);
+      }
+      if (Array.isArray(s.guardians) && s.guardians.length > 0) {
+        setRegisteredGuardians(s.guardians);
       }
 
       const passes = parseActivePasses(s);
@@ -2286,6 +2443,9 @@ export default function StudentDashboard() {
       const s = res.data.status;
       if (s?.parentEmail) {
         setParentEmailOnRecord(s.parentEmail);
+      }
+      if (Array.isArray(s?.guardians) && s.guardians.length > 0) {
+        setRegisteredGuardians(s.guardians);
       }
       const passes = parseActivePasses(s);
       setActivePasses(passes);
@@ -4024,8 +4184,8 @@ export default function StudentDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Chat Input Bar — only appears when text input is really needed (e.g. entering destination place, custom reason, parent email, or complaint description) */}
-        {[STEPS.INOUT_OTHER, STEPS.INOUT_REASON_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.HV_PARENT_EMAIL, STEPS.CPL_TEXT].includes(step) && (
+        {/* Chat Input Bar — only appears when text input is really needed (e.g. entering destination place, custom reason, or complaint description) */}
+        {[STEPS.INOUT_OTHER, STEPS.INOUT_REASON_OTHER, STEPS.HV_REASON_OTHER, STEPS.HV_PLACE, STEPS.CPL_TEXT].includes(step) && (
           <div style={{
             padding: isMobile ? '8px 10px' : '12px 24px',
             background: theme === 'light' ? '#ffffff' : 'var(--bg-card)',
@@ -4035,12 +4195,10 @@ export default function StudentDashboard() {
             <form onSubmit={handleSend} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
                 id="chatbot-input"
-                type={step === STEPS.HV_PARENT_EMAIL ? 'email' : 'text'}
+                type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  step === STEPS.HV_PARENT_EMAIL
-                    ? 'Enter parent/guardian email (e.g. parent@gmail.com)...' :
                   step === STEPS.HV_REASON_OTHER ? 'Type reason, or menu / cancel to exit...' :
                   step === STEPS.HV_PLACE
                     ? 'Type destination place (e.g. Satara, Pune), or menu to exit...' :

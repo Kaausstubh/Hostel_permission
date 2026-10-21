@@ -136,7 +136,7 @@ router.get('/status', async (req, res) => {
       recentComplaints,
       todayLogs,
       todayAttendanceRec,
-      primaryGuardianRec,
+      guardianRecords,
     ] = await Promise.all([
       // Look for any unreturned OUT log across ALL dates (survives midnight & multi-day movements)
       InOutLog.findOne({
@@ -153,7 +153,7 @@ router.get('/status', async (req, res) => {
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
       })
         .sort({ leave_date: -1, createdAt: -1 })
-        .limit(5)
+        .limit(10)
         .lean(),
       HomeVisitLog.find({
         student_id: studentId,
@@ -178,13 +178,15 @@ router.get('/status', async (req, res) => {
       })
         .sort({ createdAt: -1 })
         .lean(),
-      Guardian.findOne({
+      Guardian.find({
         student_id: studentId,
         status: { $ne: 'REVOKED' },
       })
         .sort({ guardian_slot: 1 })
         .lean(),
     ]);
+
+    const primaryGuardianRec = guardianRecords[0] || null;
 
     let pendingInOutRequest = null;
     if (activePassInfo) {
@@ -281,7 +283,72 @@ router.get('/status', async (req, res) => {
         parentEmail: primaryGuardianRec?.email || req.user?.parentEmail || null,
         parentName: primaryGuardianRec?.name || req.user?.parentName || null,
         parentPhone: primaryGuardianRec?.phone || req.user?.parentPhone || null,
+        guardians: guardianRecords.length > 0
+          ? guardianRecords.map((g) => ({
+              id: g._id,
+              slot: g.guardian_slot,
+              name: g.name,
+              relationship: g.relationship,
+              email: g.email,
+              phone: g.phone,
+              status: g.status,
+            }))
+          : req.user?.parentEmail
+          ? [
+              {
+                id: 'primary',
+                slot: 1,
+                name: req.user?.parentName || 'Parent / Guardian',
+                relationship: 'Guardian',
+                email: req.user.parentEmail,
+                phone: req.user?.parentPhone || '',
+                status: 'ACTIVE',
+              },
+            ]
+          : [],
       },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /guardians - List registered parent/guardian contacts for student ──
+router.get('/guardians', async (req, res) => {
+  try {
+    const studentId = req.user._id;
+    const guardians = await Guardian.find({
+      student_id: studentId,
+      status: { $ne: 'REVOKED' },
+    })
+      .sort({ guardian_slot: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      guardians: guardians.length > 0
+        ? guardians.map((g) => ({
+            id: g._id,
+            slot: g.guardian_slot,
+            name: g.name,
+            relationship: g.relationship,
+            email: g.email,
+            phone: g.phone,
+            status: g.status,
+          }))
+        : req.user?.parentEmail
+        ? [
+            {
+              id: 'primary',
+              slot: 1,
+              name: req.user?.parentName || 'Parent / Guardian',
+              relationship: 'Guardian',
+              email: req.user.parentEmail,
+              phone: req.user?.parentPhone || '',
+              status: 'ACTIVE',
+            },
+          ]
+        : [],
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -698,29 +765,58 @@ router.post('/home-visit', async (req, res) => {
     if (overlappingVisit) {
       return res.status(409).json({
         success: false,
+        overlappingVisitId: overlappingVisit._id,
+        canCancel: !overlappingVisit.qr_used_out,
+        conflictDates: {
+          leave_date: overlappingVisit.leave_date,
+          return_date: overlappingVisit.return_date,
+        },
         message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
       });
     }
 
-    // 1. Resolve parent contact details
+    // 1. Resolve parent contact details strictly from registered guardians or verified records
     let parentEmail = null;
     let parentName = '';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
-      parentEmail = String(req.body.parent_email).trim().toLowerCase();
-      parentName = String(req.body.parent_name || '').trim();
-    } else {
-      const primaryGuardian = await Guardian.findOne({
-        student_id: user._id,
-        status: { $ne: 'REVOKED' },
-      }).sort({ guardian_slot: 1 });
+    const registeredGuardians = await Guardian.find({
+      student_id: user._id,
+      status: { $ne: 'REVOKED' },
+    }).sort({ guardian_slot: 1 }).lean();
 
+    const allowedGuardianEmails = registeredGuardians.map((g) => g.email.toLowerCase());
+    if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+      allowedGuardianEmails.push(user.parentEmail.toLowerCase());
+    }
+
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      const chosenEmail = String(req.body.parent_email).trim().toLowerCase();
+      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosenEmail);
+
+      if (matchedGuardian) {
+        parentEmail = matchedGuardian.email;
+        parentName = matchedGuardian.name;
+      } else if (allowedGuardianEmails.includes(chosenEmail)) {
+        parentEmail = chosenEmail;
+        parentName = req.body.parent_name || user.parentName || 'Parent / Guardian';
+      } else if (allowedGuardianEmails.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select one of your registered parent email addresses on file.',
+        });
+      } else {
+        parentEmail = chosenEmail;
+        parentName = String(req.body.parent_name || '').trim();
+      }
+    } else {
+      const primaryGuardian = registeredGuardians[0];
       if (primaryGuardian && primaryGuardian.email) {
         parentEmail = primaryGuardian.email.trim().toLowerCase();
         parentName = primaryGuardian.name || '';
       } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
         parentEmail = user.parentEmail.trim().toLowerCase();
+        parentName = user.parentName || '';
       }
     }
 

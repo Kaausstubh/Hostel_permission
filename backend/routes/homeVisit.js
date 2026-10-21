@@ -127,29 +127,58 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
     if (overlappingVisit) {
       return res.status(409).json({
         success: false,
-        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}.`,
+        overlappingVisitId: overlappingVisit._id,
+        canCancel: !overlappingVisit.qr_used_out,
+        conflictDates: {
+          leave_date: overlappingVisit.leave_date,
+          return_date: overlappingVisit.return_date,
+        },
+        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
       });
     }
 
-    // 1. Resolve parent contact details
+    // 1. Resolve parent contact details strictly from registered guardians or verified records
     let parentEmail = null;
     let parentName = '';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
-      parentEmail = String(req.body.parent_email).trim().toLowerCase();
-      parentName = String(req.body.parent_name || '').trim();
-    } else {
-      const primaryGuardian = await Guardian.findOne({
-        student_id: req.user._id,
-        status: { $ne: 'REVOKED' },
-      }).sort({ guardian_slot: 1 });
+    const registeredGuardians = await Guardian.find({
+      student_id: req.user._id,
+      status: { $ne: 'REVOKED' },
+    }).sort({ guardian_slot: 1 }).lean();
 
+    const allowedGuardianEmails = registeredGuardians.map((g) => g.email.toLowerCase());
+    if (req.user.parentEmail && emailRegex.test(req.user.parentEmail)) {
+      allowedGuardianEmails.push(req.user.parentEmail.toLowerCase());
+    }
+
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      const chosenEmail = String(req.body.parent_email).trim().toLowerCase();
+      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosenEmail);
+
+      if (matchedGuardian) {
+        parentEmail = matchedGuardian.email;
+        parentName = matchedGuardian.name;
+      } else if (allowedGuardianEmails.includes(chosenEmail)) {
+        parentEmail = chosenEmail;
+        parentName = req.body.parent_name || req.user.parentName || 'Parent / Guardian';
+      } else if (allowedGuardianEmails.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select one of your registered parent email addresses on file.',
+        });
+      } else {
+        parentEmail = chosenEmail;
+        parentName = String(req.body.parent_name || '').trim();
+      }
+    } else {
+      const primaryGuardian = registeredGuardians[0];
       if (primaryGuardian && primaryGuardian.email) {
         parentEmail = primaryGuardian.email.trim().toLowerCase();
         parentName = primaryGuardian.name || '';
       } else if (req.user.parentEmail && emailRegex.test(req.user.parentEmail)) {
         parentEmail = req.user.parentEmail.trim().toLowerCase();
+        parentName = req.user.parentName || '';
       }
     }
 
