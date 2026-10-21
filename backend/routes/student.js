@@ -763,16 +763,50 @@ router.post('/home-visit', async (req, res) => {
       .lean();
 
     if (overlappingVisit) {
-      return res.status(409).json({
-        success: false,
-        overlappingVisitId: overlappingVisit._id,
-        canCancel: !overlappingVisit.qr_used_out,
-        conflictDates: {
-          leave_date: overlappingVisit.leave_date,
-          return_date: overlappingVisit.return_date,
-        },
-        message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
-      });
+      if (req.body.cancel_previous === true) {
+        if (overlappingVisit.qr_used_out) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
+          });
+        }
+        await HomeVisitLog.updateOne(
+          { _id: overlappingVisit._id },
+          {
+            $set: {
+              overall_status: 'rejected',
+              parent_approval_status: 'parent_rejected',
+              warden_status: 'rejected',
+            },
+          }
+        );
+
+        await GatePass.updateOne(
+          { home_visit_id: overlappingVisit._id },
+          { $set: { status: 'CANCELLED' } }
+        ).catch(() => {});
+
+        await ApprovalAuditLog.create({
+          event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
+          home_visit_request_id: overlappingVisit._id,
+          student_id: user._id,
+          actor_id: user._id,
+          actor_role: 'student',
+          actor_email: user.email,
+          ip_address: req.ip,
+        }).catch(() => {});
+      } else {
+        return res.status(409).json({
+          success: false,
+          overlappingVisitId: overlappingVisit._id,
+          canCancel: !overlappingVisit.qr_used_out,
+          conflictDates: {
+            leave_date: overlappingVisit.leave_date,
+            return_date: overlappingVisit.return_date,
+          },
+          message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
+        });
+      }
     }
 
     // 1. Resolve parent contact details strictly from registered guardians or verified records

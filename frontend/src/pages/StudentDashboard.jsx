@@ -1001,6 +1001,30 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (id.startsWith('cancel_and_create_')) {
+      const visitId = id.replace('cancel_and_create_', '');
+      setLoading(true);
+      try {
+        const savedAttempt = lastAttemptedHvDataRef.current || hvData;
+        if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
+          // Attempt cancellation of old visit, then create new visit with cancel_previous flag
+          await api.post(`/student/home-visit/${visitId}/cancel`).catch(() => {});
+          await submitHomeVisit({ ...savedAttempt, cancel_previous: true });
+        } else {
+          await api.post(`/student/home-visit/${visitId}/cancel`);
+          botSay('✅ Previous request cancelled. Let\'s create your new home visit pass:');
+          restartHomeVisitFlow();
+        }
+      } catch (err) {
+        botSay(`❌ Failed to replace request: ${err.response?.data?.message || err.message}`, 'buttons', {
+          buttons: FLOW_RECOVERY_BUTTONS,
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (id.startsWith('cancel_hv_')) {
       const visitId = id.replace('cancel_hv_', '');
       setLoading(true);
@@ -1012,17 +1036,17 @@ export default function StudentDashboard() {
         if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
           retryButtons.push({
             id: 'retry_last_hv_submit',
-            label: `🚀 Apply for ${savedAttempt.leave_date} → ${savedAttempt.return_date}`,
+            label: `🚀 Create Pass (${savedAttempt.leave_date} → ${savedAttempt.return_date})`,
           });
         }
-        retryButtons.push({ id: '2', label: '🏠 Apply with New Dates' });
+        retryButtons.push({ id: '2', label: '🏠 Apply for Home Visit' });
         retryButtons.push({ id: 'flow_menu', label: '🏠 Main menu' });
 
         botSay(
-          `✅ *Request Cancelled Successfully*\n\n` +
+          `✅ *Previous Request Cancelled*\n\n` +
           `${res.data?.message || 'Your previous home visit request has been cancelled.'}\n\n` +
           (savedAttempt && savedAttempt.leave_date
-            ? `You can now instantly apply for *${savedAttempt.leave_date} → ${savedAttempt.return_date}* with one click below, or start fresh:`
+            ? `Tap below to create your new pass for *${savedAttempt.leave_date} → ${savedAttempt.return_date}*:`
             : `You may now submit a new home visit request.`),
           'buttons',
           { buttons: retryButtons }
@@ -1039,7 +1063,7 @@ export default function StudentDashboard() {
 
     if (id === 'retry_last_hv_submit') {
       if (lastAttemptedHvDataRef.current) {
-        await submitHomeVisit(lastAttemptedHvDataRef.current);
+        await submitHomeVisit({ ...lastAttemptedHvDataRef.current, cancel_previous: true });
       } else {
         restartHomeVisitFlow();
       }
@@ -1446,37 +1470,37 @@ export default function StudentDashboard() {
         ...(statusRes.data?.status?.approvedVisits || []),
       ];
 
-      const overlappingVisit = activeVisits.find((visit) =>
-        visit.leave_date <= data.return_date && visit.return_date >= data.leave_date
-      );
-
-      if (overlappingVisit) {
-        const canCancel = !overlappingVisit.qr_used_out;
-        const conflictDates = `${overlappingVisit.leave_date} → ${overlappingVisit.return_date}`;
-        const conflictStatus = overlappingVisit.overall_status === 'approved' ? 'Approved' : 'Pending Parent Approval';
-
-        const buttons = [];
-        if (canCancel && overlappingVisit._id) {
-          buttons.push({
-            id: `cancel_hv_${overlappingVisit._id}`,
-            label: '🗑️ Cancel Overlapping Request',
-          });
-        }
-        buttons.push({ id: 'flow_restart_hv', label: '🔄 Change Dates' });
-        buttons.push({ id: '4', label: '📊 View My Status' });
-        buttons.push({ id: 'flow_menu', label: '🏠 Main menu' });
-
-        botSay(
-          `❌ *Date Conflict Detected*\n\nYou already have an active home visit request for overlapping dates: *${conflictDates}* (${conflictStatus}).\n\n` +
-          (canCancel
-            ? `If you want to apply for *${data.leave_date} → ${data.return_date}* instead, tap *Cancel Overlapping Request* below to cancel the old request, or tap *Change Dates* to select different dates.`
-            : `Since your previous pass has already been scanned out at the campus gate, you cannot create another overlapping pass.`),
-          'buttons',
-          { buttons }
+      if (!data.cancel_previous) {
+        const overlappingVisit = activeVisits.find((visit) =>
+          visit.leave_date <= data.return_date && visit.return_date >= data.leave_date
         );
-        setHvData({});
-        setStep(STEPS.MENU);
-        return;
+
+        if (overlappingVisit) {
+          const canCancel = !overlappingVisit.qr_used_out;
+          const conflictDates = `${overlappingVisit.leave_date} → ${overlappingVisit.return_date}`;
+
+          const buttons = [];
+          if (canCancel && overlappingVisit._id) {
+            buttons.push({
+              id: `cancel_and_create_${overlappingVisit._id}`,
+              label: '⚡ Cancel Previous Request & Create New',
+            });
+          }
+          buttons.push({ id: 'flow_menu', label: '🏠 Main menu' });
+
+          botSay(
+            `⚠️ *Active Previous Request Exists*\n\n` +
+            `You already have an active home visit request for: *${conflictDates}*.\n\n` +
+            (canCancel
+              ? `Tap *Cancel Previous Request & Create New* below to immediately cancel your previous request and create your new pass for *${data.leave_date} → ${data.return_date}*.`
+              : `Since your previous pass has already been scanned out at the campus gate, it cannot be replaced.`),
+            'buttons',
+            { buttons }
+          );
+          setHvData({});
+          setStep(STEPS.MENU);
+          return;
+        }
       }
 
       const res = await api.post('/student/home-visit', data);
@@ -1533,19 +1557,17 @@ export default function StudentDashboard() {
         const buttons = [];
         if (canCancel && overlappingId) {
           buttons.push({
-            id: `cancel_hv_${overlappingId}`,
-            label: '🗑️ Cancel Overlapping Request',
+            id: `cancel_and_create_${overlappingId}`,
+            label: '⚡ Cancel Previous Request & Create New',
           });
         }
-        buttons.push({ id: 'flow_restart_hv', label: '🔄 Change Dates' });
-        buttons.push({ id: '4', label: '📊 View My Status' });
         buttons.push({ id: 'flow_menu', label: '🏠 Main menu' });
 
         botSay(
-          `❌ *Date Conflict Detected*\n\n` +
+          `⚠️ *Active Previous Request Exists*\n\n` +
           `${errData?.message || 'An active home visit already exists for overlapping dates.'}\n\n` +
           (canCancel && overlappingId
-            ? `Tap *Cancel Overlapping Request* below to cancel the existing pass and free up your dates, or tap *Change Dates* to select different dates.`
+            ? `Tap *Cancel Previous Request & Create New* below to cancel the existing request and create your new pass for *${data.leave_date} → ${data.return_date}*.`
             : `Please complete or cancel your existing pass first before creating a new one.`),
           'buttons',
           { buttons }
@@ -1657,7 +1679,6 @@ export default function StudentDashboard() {
                 id: 'use_guardian_1',
                 label: `👨‍👩‍👦 ${g1.relationship || 'Parent 2'}: ${g1.email}`,
               },
-              { id: 'flow_restart_hv', label: '🔄 Change Dates' },
               { id: 'flow_menu', label: '🏠 Main menu' },
             ],
           }
@@ -1677,7 +1698,6 @@ export default function StudentDashboard() {
                 id: 'use_guardian_0',
                 label: `✅ Send to ${g0.email}`,
               },
-              { id: 'flow_restart_hv', label: '🔄 Change Dates' },
               { id: 'flow_menu', label: '🏠 Main menu' },
             ],
           }
@@ -1698,7 +1718,6 @@ export default function StudentDashboard() {
                   id: 'use_registered_email',
                   label: `✅ Send to ${fallbackEmail}`,
                 },
-                { id: 'flow_restart_hv', label: '🔄 Change Dates' },
                 { id: 'flow_menu', label: '🏠 Main menu' },
               ],
             }
