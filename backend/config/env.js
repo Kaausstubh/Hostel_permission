@@ -86,6 +86,10 @@ const validateEnv = () => {
       }
     }
 
+    if (process.env.PUBLIC_BACKEND_URL) {
+      process.env.PUBLIC_BACKEND_URL = process.env.PUBLIC_BACKEND_URL.trim().replace(/\/+$/, '');
+    }
+
     // Redis is optional in production — set REQUIRE_REDIS_IN_PRODUCTION=false to skip
     const requireRedis = (process.env.REQUIRE_REDIS_IN_PRODUCTION ?? 'true') !== 'false';
     if (requireRedis && !process.env.REDIS_URL) {
