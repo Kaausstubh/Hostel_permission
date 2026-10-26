@@ -65,7 +65,7 @@ class ReportGenerator {
 **Date of Execution:** ${d.timestamp || new Date().toISOString()}  
 **Target Environment:** ${d.environment || 'Hybrid: Deployed + Local Campus Benchmark'}  
 **Frontend Deployment:** \`${d.frontendUrl || 'https://iiitpune-hostel-gate-management.vercel.app'}\`  
-**Backend Deployment:** \`${d.backendUrl || 'https://hostel-permission-8add.onrender.com'}\`  
+**Backend Deployment:** \`${d.backendUrl || 'https://hostel-permission-7c0k.onrender.com'}\`  
 **Campus Student Roster:** 5,000 Registered Students  
 
 ---

@@ -50,7 +50,7 @@ const parseArgs = () => {
 
 const cliArgs = parseArgs();
 
-const DEPLOYED_BACKEND = 'https://hostel-permission-8add.onrender.com';
+const DEPLOYED_BACKEND = 'https://hostel-permission-7c0k.onrender.com';
 const DEPLOYED_FRONTEND = 'https://iiitpune-hosteel-gate-management.vercel.app';
 const LOCAL_BACKEND = 'http://localhost:5001';
 const LOCAL_FRONTEND = 'http://localhost:5173';
