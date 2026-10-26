@@ -5,9 +5,7 @@ WORKDIR /app
 
 # Install only production dependencies first (better layer caching)
 COPY package.json package-lock.json ./
-RUN npm ci --only=production --ignore-scripts && \
-    # Clean npm cache to reduce image size
-    npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # ─── Stage 2: Production image ────────────────────────────────────────────────
 FROM node:20-alpine AS production
