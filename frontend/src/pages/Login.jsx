@@ -9,9 +9,10 @@
  * Authentication is performed solely via Google OAuth.
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings, MdLockOutline } from 'react-icons/md';
+import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings, MdLockOutline, MdFamilyRestroom } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
 import toast from 'react-hot-toast';
 import iiitLogo from '../assets/iiitpune-logo.webp';
@@ -70,6 +71,7 @@ const PORTALS = {
 };
 
 export default function Login() {
+  const navigate = useNavigate();
   const { initiateGoogleOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [selectedPortal, setSelectedPortal] = useState('student');
@@ -163,16 +165,16 @@ export default function Login() {
         style={{
           display: 'flex',
           flexDirection: 'column',
+          justifyContent: 'space-between',
           width: '100%',
           maxWidth: '560px',
           minHeight: 'min(720px, 86vh)',
           maxHeight: '94vh',
           height: 'auto',
           overflowY: 'auto',
-          padding: '50px 42px 44px',
+          padding: '44px 38px 36px',
           boxSizing: 'border-box',
-          justifyContent: 'space-between',
-          gap: '26px',
+          gap: '24px',
         }}
       >
         {/* ── Header ── */}
@@ -340,6 +342,52 @@ export default function Login() {
           <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '4px' }}>
             Secure, password-free login via Google OAuth. Authenticates role and domain permissions.
           </div>
+        </div>
+
+        {/* ── Footer Navigation Links ── */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '20px',
+          fontSize: '13px',
+          color: 'var(--text-muted)',
+          flexWrap: 'wrap',
+          paddingTop: '16px',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <button
+            type="button"
+            onClick={() => navigate('/parent/login')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ec4899',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '13px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <MdFamilyRestroom size={16} /> Parent Portal →
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => navigate('/visitor-pass')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 500,
+            }}
+          >
+            Visitor Pass →
+          </button>
         </div>
       </div>
     </div>

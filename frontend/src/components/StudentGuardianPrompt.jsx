@@ -4,8 +4,10 @@ import toast from 'react-hot-toast';
 import { MdFamilyRestroom, MdClose, MdWarning, MdCheckCircle } from 'react-icons/md';
 
 export default function StudentGuardianPrompt({ user, onComplete }) {
-  const [modalOpen, setModalOpen] = useState(false);
+  // Open modal automatically upon first entering dashboard when guardians are missing
+  const [modalOpen, setModalOpen] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [hasSlot2, setHasSlot2] = useState(Boolean(user?.parentPhone2));
   const [formData, setFormData] = useState({
     guardian1: {
       name: '',
@@ -37,43 +39,43 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
     const g2Email = (formData.guardian2.email || '').trim().toLowerCase();
 
     if (!g1Name || !g1Phone || !g1Email) {
-      toast.error('Please fill in all details for Guardian 1');
+      toast.error('Please fill in all details for Primary Guardian (Slot 1)');
       return;
     }
-    if (!g2Name || !g2Phone || !g2Email) {
-      toast.error('Please fill in all details for Guardian 2');
-      return;
-    }
-
-    if (g1Phone.length !== 10 || g2Phone.length !== 10) {
-      toast.error('Please enter valid 10-digit mobile numbers for both guardians');
+    if (hasSlot2 && (!g2Name || !g2Phone || !g2Email)) {
+      toast.error('Please fill in all details for Secondary Guardian (Slot 2)');
       return;
     }
 
-    if (g1Phone === g2Phone) {
+    if (g1Phone.length !== 10 || (hasSlot2 && g2Phone.length !== 10)) {
+      toast.error('Please enter valid 10-digit mobile numbers');
+      return;
+    }
+
+    if (hasSlot2 && g1Phone === g2Phone) {
       toast.error('Guardian 1 and Guardian 2 phone numbers must be distinct');
       return;
     }
 
-    if (g1Email === g2Email) {
+    if (hasSlot2 && g1Email === g2Email) {
       toast.error('Guardian 1 and Guardian 2 email addresses must be distinct');
       return;
     }
 
     const myEmail = (user?.email || '').trim().toLowerCase();
-    if (myEmail && (g1Email === myEmail || g2Email === myEmail)) {
+    if (myEmail && (g1Email === myEmail || (hasSlot2 && g2Email === myEmail))) {
       toast.error('Parent email cannot be identical to your student login email');
       return;
     }
 
     const myPhoneDigits = (user?.phone || '').replace(/\D/g, '').slice(-10);
-    if (myPhoneDigits && (g1Phone.slice(-10) === myPhoneDigits || g2Phone.slice(-10) === myPhoneDigits)) {
+    if (myPhoneDigits && (g1Phone.slice(-10) === myPhoneDigits || (hasSlot2 && g2Phone.slice(-10) === myPhoneDigits))) {
       toast.error('Guardian phone number cannot be identical to your own phone number');
       return;
     }
 
     const collegeDomains = ['iiitpune.ac.in', 'cse.iiitp.ac.in', 'ece.iiitp.ac.in', 'cysec.iiitp.ac.in', 'aids.iiitp.ac.in', 'mevd.iiitp.ac.in', 'iiitp.ac.in', 'college.edu'];
-    if (collegeDomains.some((d) => g1Email.endsWith('@' + d) || g2Email.endsWith('@' + d))) {
+    if (collegeDomains.some((d) => g1Email.endsWith('@' + d) || (hasSlot2 && g2Email.endsWith('@' + d)))) {
       toast.error('Parent emails must be personal addresses (e.g. Gmail), not college domains');
       return;
     }
@@ -82,7 +84,7 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
       setLoading(true);
       const res = await api.post('/auth/complete-guardian-details', {
         guardian1: { ...formData.guardian1, name: g1Name, phone: g1Phone, email: g1Email },
-        guardian2: { ...formData.guardian2, name: g2Name, phone: g2Phone, email: g2Email },
+        guardian2: hasSlot2 ? { ...formData.guardian2, name: g2Name, phone: g2Phone, email: g2Email } : undefined,
       });
 
       if (res.data.mailConfigured) {
@@ -279,61 +281,75 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
                 </div>
               </div>
 
-              {/* Guardian 2 */}
-              <div style={{ background: 'var(--bg-page)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 10 }}>
-                  Secondary Guardian (Slot 2) *
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Full Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Sunita Sharma"
-                      value={formData.guardian2.name}
-                      onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, name: e.target.value } })}
-                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Relationship</label>
-                    <select
-                      value={formData.guardian2.relationship}
-                      onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, relationship: e.target.value } })}
-                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                    >
-                      <option value="Mother">Mother</option>
-                      <option value="Father">Father</option>
-                      <option value="Guardian">Legal Guardian</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>10-Digit Mobile</label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="9876543211"
-                      value={formData.guardian2.phone}
-                      onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, phone: e.target.value } })}
-                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Personal Email (Non-College)</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="parent2@gmail.com"
-                      value={formData.guardian2.email}
-                      onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, email: e.target.value } })}
-                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                </div>
+              {/* Secondary Guardian Checkbox & Form */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  id="hasSlot2Student"
+                  checked={hasSlot2}
+                  onChange={(e) => setHasSlot2(e.target.checked)}
+                />
+                <label htmlFor="hasSlot2Student" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                  Add Secondary Guardian (Slot 2)
+                </label>
               </div>
+
+              {hasSlot2 && (
+                <div style={{ background: 'var(--bg-page)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', marginBottom: 10 }}>
+                    Secondary Guardian (Slot 2)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Full Name</label>
+                      <input
+                        type="text"
+                        required={hasSlot2}
+                        placeholder="e.g. Sunita Sharma"
+                        value={formData.guardian2.name}
+                        onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, name: e.target.value } })}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Relationship</label>
+                      <select
+                        value={formData.guardian2.relationship}
+                        onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, relationship: e.target.value } })}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                      >
+                        <option value="Mother">Mother</option>
+                        <option value="Father">Father</option>
+                        <option value="Guardian">Legal Guardian</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>10-Digit Mobile</label>
+                      <input
+                        type="tel"
+                        required={hasSlot2}
+                        placeholder="9876543211"
+                        value={formData.guardian2.phone}
+                        onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, phone: e.target.value } })}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--text-secondary)' }}>Personal Email (Non-College)</label>
+                      <input
+                        type="email"
+                        required={hasSlot2}
+                        placeholder="parent2@gmail.com"
+                        value={formData.guardian2.email}
+                        onChange={(e) => setFormData({ ...formData, guardian2: { ...formData.guardian2, email: e.target.value } })}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 10 }}>
                 <button

@@ -141,6 +141,18 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    isOutsideCampus: {
+      type: Boolean,
+      default: false,
+    },
+    lastGateScanAt: {
+      type: Date,
+      default: null,
+    },
+    lastGateScanType: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true, // createdAt, updatedAt

@@ -51,6 +51,7 @@ export default function OAuthCallback() {
         // Role-based redirect
         if (user.role === 'student')  navigate('/student',   { replace: true });
         else if (user.role === 'security') navigate('/scanner', { replace: true });
+        else if (user.role === 'parent') navigate('/parent/dashboard', { replace: true });
         else navigate('/dashboard', { replace: true });
       } catch {
         setStatus('error');

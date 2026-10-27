@@ -381,7 +381,19 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ── Start server ──────────────────────────────────────────────────────────────
+// ── Server Error & Startup ────────────────────────────────────────────────────
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error(`[Server] Fatal: Port ${PORT} is already in use by another process.`, {
+      port: PORT,
+      solution: `Kill the process on port ${PORT} or change PORT in backend/.env`,
+    });
+  } else {
+    logger.error('[Server] Fatal HTTP server error', { error: err.message, code: err.code });
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, async () => {
   logger.info('🚀 HEIMDALL Smart Campus Hostel Management Platform v2.0');
   logger.info(`   Environment: ${process.env.NODE_ENV}`);

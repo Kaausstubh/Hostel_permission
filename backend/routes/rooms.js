@@ -313,14 +313,6 @@ async function ensureDefaultRoomsForHostel(hostelCode) {
     if (roomDefs.length > 0) {
       await Room.insertMany(roomDefs, { ordered: false }).catch(() => {});
     }
-
-    if (hostelCode === 'BH2') {
-      try {
-        await syncPdfDataHelper('BH2');
-      } catch (syncErr) {
-        logger.warn(`[Rooms API] BH2 PDF sync in ensureDefaultRoomsForHostel: ${syncErr.message}`);
-      }
-    }
   } catch (err) {
     logger.warn(`[Rooms API] ensureDefaultRoomsForHostel warning for ${hostelCode}: ${err.message}`);
   }
@@ -362,18 +354,6 @@ router.get('/', protect, authorize('warden', 'admin', 'security', 'hostel_staff'
     const existingRoomsCount = await Room.countDocuments({ hostelCode: hostel });
     if (existingRoomsCount === 0) {
       await ensureDefaultRoomsForHostel(hostel);
-    }
-
-    // Auto-seed ONLY BH-2 from the Krishna PDF list if not fully populated
-    if (hostel === 'BH2') {
-      const studentCount = await User.countDocuments({ hostel: 'BH2', role: 'student', roomNo: { $ne: null } });
-      if (studentCount < 300) {
-        try {
-          await syncPdfDataHelper('BH2');
-        } catch (e) {
-          logger.warn(`[Rooms API] Auto-sync initial data warning for BH2: ` + e.message);
-        }
-      }
     }
 
     // 1. Fetch configured Rooms for this hostel

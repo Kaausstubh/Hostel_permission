@@ -679,6 +679,7 @@ async function runParentApprovalTestSuite() {
     // TEST 9: Scheduler safety, Expirations, Reminders, and Legacy Exemption
     // ──────────────────────────────────────────────────────────────────────────
     console.log('--- Test 9: Scheduler behavior, expirations, reminders & legacy exemptions ---');
+    process.env.PARENT_APPROVAL_EXPIRY_HOURS = '24';
 
     // 1. Create an expired pending request
     const expiredVisit = await HomeVisitLog.create({

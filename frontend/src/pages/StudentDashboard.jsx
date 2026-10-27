@@ -44,6 +44,35 @@ import StudentGuardianPrompt from '../components/StudentGuardianPrompt';
 const BOT = 'bot';
 const USER = 'user';
 const CHAT_STORAGE_PREFIX = 'student-dashboard-chat:';
+const SEEN_SCAN_EVENTS_KEY = 'heimdall_seen_scan_events';
+
+function getSeenScanEvents() {
+  try {
+    const raw = sessionStorage.getItem(SEEN_SCAN_EVENTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function markScanEventSeen(eventKey) {
+  if (!eventKey) return;
+  try {
+    const seen = getSeenScanEvents();
+    seen[eventKey] = Date.now();
+    sessionStorage.setItem(SEEN_SCAN_EVENTS_KEY, JSON.stringify(seen));
+  } catch {}
+}
+
+function isScanEventSeen(eventKey) {
+  if (!eventKey) return false;
+  try {
+    const seen = getSeenScanEvents();
+    return Boolean(seen[eventKey]);
+  } catch {
+    return false;
+  }
+}
 
 // ── Live Gate Pass Anti-Screenshot Clock ─────────────────────────────────────
 function LiveGatePassClock() {
@@ -2023,29 +2052,48 @@ export default function StudentDashboard() {
         } else if (isHvDeparture) {
           isHomeVisit = true;
           isHvPhaseReturn = false;
-        } else if (!logChanged && (latestApprovedHv?.qr_used_out || latestRecentHv?.qr_used_in)) {
-          if (latestRecentHv?.qr_used_in) {
-            isHomeVisit = true;
-            isHvPhaseReturn = true;
-          } else if (latestApprovedHv?.qr_used_out) {
-            isHomeVisit = true;
-            isHvPhaseReturn = false;
-          }
         } else if (logChanged) {
           isHomeVisit = false;
         } else {
-          // Compare event timestamps to see what is newest
-          const hvReturnTime = new Date(latestRecentHv?.actual_in_time || latestRecentHv?.actual_in || 0).getTime();
-          const hvOutTime = new Date(latestApprovedHv?.actual_out_time || latestApprovedHv?.actual_out || 0).getTime();
-          const logTime = new Date(latestLog?.in_time || latestLog?.out_time || latestLog?.timestamp || 0).getTime();
+          // No actual pass scan state changed — skip unprovoked alert
+          return;
+        }
 
-          const maxHvTime = Math.max(hvReturnTime, hvOutTime);
-          if (maxHvTime > logTime) {
-            isHomeVisit = true;
-            isHvPhaseReturn = hvReturnTime >= hvOutTime;
-          } else {
-            isHomeVisit = false;
-          }
+        // ── STRICT RECENCY & SEEN CHECK (prevents old historical scans from popping up) ──
+        const hvRecord = isHomeVisit
+          ? (isHvPhaseReturn ? (latestRecentHv || latestApprovedHv) : latestApprovedHv)
+          : null;
+        const rawTime = isHomeVisit
+          ? (isHvPhaseReturn
+              ? (hvRecord?.actual_in_time || hvRecord?.actual_in)
+              : (hvRecord?.actual_out_time || hvRecord?.actual_out))
+          : (latestLog?.status === 'OUT'
+              ? (latestLog?.out_time || latestLog?.timestamp)
+              : (latestLog?.in_time || latestLog?.timestamp));
+
+        if (!rawTime) {
+          return;
+        }
+
+        const eventTimestamp = new Date(rawTime).getTime();
+        const eventAgeMs = Date.now() - eventTimestamp;
+        const MAX_ALERT_AGE_MS = 120 * 1000; // 2 minutes window for live gate alerts
+
+        // If the event happened more than 2 minutes ago or is invalid, treat as historical and skip modal
+        if (isNaN(eventTimestamp) || eventAgeMs > MAX_ALERT_AGE_MS || eventAgeMs < -60000) {
+          return;
+        }
+
+        const scanType = isHomeVisit
+          ? (isHvPhaseReturn ? 'HOME_IN' : 'HOME_OUT')
+          : (latestLog?.status === 'OUT' ? 'OUT' : 'IN');
+
+        const eventKey = isHomeVisit
+          ? `hv_${hvRecord?._id}_${scanType}_${eventTimestamp}`
+          : `log_${latestLog?._id}_${scanType}_${eventTimestamp}`;
+
+        if (isScanEventSeen(eventKey)) {
+          return;
         }
 
         // If an instant socket/SSE scan popup was already shown in the last 6 seconds, do not duplicate
@@ -2053,6 +2101,7 @@ export default function StudentDashboard() {
           return;
         }
         lastPopupShownAtRef.current = Date.now();
+        markScanEventSeen(eventKey);
 
         // Close zoomed QR so full screen modal takes over cleanly
         setZoomedQR(null);
@@ -2068,8 +2117,6 @@ export default function StudentDashboard() {
         }
 
         if (isHomeVisit) {
-          const hvRecord = isHvPhaseReturn ? (latestRecentHv || latestApprovedHv) : latestApprovedHv;
-          const scanType = isHvPhaseReturn ? 'HOME_IN' : 'HOME_OUT';
           const title = isHvPhaseReturn ? 'Home Visit Return Verified' : 'Home Visit Departure Verified';
           const subtitle = isHvPhaseReturn
             ? 'Security scanned your Home Visit return pass. Welcome back to campus hostel!'
@@ -2077,12 +2124,10 @@ export default function StudentDashboard() {
           const destination = hvRecord?.place || 'Home';
           const leaveDate = hvRecord?.leave_date ? format(new Date(hvRecord.leave_date), 'dd MMM yyyy') : '';
           const returnDate = hvRecord?.return_date ? format(new Date(hvRecord.return_date), 'dd MMM yyyy') : '';
-          const rawTime = isHvPhaseReturn
-            ? (hvRecord?.actual_in_time || hvRecord?.actual_in || new Date())
-            : (hvRecord?.actual_out_time || hvRecord?.actual_out || new Date());
           const scanTime = new Date(rawTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
           setScanAlertModal({
+            eventKey,
             isHomeVisit: true,
             homeVisitPhase: isHvPhaseReturn ? 'return' : 'departure',
             scanType,
@@ -2151,6 +2196,7 @@ export default function StudentDashboard() {
           }
 
           setScanAlertModal({
+            eventKey,
             isHomeVisit: false,
             scanType,
             title,
@@ -2187,14 +2233,20 @@ export default function StudentDashboard() {
 
     const logStatus = String(eventData.log?.status || '').toUpperCase();
     const rawTimestamp = eventData.log?.timestamp || eventData.timestamp || new Date();
-    const eventKey = `${logStatus}_${new Date(rawTimestamp).getTime() || Date.now()}`;
+    const eventTimeMs = new Date(rawTimestamp).getTime() || Date.now();
+    const eventKey = `${logStatus}_${eventTimeMs}_${eventData.log?._id || eventData.pass_id || ''}`;
 
-    // Deduplicate rapid dual events from WebSocket + SSE
-    if (lastProcessedEventKeyRef.current === eventKey || Date.now() - lastPopupShownAtRef.current < 3500) {
+    // Deduplicate rapid dual events from WebSocket + SSE or already seen
+    if (
+      isScanEventSeen(eventKey) ||
+      lastProcessedEventKeyRef.current === eventKey ||
+      Date.now() - lastPopupShownAtRef.current < 3500
+    ) {
       return;
     }
     lastProcessedEventKeyRef.current = eventKey;
     lastPopupShownAtRef.current = Date.now();
+    markScanEventSeen(eventKey);
 
     const isHomeVisit = eventData.kind === 'home_visit' || logStatus.startsWith('HOME');
     const isHvPhaseReturn = logStatus === 'HOME IN' || logStatus === 'HOME_IN';
@@ -2218,6 +2270,7 @@ export default function StudentDashboard() {
         : 'Security scanned your Home Visit pass at the gate. Have a safe journey home!';
 
       setScanAlertModal({
+        eventKey,
         isHomeVisit: true,
         homeVisitPhase: isHvPhaseReturn ? 'return' : 'departure',
         scanType,
@@ -2258,6 +2311,7 @@ export default function StudentDashboard() {
         : 'Welcome back! Your campus entry has been successfully recorded.';
 
       setScanAlertModal({
+        eventKey,
         isHomeVisit: false,
         scanType,
         title,
@@ -5246,7 +5300,12 @@ export default function StudentDashboard() {
             {/* Acknowledge Button */}
             <button
               type="button"
-              onClick={() => setScanAlertModal(null)}
+              onClick={() => {
+                if (scanAlertModal?.eventKey) {
+                  markScanEventSeen(scanAlertModal.eventKey);
+                }
+                setScanAlertModal(null);
+              }}
               style={{
                 width: '100%',
                 padding: '14px 20px',

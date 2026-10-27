@@ -55,8 +55,8 @@ const validateParentEmail = (email) => {
  * Validate the registration guardian input contract
  */
 const validateGuardianInputs = ({ studentPhone, studentEmail, guardian1, guardian2 }) => {
-  if (!guardian1 || !guardian2) {
-    throw new Error('Both Guardian 1 and Guardian 2 details are mandatory');
+  if (!guardian1 || !guardian1.name || !guardian1.phone || !guardian1.email) {
+    throw new Error('Guardian 1 details (name, phone, personal email) are mandatory');
   }
 
   // 1. Phone validation
@@ -66,42 +66,58 @@ const validateGuardianInputs = ({ studentPhone, studentEmail, guardian1, guardia
   const g1pCheck = validateIndianPhone(guardian1.phone, 'Guardian 1 Phone');
   if (!g1pCheck.valid) throw new Error(g1pCheck.error);
 
-  const g2pCheck = validateIndianPhone(guardian2.phone, 'Guardian 2 Phone');
-  if (!g2pCheck.valid) throw new Error(g2pCheck.error);
-
   const p1 = g1pCheck.digits10;
-  const p2 = g2pCheck.digits10;
   const sp = spCheck.digits10;
 
-  if (sp === p1 || sp === p2) {
+  if (sp === p1) {
     throw new Error('Student phone number cannot be the same as any guardian phone number');
   }
-  if (p1 === p2) {
-    throw new Error('Guardian 1 phone and Guardian 2 phone must be distinct');
+
+  const hasGuardian2 = Boolean(guardian2 && (guardian2.name || guardian2.phone || guardian2.email));
+  let g2pCheck = null;
+
+  if (hasGuardian2) {
+    g2pCheck = validateIndianPhone(guardian2.phone, 'Guardian 2 Phone');
+    if (!g2pCheck.valid) throw new Error(g2pCheck.error);
+
+    const p2 = g2pCheck.digits10;
+    if (sp === p2) {
+      throw new Error('Student phone number cannot be the same as any guardian phone number');
+    }
+    if (p1 === p2) {
+      throw new Error('Guardian 1 phone and Guardian 2 phone must be distinct');
+    }
   }
 
   // 2. Email validation
   const normSE = (studentEmail || '').trim().toLowerCase();
   const normG1E = (guardian1.email || '').trim().toLowerCase();
-  const normG2E = (guardian2.email || '').trim().toLowerCase();
 
   const g1eCheck = validateParentEmail(normG1E);
   if (!g1eCheck.valid) throw new Error(`Guardian 1: ${g1eCheck.error}`);
 
-  const g2eCheck = validateParentEmail(normG2E);
-  if (!g2eCheck.valid) throw new Error(`Guardian 2: ${g2eCheck.error}`);
-
-  if (normSE === normG1E || normSE === normG2E) {
+  if (normSE === normG1E) {
     throw new Error('Parent emails cannot be identical to the student email');
   }
-  if (normG1E === normG2E) {
-    throw new Error('Guardian 1 email and Guardian 2 email must be distinct from each other');
+
+  let normG2E = null;
+  if (hasGuardian2) {
+    normG2E = (guardian2.email || '').trim().toLowerCase();
+    const g2eCheck = validateParentEmail(normG2E);
+    if (!g2eCheck.valid) throw new Error(`Guardian 2: ${g2eCheck.error}`);
+
+    if (normSE === normG2E) {
+      throw new Error('Parent emails cannot be identical to the student email');
+    }
+    if (normG1E === normG2E) {
+      throw new Error('Guardian 1 email and Guardian 2 email must be distinct from each other');
+    }
   }
 
   return {
     studentPhoneE164: spCheck.e164,
     g1PhoneE164: g1pCheck.e164,
-    g2PhoneE164: g2pCheck.e164,
+    g2PhoneE164: g2pCheck ? g2pCheck.e164 : null,
     normG1E,
     normG2E,
   };
@@ -128,10 +144,10 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
   });
 
   // Check if parents already have an activated parent user account with a password (Sibling support)
-  const [existingUser1, existingUser2] = await Promise.all([
-    User.findOne({ email: normG1E, role: 'parent', passwordHash: { $exists: true, $ne: null } }),
-    User.findOne({ email: normG2E, role: 'parent', passwordHash: { $exists: true, $ne: null } }),
-  ]);
+  const existingUser1 = await User.findOne({ email: normG1E, role: 'parent', passwordHash: { $exists: true, $ne: null } });
+  const existingUser2 = normG2E
+    ? await User.findOne({ email: normG2E, role: 'parent', passwordHash: { $exists: true, $ne: null } })
+    : null;
 
   // Create Guardian 1
   const g1 = await Guardian.create({
@@ -147,29 +163,36 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     last_invite_sent_at: new Date(),
   });
 
-  // Create Guardian 2
-  const g2 = await Guardian.create({
-    student_id: studentId,
-    guardian_slot: 2,
-    name: guardian2.name.trim(),
-    relationship: guardian2.relationship,
-    phone: g2PhoneE164,
-    email: normG2E,
-    status: existingUser2 ? 'ACTIVE' : 'INVITED',
-    linked_at: existingUser2 ? new Date() : null,
-    user_id: existingUser2 ? existingUser2._id : null,
-    last_invite_sent_at: new Date(),
-  });
+  // Create Guardian 2 if provided
+  let g2 = null;
+  if (normG2E && g2PhoneE164 && guardian2?.name) {
+    g2 = await Guardian.create({
+      student_id: studentId,
+      guardian_slot: 2,
+      name: guardian2.name.trim(),
+      relationship: guardian2.relationship,
+      phone: g2PhoneE164,
+      email: normG2E,
+      status: existingUser2 ? 'ACTIVE' : 'INVITED',
+      linked_at: existingUser2 ? new Date() : null,
+      user_id: existingUser2 ? existingUser2._id : null,
+      last_invite_sent_at: new Date(),
+    });
+  }
 
   // Update denormalized parentPhone snapshot on student record for backward compatibility
   student.parentPhone = g1PhoneE164;
-  student.parentPhone2 = g2PhoneE164;
+  if (g2PhoneE164) {
+    student.parentPhone2 = g2PhoneE164;
+  }
   await student.save();
 
   const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const inviteUrls = {};
 
   // Issue invitations and send emails
   const sendInviteFor = async (guardian, existingUser) => {
+    if (!guardian) return;
     if (existingUser) {
       // Sibling parent already active — simply notify them
       logger.info(`[GuardianService] Guardian ${guardian.email} already has account — linked to sibling ${student.name}`);
@@ -215,10 +238,11 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     }
   };
 
-  const inviteUrls = {};
   await sendInviteFor(g1, existingUser1);
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  await sendInviteFor(g2, existingUser2);
+  if (g2) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await sendInviteFor(g2, existingUser2);
+  }
 
   return { guardian1: g1, guardian2: g2, inviteUrls };
 };

@@ -8,11 +8,13 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function ParentOnboard() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const navigate = useNavigate();
+  const { loginWithOAuth } = useAuth();
 
   const [checking, setChecking] = useState(true);
   const [valid, setValid] = useState(false);
@@ -64,11 +66,10 @@ export default function ParentOnboard() {
       });
 
       const { token: jwtToken, user } = res.data;
-      localStorage.setItem('token', jwtToken);
-      localStorage.setItem('user', JSON.stringify(user));
+      loginWithOAuth(jwtToken, user);
 
       toast.success('Account activated successfully! Welcome to HEIMDALL.');
-      navigate('/parent/dashboard');
+      navigate('/parent/dashboard', { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Activation failed');
     } finally {

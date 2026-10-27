@@ -628,12 +628,18 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   if (!existing && payload.student_id) {
     existing = await HomeVisitLog.findOne({
       student_id: payload.student_id,
-      overall_status: 'approved',
+      overall_status: { $in: ['approved', 'parent_approved'] },
       qr_used_in: false,
     }).populate('student_id');
   }
 
-  if (!existing || existing.overall_status !== 'approved' || existing.parent_approval_status !== 'parent_approved') {
+  const isApproved = existing && (
+    (existing.overall_status === 'approved' && existing.parent_approval_status === 'parent_approved') ||
+    existing.overall_status === 'parent_approved' ||
+    existing.parent_approval_status === 'parent_approved' ||
+    existing.overall_status === 'approved'
+  );
+  if (!existing || !isApproved) {
     return {
       status: 400,
       body: {
@@ -668,7 +674,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   let visit = await HomeVisitLog.findOneAndUpdate(
     {
       _id: existing._id,
-      overall_status: 'approved',
+      overall_status: { $in: ['approved', 'parent_approved'] },
       qr_used_out: false,
     },
     {
@@ -725,7 +731,7 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
   visit = await HomeVisitLog.findOneAndUpdate(
     {
       _id: existing._id,
-      overall_status: 'approved',
+      overall_status: { $in: ['approved', 'parent_approved'] },
       qr_used_out: true,
       qr_used_in: false,
     },

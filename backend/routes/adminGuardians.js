@@ -59,7 +59,10 @@ router.get('/students', async (req, res) => {
     guardians.forEach((g) => {
       const sId = String(g.student_id);
       if (!guardianMap.has(sId)) guardianMap.set(sId, []);
-      guardianMap.get(sId).push(g);
+      guardianMap.get(sId).push({
+        ...g,
+        slot: g.guardian_slot || g.slot,
+      });
     });
 
     const enriched = students.map((s) => {
@@ -79,17 +82,33 @@ router.get('/students', async (req, res) => {
 
     // Optional filter by computed status
     let finalStudents = enriched;
-    if (linkStatus && linkStatus !== 'all') {
-      finalStudents = enriched.filter((s) => s.guardianStatus === linkStatus);
+    const requestedStatus = (req.query.status || req.query.linkStatus || '').toUpperCase();
+    if (requestedStatus && requestedStatus !== 'ALL') {
+      if (requestedStatus === 'LINKED') {
+        finalStudents = enriched.filter((s) => s.guardianStatus === 'ACTIVE');
+      } else if (requestedStatus === 'PARTIAL') {
+        finalStudents = enriched.filter((s) => s.guardianStatus === 'PARTIALLY_ACTIVE' || s.guardianStatus === 'INVITED');
+      } else if (requestedStatus === 'NOT_LINKED') {
+        finalStudents = enriched.filter((s) => s.guardianStatus === 'NOT_LINKED');
+      } else {
+        finalStudents = enriched.filter((s) => s.guardianStatus === requestedStatus);
+      }
     }
 
     const totalCount = await User.countDocuments(filter);
+    const parsedLimit = parseInt(limit, 10) || 15;
+    const parsedPage = parseInt(page, 10) || 1;
 
     return res.json({
       success: true,
       students: finalStudents,
       totalCount,
-      page: parseInt(page, 10),
+      page: parsedPage,
+      pagination: {
+        page: parsedPage,
+        totalPages: Math.ceil(totalCount / parsedLimit) || 1,
+        total: totalCount,
+      },
     });
   } catch (err) {
     logger.error('[AdminGuardians] Get students error', { error: err.message });
@@ -123,9 +142,12 @@ router.get('/detail/:id', async (req, res) => {
 // ── POST /link-initial ───────────────────────────────────────────────────────
 router.post('/link-initial', async (req, res) => {
   try {
-    const { studentId, guardian1, guardian2 } = req.body;
-    if (!studentId || !guardian1 || !guardian2) {
-      return res.status(400).json({ success: false, message: 'Student ID and both guardians details are required' });
+    const studentId = req.body.studentId || req.body.student_id;
+    const guardian1 = req.body.guardian1 || req.body.guardian_1;
+    const guardian2 = req.body.guardian2 || req.body.guardian_2;
+
+    if (!studentId || !guardian1) {
+      return res.status(400).json({ success: false, message: 'Student ID and primary guardian details are required' });
     }
 
     const result = await linkInitialGuardians({
@@ -171,9 +193,10 @@ router.post(['/resend-invite', '/resend-invite/:guardianId'], async (req, res) =
 });
 
 // ── PUT /update ──────────────────────────────────────────────────────────────
-router.put('/update', async (req, res) => {
+router.put(['/update', '/update/:guardianId'], async (req, res) => {
   try {
-    const { guardianId, name, relationship, phone, email } = req.body;
+    const guardianId = req.params.guardianId || req.body.guardianId;
+    const { name, relationship, phone, email, reason } = req.body;
     if (!guardianId) return res.status(400).json({ success: false, message: 'Guardian ID is required' });
 
     const updated = await updateGuardianDetails({

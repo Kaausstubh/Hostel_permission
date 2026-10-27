@@ -23,7 +23,6 @@ const GatePass = require('../models/GatePass');
 const AttendanceRecord = require('../models/AttendanceRecord');
 const Guardian = require('../models/Guardian');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
-const { sendLeaveRequestEmail } = require('../services/mailService');
 const {
   generateParentApprovalToken,
   hashParentToken,
@@ -32,6 +31,7 @@ const {
   sendParentApprovalEmail,
 } = require('../services/gasMailService');
 const logger = require('../utils/logger');
+const { sendLeaveRequestEmail } = require('../services/mailService');
 const {
   getActivePassForStudent,
   getOrCreateActivePass,
@@ -130,6 +130,7 @@ router.get('/status', async (req, res) => {
 
     const [
       unreturnedOut,
+      activeHomeVisitOut,
       activePassInfo,
       activeVisitsRaw,
       recentVisitHistory,
@@ -145,6 +146,15 @@ router.get('/status', async (req, res) => {
         returned: false,
       })
         .sort({ timestamp: -1 })
+        .lean(),
+      // Look for any active home visit where student has scanned OUT but not yet IN
+      HomeVisitLog.findOne({
+        student_id: studentId,
+        overall_status: 'approved',
+        qr_used_out: true,
+        qr_used_in: false,
+      })
+        .sort({ actual_out_time: -1 })
         .lean(),
       // Check MongoDB GatePass source of truth for active In/Out pass
       getActivePassForStudent(studentId, req.user),
@@ -213,9 +223,18 @@ router.get('/status', async (req, res) => {
       };
     }
 
+    const isApprovedVisit = (visit) => {
+      if (!visit) return false;
+      return (
+        visit.overall_status === 'approved' ||
+        visit.overall_status === 'parent_approved' ||
+        visit.parent_approval_status === 'parent_approved'
+      );
+    };
+
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
-      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+      const isApproved = isApprovedVisit(visit);
       if (!isApproved) {
         return {
           ...visit,
@@ -237,8 +256,7 @@ router.get('/status', async (req, res) => {
     const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
     const pendingVisits = activeVisits.filter((visit) => {
-      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
-      if (isApproved) return false;
+      if (isApprovedVisit(visit)) return false;
       if (!['pending'].includes(visit.parent_approval_status || visit.overall_status)) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
@@ -246,8 +264,7 @@ router.get('/status', async (req, res) => {
 
     const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
-      const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
-      if (!isApproved) return false;
+      if (!isApprovedVisit(visit)) return false;
       if (visit.qr_used_in) return false;
       if (!visit.qr_used_out && visit.return_date < today) return false;
       const id = String(visit._id);
@@ -256,12 +273,29 @@ router.get('/status', async (req, res) => {
       return true;
     });
 
+    const isCurrentlyOutside = Boolean(unreturnedOut || activeHomeVisitOut);
+    const effectiveOutSince = unreturnedOut
+      ? (unreturnedOut.out_time || unreturnedOut.timestamp)
+      : activeHomeVisitOut
+        ? (activeHomeVisitOut.actual_out_time || activeHomeVisitOut.createdAt)
+        : null;
+    const effectiveCurrentStatus = isCurrentlyOutside ? 'OUT' : 'IN';
+
     res.json({
       success: true,
       status: {
-        currentStatus: unreturnedOut ? 'OUT' : 'IN',
-        isOutside: !!unreturnedOut,
-        outSince: unreturnedOut ? (unreturnedOut.out_time || unreturnedOut.timestamp) : null,
+        currentStatus: effectiveCurrentStatus,
+        isOutside: isCurrentlyOutside,
+        outSince: effectiveOutSince,
+        outType: unreturnedOut ? 'DAILY' : activeHomeVisitOut ? 'HOME_VISIT' : null,
+        activeHomeVisitOut: activeHomeVisitOut ? {
+          id: activeHomeVisitOut._id,
+          leave_date: activeHomeVisitOut.leave_date,
+          return_date: activeHomeVisitOut.return_date,
+          actual_out_time: activeHomeVisitOut.actual_out_time,
+          destination: activeHomeVisitOut.place,
+          reason: activeHomeVisitOut.reason,
+        } : null,
         pendingInOutRequest,
         pendingVisits,
         approvedVisits,
@@ -372,6 +406,7 @@ router.get('/active-qr-pass', async (req, res) => {
       student_id: user._id,
       $or: [
         { overall_status: 'approved' },
+        { overall_status: 'parent_approved' },
         { parent_approval_status: 'parent_approved' },
       ],
       qr_used_in: false,
@@ -471,8 +506,11 @@ router.post('/get-or-create-pass', async (req, res) => {
     // 1. Check for active approved Home Visit first
     const activeHomeVisit = await HomeVisitLog.findOne({
       student_id: user._id,
-      overall_status: 'approved',
-      parent_approval_status: 'parent_approved',
+      $or: [
+        { overall_status: 'approved' },
+        { overall_status: 'parent_approved' },
+        { parent_approval_status: 'parent_approved' },
+      ],
       qr_used_in: false,
     }).sort({ leave_date: -1, createdAt: -1 });
 
@@ -925,6 +963,8 @@ router.post('/home-visit', async (req, res) => {
       parent_approval_status: 'pending',
       overall_status: 'pending',
       warden_status: 'pending',
+      hostel: user.hostel || 'BH1',
+      room_no: user.roomNo || '',
       email_notification_status: parentEmail ? 'PENDING' : 'FAILED',
       email_failure_reason: parentEmail ? null : 'No registered parent email address found for student',
       accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
@@ -988,6 +1028,44 @@ router.post('/home-visit', async (req, res) => {
       }
     }
 
+    // Also notify linked guardians if registered
+    try {
+      const guardians = await Guardian.find({
+        student_id: user._id,
+        status: { $ne: 'REVOKED' },
+      });
+
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
+
+      for (const g of guardians) {
+        sendLeaveRequestEmail({
+          to: g.email,
+          guardianName: g.name,
+          studentName: user.name,
+          leaveDate: visit.leave_date,
+          returnDate: visit.return_date,
+          reason: visit.reason,
+          place: visit.place,
+          requestUrl,
+        }).catch((err) => logger.warn(`[StudentHomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`));
+
+        ApprovalAuditLog.create({
+          event: 'REQUEST_NOTIFIED',
+          home_visit_request_id: visit._id,
+          student_id: user._id,
+          guardian_id: g._id,
+          actor_id: user._id,
+          actor_role: 'student',
+          actor_email: user.email,
+          ip_address: req.ip,
+          details: { requestUrl, guardianEmail: g.email },
+        }).catch(() => {});
+      }
+    } catch (guardianNotifyErr) {
+      // Non-blocking
+    }
+
     const cleanVisit = visit.toObject ? visit.toObject() : { ...visit };
     delete cleanVisit.parent_token_hash;
 
@@ -995,7 +1073,7 @@ router.post('/home-visit', async (req, res) => {
       success: true,
       message: parentEmail
         ? `Home visit request submitted. Digital approval request sent to parent email (${parentEmail}).`
-        : 'Home visit request submitted. Note: No parent email registered for student.',
+        : 'Home visit request submitted. Notification emails sent to parents for approval.',
       guardianEmails: parentEmail ? [parentEmail] : [],
       parentEmail,
       hasGuardians: Boolean(parentEmail),

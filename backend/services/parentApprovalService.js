@@ -149,6 +149,27 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       details: { decision, remarks: cleanRemarks, policy: 'ANY_ONE' },
     });
 
+    // If approved, issue scannable QR gate pass immediately; if rejected, cancel GatePass
+    if (decision === 'APPROVED') {
+      try {
+        const passLean = updatedVisit.toObject ? updatedVisit.toObject() : { ...updatedVisit };
+        passLean.student_id = visit.student_id;
+        const { token } = await issueHomeVisitGatePass(passLean);
+        updatedVisit.qr_token = token;
+        await GatePass.updateOne(
+          { home_visit_id: updatedVisit._id },
+          { $set: { status: 'PENDING', qr_token: token } }
+        ).catch(() => {});
+      } catch (passErr) {
+        logger.warn('[ParentApproval] GatePass generation notice:', { error: passErr.message });
+      }
+    } else {
+      await GatePass.updateOne(
+        { home_visit_id: updatedVisit._id },
+        { $set: { status: 'CANCELLED' } }
+      ).catch(() => {});
+    }
+
     // Notify student via email
     if (visit.student_id?.email) {
       sendLeaveOutcomeEmailToStudent({
@@ -183,7 +204,7 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       },
       { new: true }
     );
-    await GatePass.updateOne({ home_visit_id: visitId }, { status: 'REJECTED' }).catch(() => {});
+    await GatePass.updateOne({ home_visit_id: visitId }, { status: 'CANCELLED' }).catch(() => {});
 
     const approvalRecord = await ParentApproval.create({
       home_visit_request_id: visit._id,

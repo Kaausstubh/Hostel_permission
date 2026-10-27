@@ -146,9 +146,17 @@ const issueHomeVisitGatePass = async (visit) => {
 };
 
 /** Get or render pass data (token, qrDataUrl) for an approved home visit */
+const isVisitApprovedForPass = (visit) => {
+  if (!visit) return false;
+  return (
+    visit.overall_status === 'approved' ||
+    visit.overall_status === 'parent_approved' ||
+    visit.parent_approval_status === 'parent_approved'
+  );
+};
+
 const getHomeVisitPassData = async (visit) => {
-  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
-  if (!isApproved || visit.qr_used_in) return null;
+  if (!isVisitApprovedForPass(visit) || visit.qr_used_in) return null;
   let token = visit.qr_token;
   if (!token || isLegacyHomeJwtToken(token)) {
     return issueHomeVisitGatePass(visit);
@@ -163,10 +171,9 @@ const getHomeVisitPassData = async (visit) => {
   return { token, qrDataUrl, qrPublicUrl, qrFilename };
 };
 
-/** Create QR if warden approved but token missing (legacy / failed generation) */
+/** Create QR if approved but token missing (legacy / failed generation) */
 const ensureHomeVisitQrToken = async (visit) => {
-  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
-  if (!isApproved || visit.qr_used_in) return null;
+  if (!isVisitApprovedForPass(visit) || visit.qr_used_in) return null;
 
   if (visit.qr_token && !isLegacyHomeJwtToken(visit.qr_token)) {
     await syncHomeVisitActiveQR(visit, visit.qr_token);

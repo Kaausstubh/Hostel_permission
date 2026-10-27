@@ -3,10 +3,13 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Install only production dependencies first (better layer caching)
-COPY package.json package-lock.json ./
-RUN npm ci --only=production --ignore-scripts && \
-    # Clean npm cache to reduce image size
+# Handle build context whether from root or backend directory
+COPY . .
+RUN if [ -f "./backend/package.json" ]; then \
+      cp ./backend/package.json ./package.json && \
+      cp ./backend/package-lock.json ./package-lock.json; \
+    fi && \
+    npm install --omit=dev --ignore-scripts --no-audit --no-fund && \
     npm cache clean --force
 
 # ─── Stage 2: Production image ────────────────────────────────────────────────
@@ -27,8 +30,11 @@ COPY --from=deps --chown=nodejs:nodejs /app/node_modules ./node_modules
 # Copy application source
 COPY --chown=nodejs:nodejs . .
 
-# Create QR output directory with correct permissions
-RUN mkdir -p public/qr && chown -R nodejs:nodejs public
+# If built from root directory, flatten backend files to /app
+RUN if [ -d "./backend" ] && [ -f "./backend/server.js" ]; then \
+      cp -r ./backend/* ./; \
+    fi && \
+    mkdir -p public/qr && chown -R nodejs:nodejs public
 
 # Switch to non-root user
 USER nodejs

@@ -59,13 +59,26 @@ async function removeExistingStudents() {
   const paResult = await ParentApproval.deleteMany({});
   console.log(`🗑️ Cleared ${paResult.deletedCount} parent approval(s).`);
 
-  const alResult = await ApprovalAuditLog.deleteMany({});
-  console.log(`🗑️ Cleared ${alResult.deletedCount} approval audit log(s).`);
+  const GatePass = mongoose.model('GatePass', new mongoose.Schema({}, { strict: false }));
+  const AttendanceAttempt = mongoose.model('AttendanceAttempt', new mongoose.Schema({}, { strict: false }));
 
-  // Reset password on any staff accounts that had one set during parent testing
+  const gpResult = await GatePass.deleteMany({});
+  console.log(`🗑️ Cleared ${gpResult.deletedCount} gate pass record(s).`);
+
+  const aaResult = await AttendanceAttempt.deleteMany({});
+  console.log(`🗑️ Cleared ${aaResult.deletedCount} attendance attempt(s).`);
+
+  const aalResult = await ApprovalAuditLog.deleteMany({});
+  console.log(`🗑️ Cleared ${aalResult.deletedCount} approval audit log(s).`);
+
+  const Complaint = mongoose.model('Complaint', new mongoose.Schema({}, { strict: false }));
+  const cplResult = await Complaint.deleteMany({});
+  console.log(`🗑️ Cleared ${cplResult.deletedCount} complaint(s).`);
+
+  // Ensure staff accounts have correct roles and cleared test passwords
   await User.updateMany(
     { email: 'sjyotik2005@gmail.com' },
-    { $set: { role: 'warden', passwordHash: null } }
+    { $set: { role: 'hostel_staff', passwordHash: null } }
   );
 
   // Delete room allocations

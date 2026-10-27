@@ -123,7 +123,15 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 // ─── Layout Wrapper (with sidebar — for warden + security) ───────────────────
 const AppLayout = ({ children }) => {
+  const { user } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  if (user?.role === 'parent') {
+    return <Navigate to="/parent/dashboard" replace />;
+  }
+  if (user?.role === 'student') {
+    return <Navigate to="/student" replace />;
+  }
 
   useEffect(() => {
     const onResize = () => {
@@ -173,7 +181,7 @@ function AppRoutes() {
           path="/login"
           element={isAuth ? <Navigate to={defaultRedirect()} replace /> : <Login />}
         />
-        <Route path="/register" element={<Register />} />
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         {/* OAuth callback — must be public and unguarded */}
         <Route path="/auth/callback" element={<OAuthCallback />} />
         <Route path="/simulator" element={<StudentSimulator />} />
