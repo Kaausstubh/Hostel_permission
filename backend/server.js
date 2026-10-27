@@ -436,6 +436,14 @@ server.listen(PORT, async () => {
   scheduleArchiveJob();
   scheduleParentApprovalJob();
   scheduleAttendanceExpiration();
+  try {
+    const { bootstrapAttendanceEngine } = require('./services/attendanceEngine');
+    bootstrapAttendanceEngine().catch((err) =>
+      logger.error('[AttendanceEngine] Async bootstrap failed:', { error: err.message })
+    );
+  } catch (attErr) {
+    logger.error('[AttendanceEngine] Failed to initialize attendance engine:', { error: attErr.message });
+  }
   startWhatsAppWorker();
   startArchiveWorker();
 

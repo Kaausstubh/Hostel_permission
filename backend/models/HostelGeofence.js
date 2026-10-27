@@ -44,6 +44,12 @@ const hostelGeofenceSchema = new mongoose.Schema(
       type: [pointSchema],
       required: false,
       default: [],
+      validate: {
+        validator: function (val) {
+          return !val || val.length === 0 || val.length >= 3;
+        },
+        message: 'Polygon must have at least 3 vertices',
+      },
     },
 
     // Buffer in meters to absorb GPS drift indoors (default 0m)

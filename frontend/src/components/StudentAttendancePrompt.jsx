@@ -237,28 +237,16 @@ export default function StudentAttendancePrompt({
     fetchAttendanceStatus();
   }, [fetchAttendanceStatus]);
 
-  // ── Real-time Socket.IO trigger: open prompt & verify when staff initiates a round ──
+  // Legacy modal only opens when explicitly triggered by header pill click,
+  // while GlobalStudentAttendanceModal handles room-level attendance requests.
   useEffect(() => {
     if (!socket) return;
-
-    const handleAttendanceRequested = () => {
-      autoVerifyStartedRef.current = false;
-      setClosingNotice(null);
-      setIsOpen(true);
+    const handleRoundCompleted = () => {
       fetchAttendanceStatus();
-      toast('📍 Night attendance verification requested by hostel staff. Verifying location...', {
-        id: 'attendance-request-toast',
-        icon: '🔔',
-        duration: 5000,
-      });
     };
-
-    socket.on('attendance_requested', handleAttendanceRequested);
-    socket.on('room_attendance_requested', handleAttendanceRequested);
-
+    socket.on('round_completed', handleRoundCompleted);
     return () => {
-      socket.off('attendance_requested', handleAttendanceRequested);
-      socket.off('room_attendance_requested', handleAttendanceRequested);
+      socket.off('round_completed', handleRoundCompleted);
     };
   }, [socket, fetchAttendanceStatus]);
 

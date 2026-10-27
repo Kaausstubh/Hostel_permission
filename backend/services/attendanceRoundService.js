@@ -20,7 +20,7 @@ const { getIO } = require('./socketService');
 const { finalizeExpiredNightAttendance } = require('./nightAttendanceService');
 const logger = require('../utils/logger');
 
-const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '90', 10);
+const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '300', 10);
 const NIGHT_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
@@ -33,22 +33,45 @@ const NIGHT_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000;
  *   "301", "303" -> "3rd Floor"
  */
 const parseFloorFromRoom = (roomNo) => {
-  if (!roomNo) return '1st Floor';
+  if (!roomNo) return '1';
   const clean = String(roomNo).trim().toUpperCase();
 
-  if (clean.startsWith('B')) {
-    return 'Basement / Wing B';
+  if (clean.startsWith('GF') || clean.startsWith('G-') || clean === 'G' || /^G\d+$/.test(clean)) {
+    return 'Ground';
   }
 
-  const num = parseInt(clean, 10);
+  // Wing prefix with hyphen, e.g. B-302, A-415
+  if (/^[A-Z]-\d+$/.test(clean)) {
+    const numPart = parseInt(clean.split('-')[1], 10);
+    if (!isNaN(numPart)) {
+      if (numPart < 100) return 'Ground';
+      return String(Math.floor(numPart / 100));
+    }
+  }
+
+  // Basement rooms like B01, B13, BASEMENT
+  if (clean.startsWith('BASEMENT') || /^B\d+$/.test(clean)) {
+    return 'Basement';
+  }
+
+  const num = parseInt(clean.replace(/\D/g, ''), 10);
   if (!isNaN(num)) {
-    if (num < 100) return 'Ground Floor';
-    if (num >= 100 && num < 200) return '1st Floor';
-    if (num >= 200 && num < 300) return '2nd Floor';
-    if (num >= 300 && num < 400) return '3rd Floor';
+    if (num < 100) return 'Ground';
+    return String(Math.floor(num / 100));
   }
 
-  return '1st Floor';
+  return '1';
+};
+
+const normalizeFloor = (floor) => {
+  if (!floor) return '';
+  const s = String(floor).trim().toLowerCase();
+  if (s.includes('all')) return 'all';
+  if (s.includes('ground') || s === 'g' || s === 'gf' || s === '0') return 'ground';
+  if (s.includes('basement') || s.includes('base') || s === 'b' || s === '-1') return 'basement';
+  const match = s.match(/\d+/);
+  if (match) return match[0];
+  return s;
 };
 
 const getTodayDateStr = () => {
@@ -56,8 +79,9 @@ const getTodayDateStr = () => {
 };
 
 const studentIsInRoundFloor = (student, floor) => {
-  const roundAllFloors = String(floor || '').toLowerCase().includes('all');
-  return roundAllFloors || parseFloorFromRoom(student.roomNo) === floor;
+  const normFloor = normalizeFloor(floor);
+  if (normFloor === 'all' || !normFloor) return true;
+  return normalizeFloor(parseFloorFromRoom(student?.roomNo)) === normFloor;
 };
 
 const getStudentHostelFilter = (hostel) =>
@@ -454,7 +478,7 @@ const getRoundRoomsSummary = async (roundId) => {
     const isAllFloors = String(round.floor || '').trim().toLowerCase().includes('all');
     const floorStudents = isAllFloors
       ? students
-      : students.filter((s) => parseFloorFromRoom(s.roomNo) === round.floor);
+      : students.filter((s) => studentIsInRoundFloor(s, round.floor));
     for (const s of floorStudents) {
       const rNo = (s.roomNo || '').trim().toUpperCase();
       if (!rNo) continue;
@@ -1273,6 +1297,8 @@ const requestEntireHostelAttendance = async ({ hostel, sessionName, staffUser })
 
 module.exports = {
   parseFloorFromRoom,
+  normalizeFloor,
+  studentIsInRoundFloor,
   getHostelsAndFloors,
   startOrResumeRound,
   getRoundRoomsSummary,

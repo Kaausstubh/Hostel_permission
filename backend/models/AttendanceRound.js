@@ -43,7 +43,7 @@ const attendanceRoundSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'completed'],
+      enum: ['active', 'completed', 'expired', 'abandoned'],
       default: 'active',
     },
     started_at: {

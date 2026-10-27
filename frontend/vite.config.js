@@ -59,8 +59,6 @@ export default defineConfig({
 
           if (id.includes('axios') || id.includes('date-fns')) return 'vendor-utils';
 
-          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) return 'charts';
-
           if (id.includes('html5-qrcode') || id.includes('qrcode')) return 'qr';
 
           if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
