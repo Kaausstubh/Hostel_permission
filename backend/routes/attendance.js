@@ -100,7 +100,7 @@ router.get(['/hostels/:hostel/floors', '/hostel/:hostel/floors', '/hostels/:host
   }
 });
 
-router.post(['/rounds', '/round'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+router.post(['/rounds', '/round', '/rounds/start', '/round/start'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const hostel = req.body.hostel;
     const floor = req.body.floor || 'All Floors';
@@ -158,11 +158,52 @@ router.get(['/rounds/:id/rooms', '/round/:id/rooms'], protect, authorize('warden
   }
 });
 
-router.post(['/rounds/:id/rooms/:roomNo/request', '/round/:id/rooms/:roomNo/request'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+const resolveRoomParam = async (param) => {
+  if (!param) return param;
+  if (/^[0-9a-fA-F]{24}$/.test(param)) {
+    const HostelRoom = require('../models/HostelRoom');
+    const r = await HostelRoom.findById(param).lean();
+    if (r?.room_number) return r.room_number;
+  }
+  return param;
+};
+
+// ── Live Round Status ────────────────────────────────────────────────────────
+router.get(['/rounds/:id/live', '/round/:id/live'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
+    if (!req.params.id || req.params.id === 'undefined') {
+      return res.status(400).json({ success: false, message: 'Valid round ID is required' });
+    }
+    const round = await AttendanceRound.findById(req.params.id)
+      .populate('staff_id', 'name email role')
+      .lean();
+    if (!round) return res.status(404).json({ success: false, message: 'Round not found' });
+
+    const summary = await getRoundRoomsSummary(req.params.id);
+    const activeRequests = await RoomAttendanceRequest.find({
+      round_id: round._id,
+      status: 'open',
+    }).lean();
+
+    res.json({
+      success: true,
+      round,
+      summary,
+      activeRequests,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error fetching live round info', { error: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post(['/rounds/:id/rooms/:roomNo/request', '/round/:id/rooms/:roomNo/request', '/rounds/:id/rooms/:roomId/request', '/round/:id/rooms/:roomId/request'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+  try {
+    const targetRoom = await resolveRoomParam(req.params.roomNo || req.params.roomId);
     const result = await requestRoomAttendance({
       roundId: req.params.id,
-      roomNo: req.params.roomNo,
+      roomNo: targetRoom,
       staffUser: req.user,
     });
     res.json({ success: true, message: 'Attendance requested for room', ...result });
@@ -268,7 +309,7 @@ router.post(['/hostels/:hostel/request-all', '/hostel/:hostel/request-all'], pro
   }
 });
 
-router.post(['/rounds/:id/rooms/:roomNo/skip', '/round/:id/rooms/:roomNo/skip'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+router.post(['/rounds/:id/rooms/:roomNo/skip', '/round/:id/rooms/:roomNo/skip', '/rounds/:id/rooms/:roomId/skip', '/round/:id/rooms/:roomId/skip'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
     const { reason } = req.body;
     if (!reason || !reason.trim()) {
@@ -279,9 +320,10 @@ router.post(['/rounds/:id/rooms/:roomNo/skip', '/round/:id/rooms/:roomNo/skip'],
       });
     }
 
+    const targetRoom = await resolveRoomParam(req.params.roomNo || req.params.roomId);
     const request = await skipRoom({
       roundId: req.params.id,
-      roomNo: req.params.roomNo,
+      roomNo: targetRoom,
       reason,
       staffUser: req.user,
     });
@@ -293,11 +335,12 @@ router.post(['/rounds/:id/rooms/:roomNo/skip', '/round/:id/rooms/:roomNo/skip'],
   }
 });
 
-router.post(['/rounds/:id/rooms/:roomNo/reopen', '/round/:id/rooms/:roomNo/reopen'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+router.post(['/rounds/:id/rooms/:roomNo/reopen', '/round/:id/rooms/:roomNo/reopen', '/rounds/:id/rooms/:roomId/reopen', '/round/:id/rooms/:roomId/reopen'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
+    const targetRoom = await resolveRoomParam(req.params.roomNo || req.params.roomId);
     const request = await reopenRoom({
       roundId: req.params.id,
-      roomNo: req.params.roomNo,
+      roomNo: targetRoom,
       staffUser: req.user,
     });
     res.json({ success: true, message: 'Room reopened', request });
@@ -308,9 +351,10 @@ router.post(['/rounds/:id/rooms/:roomNo/reopen', '/round/:id/rooms/:roomNo/reope
 });
 
 // ── Staff: Screen 3 — Room Details & Manual Overrides ────────────────────────
-router.get(['/rounds/:id/rooms/:roomNo', '/round/:id/rooms/:roomNo'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+router.get(['/rounds/:id/rooms/:roomNo', '/round/:id/rooms/:roomNo', '/rounds/:id/rooms/:roomId', '/round/:id/rooms/:roomId'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
-    const details = await getRoomDetails(req.params.id, req.params.roomNo);
+    const targetRoom = await resolveRoomParam(req.params.roomNo || req.params.roomId);
+    const details = await getRoomDetails(req.params.id, targetRoom);
     res.json({ success: true, ...details });
   } catch (err) {
     logger.error('[Attendance] Error fetching room details', { error: err.message });
@@ -321,7 +365,8 @@ router.get(['/rounds/:id/rooms/:roomNo', '/round/:id/rooms/:roomNo'], protect, a
 
 router.post(['/requests/:id/override', '/request/:id/override'], protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
   try {
-    const { studentId, status, remark } = req.body;
+    const studentId = req.body.studentId || req.body.student_id;
+    const { status, remark } = req.body;
 
     if (!studentId || !status) {
       return res.status(400).json({ success: false, message: 'studentId and status are required' });
@@ -1647,8 +1692,8 @@ router.get('/challenge/:requestId', protect, authorize('student'), async (req, r
   }
 });
 
-// ── Student: Submit Biometric & Geofence Approval ─────────────────────────────
-router.post('/requests/:requestId/approve', protect, authorize('student'), async (req, res) => {
+// ── Student: Submit Location Geofence Attendance Approval ────────────────────
+router.post(['/requests/:requestId/approve', '/requests/:id/approve'], protect, authorize('student'), async (req, res) => {
   try {
     const {
       nonce,
@@ -1661,7 +1706,8 @@ router.post('/requests/:requestId/approve', protect, authorize('student'), async
       timestamp,
     } = req.body;
 
-    const request = await RoomAttendanceRequest.findById(req.params.requestId);
+    const targetReqId = req.params.requestId || req.params.id;
+    const request = await RoomAttendanceRequest.findById(targetReqId);
 
     // Check 1: Request exists and is open
     if (!request || request.status !== 'open') {
@@ -2421,20 +2467,5 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
     res.status(500).json({ success: false, message: 'Failed to generate attendance report' });
   }
 });
-
-if (process.env.NODE_ENV === 'development') {
-  // Log registered attendance endpoints for fast developer diagnostics
-  setTimeout(() => {
-    logger.info('📋 Registered Attendance Routes:');
-    router.stack
-      .filter((r) => r.route)
-      .forEach((r) => {
-        const methods = Object.keys(r.route.methods).join(',').toUpperCase();
-        const path = r.route.path;
-        const displayPath = Array.isArray(path) ? path.join(' | ') : path;
-        logger.info(`   [${methods.padEnd(4)}] /api/attendance${displayPath}`);
-      });
-  }, 500);
-}
 
 module.exports = router;

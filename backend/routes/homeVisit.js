@@ -1004,6 +1004,8 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
         return res.status(400).json({ success: false, message: 'Not a home visit QR code' });
       }
       visit = await HomeVisitLog.findById(payload.visit_id).populate('student_id');
+    }
+
     if (!visit || (visit.overall_status !== 'approved' && visit.parent_approval_status !== 'parent_approved')) {
       return res.status(400).json({ success: false, message: 'Visit not found or not approved' });
     }

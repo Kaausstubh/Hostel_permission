@@ -876,13 +876,11 @@ export default function StudentDashboard() {
 
   /** Keep one main menu, drop flow messages after it, never stack duplicate menus */
   const goToMainMenu = useCallback(() => {
-    console.log('goToMainMenu called! current step:', step);
     if (menuTimerRef.current) {
       clearTimeout(menuTimerRef.current);
       menuTimerRef.current = null;
     }
     setHvData((prev) => {
-      console.log('goToMainMenu resetting hvData. prev:', prev);
       // Keep only keys starting with "qr_"
       const next = {};
       for (const k in prev) {
@@ -899,15 +897,12 @@ export default function StudentDashboard() {
 
     setMessages((prev) => {
       const lastMessage = prev[prev.length - 1];
-      console.log('goToMainMenu setMessages. lastMessage:', lastMessage);
       if (isMainMenuMessage(lastMessage)) {
-        console.log('goToMainMenu: last message is already main menu, skipping append.');
         return prev;
       }
 
       const id = ++msgIdRef.current;
       lastBotRef.current = { content: menuText, type: 'buttons', at: Date.now() };
-      console.log('goToMainMenu: appending main menu message.');
       return [...prev, makeMsg(id, BOT, menuText, 'buttons', { buttons: MAIN_MENU_BUTTONS })];
     });
 
