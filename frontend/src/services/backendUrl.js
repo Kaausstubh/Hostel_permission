@@ -1,5 +1,8 @@
 const LOCAL_API_FALLBACK = 'http://localhost:5001/api';
-const PLACEHOLDER_API_HOSTS = ['your-backend-domain.onrender.com'];
+const PLACEHOLDER_API_HOSTS = [
+  'your-backend-domain.onrender.com',
+  'hostel-permission-8add.onrender.com', // old suspended service
+];
 
 let hasWarnedAboutApiUrl = false;
 
