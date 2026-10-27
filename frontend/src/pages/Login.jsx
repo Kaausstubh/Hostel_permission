@@ -9,9 +9,10 @@
  * Authentication is performed solely via Google OAuth.
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings, MdLockOutline } from 'react-icons/md';
+import { MdLightMode, MdDarkMode, MdSchool, MdSecurity, MdAdminPanelSettings, MdLockOutline, MdFamilyRestroom } from 'react-icons/md';
 import { prewarmApiConnection } from '../services/api';
 import toast from 'react-hot-toast';
 import iiitLogo from '../assets/iiitpune-logo.webp';
@@ -70,6 +71,7 @@ const PORTALS = {
 };
 
 export default function Login() {
+  const navigate = useNavigate();
   const { initiateGoogleOAuth } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [selectedPortal, setSelectedPortal] = useState('student');
