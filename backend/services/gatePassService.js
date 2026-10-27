@@ -155,7 +155,7 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
     };
   }
 
-  // 2. Student is inside; check if they have a PENDING daily pass
+  // 2. Student is inside; check if they have a PENDING daily in/out pass
   const pendingPass = await GatePass.findOne({
     student_id: sId,
     pass_type: 'IN_OUT',
@@ -206,9 +206,10 @@ const getActivePassForStudent = async (studentId, userDoc = null) => {
 const createNewPass = async (studentId, { place = '', reason = '' } = {}, userDoc = null) => {
   const sId = studentId.toString();
 
-  // Cancel any prior PENDING passes for this student
+  // Cancel any prior PENDING daily in/out passes for this student
   const existingPending = await GatePass.find({
     student_id: sId,
+    pass_type: 'IN_OUT',
     status: 'PENDING',
   });
   for (const p of existingPending) {

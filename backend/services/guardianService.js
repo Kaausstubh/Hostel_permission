@@ -213,15 +213,6 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     const inviteUrl = `${baseUrl}/parent/onboard?token=${rawToken}`;
     inviteUrls[guardian._id.toString()] = inviteUrl;
 
-    await sendGuardianInviteEmail({
-      to: guardian.email,
-      guardianName: guardian.name,
-      studentName: student.name,
-      collegeName: 'IIIT Campus',
-      inviteUrl,
-      expiryDays: 7,
-    });
-
     await ApprovalAuditLog.create({
       event: 'INVITE_SENT',
       student_id: studentId,
@@ -232,11 +223,24 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
       ip_address: ip,
       details: { guardian_slot: guardian.guardian_slot, inviteUrl },
     });
+
+    try {
+      await sendGuardianInviteEmail({
+        to: guardian.email,
+        guardianName: guardian.name,
+        studentName: student.name,
+        collegeName: 'IIIT Campus',
+        inviteUrl,
+        expiryDays: 7,
+      });
+    } catch (err) {
+      logger.error(`[GuardianService] Failed to send email invite to ${guardian.email}`, { error: err.message });
+    }
   };
 
   await sendInviteFor(g1, existingUser1);
   if (g2) {
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     await sendInviteFor(g2, existingUser2);
   }
 

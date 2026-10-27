@@ -119,7 +119,7 @@ const registerGoogleStrategy = () => {
       {
         clientID:     process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL:  `${process.env.PUBLIC_BACKEND_URL || 'http://localhost:5001'}/api/auth/google/callback`,
+        callbackURL:  `${(process.env.PUBLIC_BACKEND_URL || 'http://localhost:5001').trim().replace(/\/+$/, '')}/api/auth/google/callback`,
         scope:        ['profile', 'email'],
         // Pass request to callback so we can read session state (portal)
         passReqToCallback: true,

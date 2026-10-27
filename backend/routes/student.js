@@ -23,6 +23,13 @@ const GatePass = require('../models/GatePass');
 const AttendanceRecord = require('../models/AttendanceRecord');
 const Guardian = require('../models/Guardian');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
+const {
+  generateParentApprovalToken,
+  hashParentToken,
+} = require('../utils/parentToken');
+const {
+  sendParentApprovalEmail,
+} = require('../services/gasMailService');
 const logger = require('../utils/logger');
 const { sendLeaveRequestEmail } = require('../services/mailService');
 const {
@@ -130,6 +137,7 @@ router.get('/status', async (req, res) => {
       recentComplaints,
       todayLogs,
       todayAttendanceRec,
+      guardianRecords,
     ] = await Promise.all([
       // Look for any unreturned OUT log across ALL dates (survives midnight & multi-day movements)
       InOutLog.findOne({
@@ -155,7 +163,7 @@ router.get('/status', async (req, res) => {
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
       })
         .sort({ leave_date: -1, createdAt: -1 })
-        .limit(5)
+        .limit(10)
         .lean(),
       HomeVisitLog.find({
         student_id: studentId,
@@ -180,7 +188,15 @@ router.get('/status', async (req, res) => {
       })
         .sort({ createdAt: -1 })
         .lean(),
+      Guardian.find({
+        student_id: studentId,
+        status: { $ne: 'REVOKED' },
+      })
+        .sort({ guardian_slot: 1 })
+        .lean(),
     ]);
+
+    const primaryGuardianRec = guardianRecords[0] || null;
 
     let pendingInOutRequest = null;
     if (activePassInfo) {
@@ -218,7 +234,14 @@ router.get('/status', async (req, res) => {
 
     const attachHomeVisitQR = async (visit) => {
       if (visit.overall_status === 'completed' || visit.qr_used_in) return null;
-      if (!isApprovedVisit(visit)) return visit;
+      const isApproved = isApprovedVisit(visit);
+      if (!isApproved) {
+        return {
+          ...visit,
+          qr_token: null,
+          qrDataUrl: null,
+        };
+      }
       // If student already scanned OUT, keep QR valid for return scan regardless of return_date passed
       if (!visit.qr_used_out && visit.return_date < today) return null;
 
@@ -232,6 +255,13 @@ router.get('/status', async (req, res) => {
 
     const activeVisits = (await Promise.all(activeVisitsRaw.map(attachHomeVisitQR))).filter(Boolean);
 
+    const pendingVisits = activeVisits.filter((visit) => {
+      if (isApprovedVisit(visit)) return false;
+      if (!['pending'].includes(visit.parent_approval_status || visit.overall_status)) return false;
+      if (!visit.qr_used_out && visit.return_date < today) return false;
+      return true;
+    });
+
     const approvedSeen = new Set();
     const approvedVisits = activeVisits.filter((visit) => {
       if (!isApprovedVisit(visit)) return false;
@@ -240,13 +270,6 @@ router.get('/status', async (req, res) => {
       const id = String(visit._id);
       if (approvedSeen.has(id)) return false;
       approvedSeen.add(id);
-      return true;
-    });
-
-    const pendingVisits = activeVisits.filter((visit) => {
-      if (isApprovedVisit(visit)) return false;
-      if (visit.overall_status !== 'pending' && visit.parent_approval_status !== 'pending') return false;
-      if (!visit.qr_used_out && visit.return_date < today) return false;
       return true;
     });
 
@@ -291,7 +314,75 @@ router.get('/status', async (req, res) => {
             }
           : null,
         studentPhoto: req.user?.studentPhoto || req.user?.picture || null,
+        parentEmail: primaryGuardianRec?.email || req.user?.parentEmail || null,
+        parentName: primaryGuardianRec?.name || req.user?.parentName || null,
+        parentPhone: primaryGuardianRec?.phone || req.user?.parentPhone || null,
+        guardians: guardianRecords.length > 0
+          ? guardianRecords.map((g) => ({
+              id: g._id,
+              slot: g.guardian_slot,
+              name: g.name,
+              relationship: g.relationship,
+              email: g.email,
+              phone: g.phone,
+              status: g.status,
+            }))
+          : req.user?.parentEmail
+          ? [
+              {
+                id: 'primary',
+                slot: 1,
+                name: req.user?.parentName || 'Parent / Guardian',
+                relationship: 'Guardian',
+                email: req.user.parentEmail,
+                phone: req.user?.parentPhone || '',
+                status: 'ACTIVE',
+              },
+            ]
+          : [],
       },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── GET /guardians - List registered parent/guardian contacts for student ──
+router.get('/guardians', async (req, res) => {
+  try {
+    const studentId = req.user._id;
+    const guardians = await Guardian.find({
+      student_id: studentId,
+      status: { $ne: 'REVOKED' },
+    })
+      .sort({ guardian_slot: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      guardians: guardians.length > 0
+        ? guardians.map((g) => ({
+            id: g._id,
+            slot: g.guardian_slot,
+            name: g.name,
+            relationship: g.relationship,
+            email: g.email,
+            phone: g.phone,
+            status: g.status,
+          }))
+        : req.user?.parentEmail
+        ? [
+            {
+              id: 'primary',
+              slot: 1,
+              name: req.user?.parentName || 'Parent / Guardian',
+              relationship: 'Guardian',
+              email: req.user.parentEmail,
+              phone: req.user?.parentPhone || '',
+              status: 'ACTIVE',
+            },
+          ]
+        : [],
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -342,6 +433,22 @@ router.get('/active-qr-pass', async (req, res) => {
           hostel: user.hostel,
           picture: user.studentPhoto || user.picture || null,
         },
+      });
+    }
+
+    // 1b. Check if student has a pending home visit awaiting parent approval
+    const pendingHomeVisit = await HomeVisitLog.findOne({
+      student_id: user._id,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      qr_used_in: false,
+    });
+    if (pendingHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
       });
     }
 
@@ -435,6 +542,22 @@ router.post('/get-or-create-pass', async (req, res) => {
       }
     }
 
+    // 1b. Check if student has a pending home visit awaiting parent approval
+    const pendingHomeVisit = await HomeVisitLog.findOne({
+      student_id: user._id,
+      parent_approval_status: 'pending',
+      overall_status: 'pending',
+      qr_used_in: false,
+    });
+    if (pendingHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
+      });
+    }
+
     // 2. Check for active daily In/Out pass (PENDING or OUTSIDE)
     const activeInOut = await getActivePassForStudent(studentId, user);
     if (activeInOut) {
@@ -492,6 +615,22 @@ router.post('/request-inout', async (req, res) => {
     }).sort({ timestamp: -1 });
 
     const scanType = existingOut ? 'IN' : 'OUT';
+
+    if (scanType === 'OUT') {
+      const pendingHv = await HomeVisitLog.findOne({
+        student_id: user._id,
+        parent_approval_status: 'pending',
+        overall_status: 'pending',
+        qr_used_in: false,
+      }).sort({ createdAt: -1 });
+
+      if (pendingHv) {
+        return res.status(403).json({
+          success: false,
+          message: `You have an active Home Visit request (${pendingHv.leave_date} to ${pendingHv.return_date}) awaiting parent approval. You cannot leave campus until your parents approve your request via the email link.`,
+        });
+      }
+    }
 
     if (scanType === 'OUT' && (!place || !(await validatePlaceGeo(place)))) {
       return res.status(400).json({
@@ -654,6 +793,57 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
+    const shouldCancelPrevious =
+      req.body.cancel_previous === true ||
+      req.body.cancel_previous === 'true' ||
+      String(req.body.cancel_previous).toLowerCase() === 'true';
+
+    if (shouldCancelPrevious) {
+      const activeUnscanned = await HomeVisitLog.find({
+        student_id: user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+      });
+
+      const alreadyScannedOut = activeUnscanned.some((v) => v.qr_used_out);
+      if (alreadyScannedOut) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot cancel previous pass because it has already been scanned out at the campus gate.',
+        });
+      }
+
+      if (activeUnscanned.length > 0) {
+        const visitIds = activeUnscanned.map((v) => v._id);
+        await HomeVisitLog.updateMany(
+          { _id: { $in: visitIds } },
+          {
+            $set: {
+              overall_status: 'rejected',
+              parent_approval_status: 'parent_rejected',
+              warden_status: 'rejected',
+            },
+          }
+        );
+
+        await GatePass.updateMany(
+          { student_id: user._id, pass_type: 'HOME_VISIT', status: { $in: ['PENDING', 'APPROVED', 'AWAITING_APPROVAL'] } },
+          { $set: { status: 'CANCELLED' } }
+        ).catch(() => {});
+
+        for (const v of activeUnscanned) {
+          await ApprovalAuditLog.create({
+            event: 'REQUEST_CANCELLED_BY_STUDENT_FOR_NEW_REQUEST',
+            home_visit_request_id: v._id,
+            student_id: user._id,
+            actor_id: user._id,
+            actor_role: 'student',
+            actor_email: user.email,
+            ip_address: req.ip,
+          }).catch(() => {});
+        }
+      }
+    }
+
     // Prevent multiple active passes from existing for overlapping periods.
     const overlappingVisit = await HomeVisitLog.findOne(
       buildOverlappingVisitFilter(user._id, leave_date, return_date)
@@ -664,13 +854,94 @@ router.post('/home-visit', async (req, res) => {
     if (overlappingVisit) {
       return res.status(409).json({
         success: false,
+        overlappingVisitId: overlappingVisit._id,
+        canCancel: !overlappingVisit.qr_used_out,
+        conflictDates: {
+          leave_date: overlappingVisit.leave_date,
+          return_date: overlappingVisit.return_date,
+        },
         message: `An active home visit already exists for ${overlappingVisit.leave_date} to ${overlappingVisit.return_date}. Complete or cancel the existing pass before creating another overlapping one.`,
       });
     }
 
-    // Generate unique persistent token right upon creation
-    const persistentToken = createHomeVisitCompactToken();
+    // 1. Resolve parent contact details strictly from registered guardians or verified records
+    let parentEmail = null;
+    let parentName = '';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    const registeredGuardians = await Guardian.find({
+      student_id: user._id,
+      status: { $ne: 'REVOKED' },
+    }).sort({ guardian_slot: 1 }).lean();
+
+    const allowedGuardianEmails = registeredGuardians.map((g) => g.email.toLowerCase());
+    if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+      allowedGuardianEmails.push(user.parentEmail.toLowerCase());
+    }
+
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      const chosenEmail = String(req.body.parent_email).trim().toLowerCase();
+      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosenEmail);
+
+      if (matchedGuardian) {
+        parentEmail = matchedGuardian.email;
+        parentName = matchedGuardian.name;
+      } else if (allowedGuardianEmails.includes(chosenEmail)) {
+        parentEmail = chosenEmail;
+        parentName = req.body.parent_name || user.parentName || 'Parent / Guardian';
+      } else if (allowedGuardianEmails.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select one of your registered parent email addresses on file.',
+        });
+      } else {
+        parentEmail = chosenEmail;
+        parentName = String(req.body.parent_name || '').trim();
+      }
+    } else {
+      const primaryGuardian = registeredGuardians[0];
+      if (primaryGuardian && primaryGuardian.email) {
+        parentEmail = primaryGuardian.email.trim().toLowerCase();
+        parentName = primaryGuardian.name || '';
+      } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+        parentEmail = user.parentEmail.trim().toLowerCase();
+        parentName = user.parentName || '';
+      }
+    }
+
+    if (parentEmail) {
+      await User.findByIdAndUpdate(user._id, {
+        parentEmail,
+        ...(parentName ? { parentName } : {}),
+      }).catch((uErr) => logger.warn('[User] update parentEmail notice:', uErr.message));
+
+      try {
+        const existingGuardian = await Guardian.findOne({ student_id: user._id, guardian_slot: 1 });
+        if (!existingGuardian) {
+          await Guardian.create({
+            student_id: user._id,
+            guardian_slot: 1,
+            name: parentName || 'Parent / Guardian',
+            relationship: 'Guardian',
+            phone: user.parentPhone || '+919999999999',
+            email: parentEmail,
+            status: 'ACTIVE',
+          });
+        } else if (!existingGuardian.email || existingGuardian.email !== parentEmail) {
+          existingGuardian.email = parentEmail;
+          if (parentName) existingGuardian.name = parentName;
+          await existingGuardian.save();
+        }
+      } catch (gErr) {
+        logger.warn('[Guardian] create/update notice:', gErr.message);
+      }
+    }
+
+    // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
+    const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
+
+    // 3. Create the request record with unique persistent token and pending statuses
+    const persistentToken = createHomeVisitCompactToken();
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       name: user.name,
@@ -678,15 +949,25 @@ router.post('/home-visit', async (req, res) => {
       student_photo: user.studentPhoto || user.picture || null,
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       parent_phone_alt: user.parentPhone2 ? normalizeToE164(user.parentPhone2) : null,
+      parent_email: parentEmail,
+      parent_name: parentName,
+      departure_time: req.body.departure_time || '09:00 AM',
+      return_time: req.body.return_time || '08:00 PM',
       reason,
       leave_date,
       return_date,
       place: String(place).trim().slice(0, 200),
       qr_token: persistentToken,
+      parent_token_hash: tokenHash,
+      parent_token_expires_at: expiresAt,
       parent_approval_status: 'pending',
       overall_status: 'pending',
+      warden_status: 'pending',
       hostel: user.hostel || 'BH1',
       room_no: user.roomNo || '',
+      email_notification_status: parentEmail ? 'PENDING' : 'FAILED',
+      email_failure_reason: parentEmail ? null : 'No registered parent email address found for student',
+      accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
 
     // Mirror to GatePass model for unified MongoDB tracking
@@ -695,14 +976,59 @@ router.post('/home-visit', async (req, res) => {
       pass_type: 'HOME_VISIT',
       home_visit_id: visit._id,
       qr_token: persistentToken,
-      status: 'PENDING',
+      status: 'AWAITING_APPROVAL',
       place: visit.place,
       reason: visit.reason,
     }).catch((gpErr) => {
       console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
-    // Digital Parent Approval: Notify all linked guardians via email
+    // 4. Automated Parent Email Notification via Google Apps Script (Free Tier)
+    let anyEmailSent = false;
+    let approvalUrl = null;
+
+    if (parentEmail) {
+      try {
+        const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+        const emailResult = await sendParentApprovalEmail({
+          visit,
+          rawToken,
+          parentEmail,
+          baseUrl,
+        });
+
+        approvalUrl = emailResult.approvalUrl;
+
+        if (emailResult.success) {
+          anyEmailSent = true;
+          visit.email_notification_status = 'SUBMITTED';
+          visit.email_sent_at = new Date();
+          visit.email_failure_reason = null;
+        } else {
+          visit.email_notification_status = 'FAILED';
+          visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
+        }
+        await visit.save();
+
+        ApprovalAuditLog.create({
+          event: 'REQUEST_NOTIFIED',
+          home_visit_request_id: visit._id,
+          student_id: user._id,
+          actor_id: user._id,
+          actor_role: 'student',
+          actor_email: user.email,
+          ip_address: req.ip,
+          details: { parentEmail, notificationStatus: visit.email_notification_status, error: visit.email_failure_reason },
+        }).catch(() => {});
+      } catch (notifyErr) {
+        logger.warn('[HomeVisit] Parent notification dispatch error:', notifyErr.message);
+        visit.email_notification_status = 'FAILED';
+        visit.email_failure_reason = notifyErr.message;
+        await visit.save();
+      }
+    }
+
+    // Also notify linked guardians if registered
     try {
       const guardians = await Guardian.find({
         student_id: user._id,
@@ -736,17 +1062,114 @@ router.post('/home-visit', async (req, res) => {
           details: { requestUrl, guardianEmail: g.email },
         }).catch(() => {});
       }
-    } catch (notifyErr) {
-      logger.warn('[StudentHomeVisit] Guardian notification dispatch error:', notifyErr.message);
+    } catch (guardianNotifyErr) {
+      // Non-blocking
     }
+
+    const cleanVisit = visit.toObject ? visit.toObject() : { ...visit };
+    delete cleanVisit.parent_token_hash;
 
     res.status(201).json({
       success: true,
-      message: 'Home visit request submitted. Notification emails sent to parents for approval.',
-      visit,
+      message: parentEmail
+        ? `Home visit request submitted. Digital approval request sent to parent email (${parentEmail}).`
+        : 'Home visit request submitted. Notification emails sent to parents for approval.',
+      guardianEmails: parentEmail ? [parentEmail] : [],
+      parentEmail,
+      hasGuardians: Boolean(parentEmail),
+      emailSent: anyEmailSent,
+      email_notification_status: visit.email_notification_status,
+      visit: cleanVisit,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /home-visit/:id/resend-email ─────────────────────────────────────────
+// Resend parent approval email with fresh token and direct decision link
+router.post('/home-visit/:id/resend-email', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const visit = await HomeVisitLog.findOne({
+      _id: id,
+      student_id: user._id,
+    });
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    if (visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved') {
+      return res.status(400).json({ success: false, message: 'This request is already approved' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    let recipientEmail = null;
+    if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
+      recipientEmail = String(req.body.parent_email).trim().toLowerCase();
+      visit.parent_email = recipientEmail;
+      await User.findByIdAndUpdate(user._id, { parentEmail: recipientEmail }).catch(() => {});
+    } else {
+      recipientEmail = visit.parent_email;
+      if (!recipientEmail) {
+        const primaryGuardian = await Guardian.findOne({
+          student_id: user._id,
+          status: { $ne: 'REVOKED' },
+        }).sort({ guardian_slot: 1 });
+        if (primaryGuardian && primaryGuardian.email) {
+          recipientEmail = primaryGuardian.email.trim().toLowerCase();
+          visit.parent_email = recipientEmail;
+        } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
+          recipientEmail = user.parentEmail.trim().toLowerCase();
+          visit.parent_email = recipientEmail;
+        }
+      }
+    }
+
+    if (!recipientEmail) {
+      visit.email_notification_status = 'FAILED';
+      visit.email_failure_reason = 'No registered parent email address found';
+      await visit.save();
+      return res.status(400).json({ success: false, message: 'No registered parent email address found for student' });
+    }
+
+    // Generate fresh high-entropy approval token
+    const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
+    visit.parent_token_hash = tokenHash;
+    visit.parent_token_expires_at = expiresAt;
+
+    const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+    const emailResult = await sendParentApprovalEmail({
+      visit,
+      rawToken,
+      parentEmail: recipientEmail,
+      baseUrl,
+    });
+
+    if (emailResult.success) {
+      visit.email_notification_status = 'SUBMITTED';
+      visit.email_sent_at = new Date();
+      visit.email_failure_reason = null;
+    } else {
+      visit.email_notification_status = 'FAILED';
+      visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
+    }
+    await visit.save();
+
+    return res.json({
+      success: emailResult.success,
+      message: emailResult.success
+        ? `Approval email successfully resent to ${recipientEmail}.`
+        : `Email delivery failed: ${emailResult.error}`,
+      email_notification_status: visit.email_notification_status,
+      email_failure_reason: visit.email_failure_reason,
+      emailSent: emailResult.success,
+    });
+  } catch (err) {
+    logger.error('[HomeVisit] Resend email error:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -887,6 +1310,133 @@ router.get('/home-visits', async (req, res) => {
       page,
       limit,
       visits: [...activeWithQr, ...recentHistory],
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /home-visit/cancel-active ────────────────────────────────────────────
+// Cancel any unscanned active home visit for the logged-in student
+router.post('/home-visit/cancel-active', async (req, res) => {
+  try {
+    const activeVisits = await HomeVisitLog.find({
+      student_id: req.user._id,
+      overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+    });
+
+    if (activeVisits.length === 0) {
+      return res.json({ success: true, message: 'No active home visit requests to cancel', count: 0 });
+    }
+
+    const alreadyScanned = activeVisits.some((v) => v.qr_used_out);
+    if (alreadyScanned) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel pass because it has already been scanned out at the campus gate.',
+      });
+    }
+
+    const ids = activeVisits.map((v) => v._id);
+    await HomeVisitLog.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          overall_status: 'rejected',
+          parent_approval_status: 'parent_rejected',
+          warden_status: 'rejected',
+        },
+      }
+    );
+
+    await GatePass.updateMany(
+      { student_id: req.user._id, pass_type: 'HOME_VISIT', status: { $in: ['PENDING', 'APPROVED', 'AWAITING_APPROVAL'] } },
+      { $set: { status: 'CANCELLED' } }
+    ).catch(() => {});
+
+    for (const v of activeVisits) {
+      await ApprovalAuditLog.create({
+        event: 'REQUEST_CANCELLED_BY_STUDENT',
+        home_visit_request_id: v._id,
+        student_id: req.user._id,
+        actor_id: req.user._id,
+        actor_role: 'student',
+        actor_email: req.user.email,
+        ip_address: req.ip,
+      }).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      message: 'Active home visit request(s) cancelled successfully.',
+      count: activeVisits.length,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /home-visit/:id/cancel ───────────────────────────────────────────────
+// Student withdraws/cancels their own pending unscanned home visit request
+router.post('/home-visit/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let visit = null;
+
+    if (id === 'active' || id === 'all') {
+      visit = await HomeVisitLog.findOne({
+        student_id: req.user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+        qr_used_out: false,
+      }).sort({ createdAt: -1 });
+    } else if (mongoose.Types.ObjectId.isValid(id)) {
+      visit = await HomeVisitLog.findOne({
+        _id: id,
+        student_id: req.user._id,
+      });
+    } else {
+      visit = await HomeVisitLog.findOne({
+        student_id: req.user._id,
+        overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
+        qr_used_out: false,
+      }).sort({ createdAt: -1 });
+    }
+
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    if (visit.qr_used_out) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a pass that has already been scanned out at the campus gate.',
+      });
+    }
+
+    visit.overall_status = 'rejected';
+    visit.parent_approval_status = 'parent_rejected';
+    visit.warden_status = 'rejected';
+    await visit.save();
+
+    await GatePass.updateOne(
+      { home_visit_id: visit._id },
+      { status: 'CANCELLED' }
+    ).catch(() => {});
+
+    await ApprovalAuditLog.create({
+      event: 'REQUEST_CANCELLED_BY_STUDENT',
+      home_visit_request_id: visit._id,
+      student_id: req.user._id,
+      actor_id: req.user._id,
+      actor_role: 'student',
+      actor_email: req.user.email,
+      ip_address: req.ip,
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: 'Home visit request cancelled successfully. You may now submit a new request.',
+      visit,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

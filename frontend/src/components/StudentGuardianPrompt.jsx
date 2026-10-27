@@ -30,20 +30,61 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.guardian1.name || !formData.guardian1.phone || !formData.guardian1.email) {
+    const g1Name = (formData.guardian1.name || '').trim();
+    const g1Phone = (formData.guardian1.phone || '').trim().replace(/\D/g, '');
+    const g1Email = (formData.guardian1.email || '').trim().toLowerCase();
+
+    const g2Name = (formData.guardian2.name || '').trim();
+    const g2Phone = (formData.guardian2.phone || '').trim().replace(/\D/g, '');
+    const g2Email = (formData.guardian2.email || '').trim().toLowerCase();
+
+    if (!g1Name || !g1Phone || !g1Email) {
       toast.error('Please fill in all details for Primary Guardian (Slot 1)');
       return;
     }
-    if (hasSlot2 && (!formData.guardian2.name || !formData.guardian2.phone || !formData.guardian2.email)) {
+    if (hasSlot2 && (!g2Name || !g2Phone || !g2Email)) {
       toast.error('Please fill in all details for Secondary Guardian (Slot 2)');
+      return;
+    }
+
+    if (g1Phone.length !== 10 || (hasSlot2 && g2Phone.length !== 10)) {
+      toast.error('Please enter valid 10-digit mobile numbers');
+      return;
+    }
+
+    if (hasSlot2 && g1Phone === g2Phone) {
+      toast.error('Guardian 1 and Guardian 2 phone numbers must be distinct');
+      return;
+    }
+
+    if (hasSlot2 && g1Email === g2Email) {
+      toast.error('Guardian 1 and Guardian 2 email addresses must be distinct');
+      return;
+    }
+
+    const myEmail = (user?.email || '').trim().toLowerCase();
+    if (myEmail && (g1Email === myEmail || (hasSlot2 && g2Email === myEmail))) {
+      toast.error('Parent email cannot be identical to your student login email');
+      return;
+    }
+
+    const myPhoneDigits = (user?.phone || '').replace(/\D/g, '').slice(-10);
+    if (myPhoneDigits && (g1Phone.slice(-10) === myPhoneDigits || (hasSlot2 && g2Phone.slice(-10) === myPhoneDigits))) {
+      toast.error('Guardian phone number cannot be identical to your own phone number');
+      return;
+    }
+
+    const collegeDomains = ['iiitpune.ac.in', 'cse.iiitp.ac.in', 'ece.iiitp.ac.in', 'cysec.iiitp.ac.in', 'aids.iiitp.ac.in', 'mevd.iiitp.ac.in', 'iiitp.ac.in', 'college.edu'];
+    if (collegeDomains.some((d) => g1Email.endsWith('@' + d) || (hasSlot2 && g2Email.endsWith('@' + d)))) {
+      toast.error('Parent emails must be personal addresses (e.g. Gmail), not college domains');
       return;
     }
 
     try {
       setLoading(true);
       const res = await api.post('/auth/complete-guardian-details', {
-        guardian1: formData.guardian1,
-        guardian2: hasSlot2 ? formData.guardian2 : undefined,
+        guardian1: { ...formData.guardian1, name: g1Name, phone: g1Phone, email: g1Email },
+        guardian2: hasSlot2 ? { ...formData.guardian2, name: g2Name, phone: g2Phone, email: g2Email } : undefined,
       });
 
       if (res.data.mailConfigured) {
@@ -64,7 +105,7 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
         onComplete();
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to submit guardian details');
+      toast.error(err.response?.data?.message || err.message || 'Failed to submit guardian details');
     } finally {
       setLoading(false);
     }

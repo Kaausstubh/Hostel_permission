@@ -28,6 +28,12 @@ const getTransporter = () => {
     const { host, user, pass } = getCleanCredentials();
     const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
 
+    const timeoutOptions = {
+      connectionTimeout: 10000,
+      greetingTimeout: 8000,
+      socketTimeout: 15000,
+    };
+
     if (isGmail) {
       transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -35,6 +41,7 @@ const getTransporter = () => {
         maxConnections: 1,
         rateDelta: 1000,
         rateLimit: 5,
+        ...timeoutOptions,
         auth: {
           user,
           pass,
@@ -47,6 +54,7 @@ const getTransporter = () => {
         secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
         pool: true,
         maxConnections: 1,
+        ...timeoutOptions,
         auth: {
           user,
           pass,
@@ -62,8 +70,13 @@ const getTransporter = () => {
  */
 const sendMail = async ({ to, subject, html, text }) => {
   if (!isConfigured()) {
-    logger.info(`[MailService:Mock] To: ${to} | Subject: "${subject}"`);
-    return { success: true, mocked: true, messageId: `mock-${Date.now()}` };
+    logger.warn(`[MailService:Mock] SMTP credentials not set (SMTP_USER/SMTP_PASS missing). Skipping live email to: ${to} | Subject: "${subject}"`);
+    return {
+      success: false,
+      mocked: true,
+      error: 'SMTP credentials not configured on backend (SMTP_USER / SMTP_PASS missing)',
+      messageId: `mock-${Date.now()}`,
+    };
   }
 
   const { host, user } = getCleanCredentials();
@@ -90,10 +103,6 @@ const sendMail = async ({ to, subject, html, text }) => {
     return { success: true, messageId: info.messageId };
   } catch (error) {
     logger.error(`[MailService] Failed to send email to ${to}: ${error.message}`);
-    // Non-blocking in non-production, throw in production
-    if (process.env.NODE_ENV === 'production') {
-      throw error;
-    }
     return { success: false, error: error.message };
   }
 };
@@ -177,13 +186,14 @@ const sendLeaveRequestEmail = async ({ to, guardianName, studentName, leaveDate,
         <p><strong>📝 Reason:</strong> ${reason}</p>
       </div>
 
-      <p>Please review and record your decision (Approve or Reject):</p>
-      <div style="text-align: center;">
-        <a href="${requestUrl}" class="btn btn-green">Review & Decide Request</a>
+      <p>Please open the Parent Portal to review the details and submit your decision (Approve or Reject):</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${requestUrl}" class="btn btn-green" style="font-size: 15px; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 700;">Open Parent Portal & Decide Request</a>
       </div>
-      <p style="font-size: 12.5px; color: #9ca3af;">
-        Please respond promptly so that hostel staff can finalize permissions. Direct link:<br>
-        <span style="font-size: 11.5px; word-break: break-all; color: #60a5fa;">${requestUrl}</span>
+      <p style="font-size: 12.5px; color: #9ca3af; line-height: 1.5;">
+        Once approved by you, your ward's digital QR gate pass will be automatically generated so they can leave the hostel.<br><br>
+        Direct Parent Portal link:<br>
+        <a href="${requestUrl}" style="font-size: 12px; word-break: break-all; color: #60a5fa;">${requestUrl}</a>
       </p>
     `
   );

@@ -36,7 +36,7 @@ const gatePassSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['PENDING', 'OUTSIDE', 'COMPLETED', 'CANCELLED', 'EXPIRED'],
+      enum: ['AWAITING_APPROVAL', 'APPROVED', 'PENDING', 'OUTSIDE', 'COMPLETED', 'CANCELLED', 'EXPIRED'],
       default: 'PENDING',
       required: true,
       index: true,

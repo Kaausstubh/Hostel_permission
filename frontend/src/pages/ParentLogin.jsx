@@ -83,6 +83,8 @@ export default function ParentLogin() {
     }
   };
 
+  const hasReturnUrl = typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('returnUrl'));
+
   return (
     <div className="login-page" style={{ padding: 24, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="login-card fade-in" style={{ maxWidth: 440, width: '100%' }}>
@@ -90,6 +92,21 @@ export default function ParentLogin() {
           <h1>🏛️ HEIMDALL</h1>
           <p>Parent & Guardian Portal</p>
         </div>
+
+        {hasReturnUrl && (
+          <div style={{
+            background: 'rgba(59, 130, 246, 0.12)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#93c5fd',
+            textAlign: 'center',
+          }}>
+            📋 Please sign in to review and decide your ward's leave request.
+          </div>
+        )}
 
         {/* Tab switch between Password and Email OTP */}
         <div className="tabs" style={{ marginBottom: 20 }}>
