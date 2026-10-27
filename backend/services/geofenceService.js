@@ -19,10 +19,11 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     hostel: 'BH2',
     name: "Boys' Hostel 2 (Krishna)",
     // 18°45'47.1"N 73°41'57.7"E
-    center: { lat: 18.7630833, lng: 73.6993611 },
-    radius_m: 22, // High-precision building perimeter (15-25m range)
-    buffer_m: 0,
-    accuracy_threshold_m: 25, // Max 25m GPS accuracy allowed
+    // center: { lat: 18.7630833, lng: 73.6993611 },
+    center: { lat: 18.715993847899085, lng: 73.66964662270149 },
+    radius_m: 100, // High-precision building perimeter (15-25m range)
+    buffer_m: 20,
+    accuracy_threshold_m: 80, // Max 25m GPS accuracy allowed
     auto_attendance: true,
   },
   BH1: {
