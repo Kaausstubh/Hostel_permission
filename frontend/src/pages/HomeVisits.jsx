@@ -299,6 +299,7 @@ export default function HomeVisits() {
               <tbody>
                 {visits.map((v) => {
                   const guardians = v.guardians || [];
+                  const approvals = v.parentApprovals || [];
                   const primaryApproval = approvals[0] || (v.parent_decision_remarks || v.parent_decision_at || v.parent_approval_status === 'parent_approved' ? {
                     decided_by_name: v.parent_name || 'Parent / Guardian',
                     decided_by_email: v.parent_email,
