@@ -22,9 +22,12 @@ import StudentProtectionProvider from './StudentProtectionProvider';
  *
  * Guard, warden, admin, and public pages NEVER render this component.
  */
+import StudentAttendanceManager from './StudentAttendanceManager';
+
 export default function StudentLayout({ children }) {
   return (
     <StudentProtectionProvider>
+      <StudentAttendanceManager />
       {children}
     </StudentProtectionProvider>
   );

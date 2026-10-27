@@ -206,26 +206,29 @@ const verifyHostelGeofence = async (hostel, coords, overrideGeofence = null) => 
     };
   }
 
-  let dbGeofence = overrideGeofence;
-  if (!dbGeofence && mongoose.connection.readyState === 1) {
+  let activeGeofence = overrideGeofence;
+  if (!activeGeofence && mongoose.connection.readyState === 1) {
     try {
-      dbGeofence = await HostelGeofence.findOne({ hostel: normHostel, active: true }).lean();
-      if (!dbGeofence && (normHostel === 'GH1' || normHostel === 'GH2')) {
-        dbGeofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
+      activeGeofence = await HostelGeofence.findOne({ hostel: normHostel, active: true }).lean();
+      if (!activeGeofence && (normHostel === 'GH1' || normHostel === 'GH2')) {
+        activeGeofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
       }
     } catch (err) {
       logger.warn('[Geofence] Failed to query hostel geofence from DB:', err.message);
     }
   }
 
-  // Use authoritative constants if DB has no geofence or outdated center
-  const hasDbCenter = dbGeofence?.center && typeof dbGeofence.center.lat === 'number';
-  const activeGeofence = hasDbCenter ? dbGeofence : fallbackGeofence;
+  if (!activeGeofence) {
+    activeGeofence = fallbackGeofence;
+  }
 
-  const targetCenter = activeGeofence.center || fallbackGeofence.center;
-  const radiusMeters = activeGeofence.radius_m ?? 22; // Configurable high-precision 22m building radius
-  const bufferMeters = activeGeofence.buffer_m ?? 0;
-  const accuracyThreshold = activeGeofence.accuracy_threshold_m ?? 25; // Max 25m GPS accuracy allowed
+  const hasPolygon = Array.isArray(activeGeofence.polygon) && activeGeofence.polygon.length >= 3;
+  const hasActiveCenter = activeGeofence.center && typeof activeGeofence.center.lat === 'number' && typeof activeGeofence.center.lng === 'number';
+  const targetCenter = hasActiveCenter ? activeGeofence.center : fallbackGeofence.center;
+
+  const radiusMeters = activeGeofence.radius_m ?? fallbackGeofence.radius_m ?? 22;
+  const bufferMeters = activeGeofence.buffer_m ?? fallbackGeofence.buffer_m ?? 0;
+  const accuracyThreshold = activeGeofence.accuracy_threshold_m ?? fallbackGeofence.accuracy_threshold_m ?? 25;
 
   // 1. Accuracy Check: reject cellular/IP coarse drift (> threshold, default 25m)
   if (typeof accuracy === 'number' && accuracy > accuracyThreshold) {
@@ -245,7 +248,52 @@ const verifyHostelGeofence = async (hostel, coords, overrideGeofence = null) => 
     };
   }
 
-  // 2. Exact Great-Circle distance to building center using Haversine formula
+  // 2. Point-in-polygon check if polygon is configured
+  if (hasPolygon) {
+    const strictlyInside = isPointInPolygon({ lat, lng }, activeGeofence.polygon);
+    const distToEdge = distanceToPolygonMeters({ lat, lng }, activeGeofence.polygon);
+    const withinBuffer = strictlyInside || (distToEdge <= bufferMeters);
+
+    logger.info('[Geofence] Polygon evaluation result:', {
+      hostel: normHostel,
+      studentCoords: { lat, lng, accuracy },
+      strictlyInside,
+      distToEdge,
+      bufferMeters,
+      withinBuffer,
+    });
+
+    if (strictlyInside || withinBuffer) {
+      return {
+        valid: true,
+        hostel: normHostel,
+        hostelName: activeGeofence.name || fallbackGeofence.name,
+        strictlyInside,
+        withinBuffer: true,
+        distanceToCenterMeters: null,
+        distanceToEdgeMeters: strictlyInside ? 0 : Math.round(distToEdge * 10) / 10,
+        radiusMeters,
+        accuracy: accuracy || null,
+        message: `Verified inside ${activeGeofence.name || normHostel} building! Attendance verified PRESENT.`,
+      };
+    }
+
+    return {
+      valid: false,
+      reason: 'OUTSIDE_GEOFENCE',
+      hostel: normHostel,
+      hostelName: activeGeofence.name || fallbackGeofence.name,
+      strictlyInside: false,
+      withinBuffer: false,
+      distanceToCenterMeters: null,
+      distanceToEdgeMeters: Math.round(distToEdge * 10) / 10,
+      radiusMeters,
+      accuracy: accuracy || null,
+      message: `You are outside your assigned hostel (${activeGeofence.name || normHostel}) boundary (${Math.round(distToEdge)}m outside).`,
+    };
+  }
+
+  // 3. Exact Great-Circle distance to building center using Haversine formula
   const distToCenter = haversineDistanceMeters(lat, lng, targetCenter.lat, targetCenter.lng);
   const allowedRadius = radiusMeters + bufferMeters;
   const strictlyInside = distToCenter <= radiusMeters;
@@ -304,18 +352,18 @@ const getHostelGeofenceConfig = async (hostel) => {
       if (!dbGeofence && (normHostel === 'GH1' || normHostel === 'GH2')) {
         dbGeofence = await HostelGeofence.findOne({ hostel: 'GH', active: true }).lean();
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   const hasDbCenter = dbGeofence?.center && typeof dbGeofence.center.lat === 'number';
   const activeGeofence = hasDbCenter ? dbGeofence : fallbackGeofence;
   return {
     hostel: normHostel,
-    name: activeGeofence.name || fallbackGeofence.name,
-    center: activeGeofence.center || fallbackGeofence.center,
-    radius_m: activeGeofence.radius_m ?? 22,
-    buffer_m: activeGeofence.buffer_m ?? 0,
-    accuracy_threshold_m: activeGeofence.accuracy_threshold_m ?? 25,
-    auto_attendance: activeGeofence.auto_attendance !== false,
+    name: fallbackGeofence.name || activeGeofence.name,
+    center: fallbackGeofence.center || activeGeofence.center,
+    radius_m: fallbackGeofence.radius_m ?? activeGeofence.radius_m ?? 22,
+    buffer_m: fallbackGeofence.buffer_m ?? activeGeofence.buffer_m ?? 0,
+    accuracy_threshold_m: fallbackGeofence.accuracy_threshold_m ?? activeGeofence.accuracy_threshold_m ?? 25,
+    auto_attendance: fallbackGeofence.auto_attendance !== undefined ? fallbackGeofence.auto_attendance : (activeGeofence.auto_attendance !== false),
   };
 };
 

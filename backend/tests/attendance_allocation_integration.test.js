@@ -56,22 +56,22 @@ async function runIntegrationTest() {
   assert(bh2Option, 'BH2 hostel must be returned in options');
   console.log(`✅ Step 1: getHostelsAndFloors detected BH2 with ${bh2Option.floors.length} floors:`, bh2Option.floors);
 
-  // 2. Start round for BH2, 1st Floor
+  // 2. Start round for BH2, 2nd Floor
   const roundSession = 'Test Integration Session ' + Date.now();
   const { round } = await startOrResumeRound({
     hostel: 'BH2',
-    floor: '1st Floor',
+    floor: '2nd Floor',
     session_name: roundSession,
     staffUser: staff,
   });
   assert(round, 'Round must be created');
   assert.strictEqual(round.hostel, 'BH2');
-  console.log(`✅ Step 2: Started round ${round._id} for BH2, 1st Floor`);
+  console.log(`✅ Step 2: Started round ${round._id} for BH2, 2nd Floor`);
 
-  // 3. Verify getRoundRoomsSummary loads the 30 rooms on 1st Floor
+  // 3. Verify getRoundRoomsSummary loads the rooms on 2nd Floor
   const summary = await getRoundRoomsSummary(round._id);
   assert(summary.rooms.length > 0, 'Round summary must contain rooms');
-  console.log(`✅ Step 3: getRoundRoomsSummary returned ${summary.rooms.length} rooms for 1st Floor`);
+  console.log(`✅ Step 3: getRoundRoomsSummary returned ${summary.rooms.length} rooms for 2nd Floor`);
 
   // Pick first room with occupants (e.g. Room 101 or 102)
   const roomWithStudents = summary.rooms.find((r) => r.occupantCount > 0);
