@@ -2620,6 +2620,9 @@ export default function StudentDashboard() {
         statusMsg += `\n\n✅ *Active Home Visit Passes:*`;
         s.approvedVisits.forEach((v, i) => {
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ✅ Parent Approved (Pass Ready)`;
+          if (v.parent_decision_remarks) {
+            statusMsg += `\n   💬 Parent Note: "${v.parent_decision_remarks}"`;
+          }
           if (v.qrDataUrl) {
             const phase = v.qr_used_out ? 'return' : 'departure';
             statusButtons.push({

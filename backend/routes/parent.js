@@ -42,6 +42,7 @@ const {
   sendParentLoginOtpEmail,
 } = require('../services/mailService');
 const logger = require('../utils/logger');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 
 // Security middleware to prevent token leakage via HTTP Referer header
 router.use((req, res, next) => {
@@ -292,7 +293,7 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await user.save();
 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const baseUrl = getCleanFrontendUrl();
     const resetUrl = `${baseUrl}/parent/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
 
     await sendParentResetPasswordEmail({

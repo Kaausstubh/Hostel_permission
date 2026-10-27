@@ -59,19 +59,19 @@ const invalidateLogsCache = async () => {
       if (typeof redis.scanIterator === 'function') {
         const keysToDelete = [];
         for await (const key of redis.scanIterator({ MATCH: 'logs:*', COUNT: 100 })) {
-          keysToDelete.push(key);
+          keysToDelete.push(String(key));
           if (keysToDelete.length >= 100) {
-            await redis.del(keysToDelete);
+            await redis.del(...keysToDelete);
             keysToDelete.length = 0;
           }
         }
         if (keysToDelete.length > 0) {
-          await redis.del(keysToDelete);
+          await redis.del(...keysToDelete);
         }
       } else {
         const keys = await redis.keys('logs:*');
         if (keys && keys.length > 0) {
-          await redis.del(keys);
+          await redis.del(...keys);
         }
       }
     }

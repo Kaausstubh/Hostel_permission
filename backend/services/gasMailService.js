@@ -8,6 +8,7 @@
  */
 
 const logger = require('../utils/logger');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 
 /**
  * Escapes dynamic string values to prevent HTML injection in email templates.
@@ -257,7 +258,7 @@ Note: This is a secure automated notification. Do not reply directly to this ema
  * @returns {Promise<{ success: boolean, status: string, error?: string, messageId?: string, approvalUrl: string }>}
  */
 async function sendParentApprovalEmail({ visit, rawToken, parentEmail, baseUrl }) {
-  const origin = (baseUrl || process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+  const origin = getCleanFrontendUrl(baseUrl);
   const approvalUrl = `${origin}/home-visit/respond/${visit._id}?token=${rawToken}`;
 
   const departureFormatted = visit.departure_time

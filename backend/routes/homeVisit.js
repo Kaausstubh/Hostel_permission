@@ -44,6 +44,7 @@ const {
   sendParentApprovalEmail,
   sendViaGoogleAppsScript,
 } = require('../services/gasMailService');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 
 const ACTIVE_HOME_VISIT_STATUSES = ['pending', 'parent_approved', 'approved'];
 const formatLocalDate = (date) => {
@@ -310,7 +311,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
 
     if (parentEmail) {
       try {
-        const baseUrl = process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app';
+        const baseUrl = getCleanFrontendUrl();
         const emailResult = await sendParentApprovalEmail({
           visit,
           rawToken,
@@ -878,7 +879,7 @@ router.post('/resend-notification', protect, async (req, res) => {
       visit,
       rawToken,
       parentEmail: recipientEmail,
-      baseUrl: process.env.APP_BASE_URL || process.env.FRONTEND_URL,
+      baseUrl: getCleanFrontendUrl(),
     });
 
     if (emailResult.success) {

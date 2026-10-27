@@ -13,6 +13,7 @@ const User = require('../models/User');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
 const { sendGuardianInviteEmail } = require('./mailService');
 const { validateIndianPhone } = require('../utils/phone');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 const logger = require('../utils/logger');
 
 // Allowed college domains configuration
@@ -185,9 +186,7 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
   if (g2PhoneE164) {
     student.parentPhone2 = g2PhoneE164;
   }
-  await student.save();
-
-  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const baseUrl = getCleanFrontendUrl();
   const inviteUrls = {};
 
   // Issue invitations and send emails
@@ -389,7 +388,7 @@ const resendInvitation = async ({ guardianId, actorUser, ip = '' }) => {
   );
 
   const { rawToken } = await GuardianInvitation.createForGuardian(guardianId, 7);
-  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const baseUrl = getCleanFrontendUrl();
   const inviteUrl = `${baseUrl}/parent/onboard?token=${rawToken}`;
 
   guardian.last_invite_sent_at = new Date();
@@ -478,7 +477,7 @@ const updateGuardianDetails = async ({ guardianId, updates, actorUser, ip = '' }
   // If email changed, immediately issue new invitation email
   if (emailChanged) {
     const { rawToken } = await GuardianInvitation.createForGuardian(guardian._id, 7);
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const baseUrl = getCleanFrontendUrl();
     const inviteUrl = `${baseUrl}/parent/onboard?token=${rawToken}`;
 
     await sendGuardianInviteEmail({

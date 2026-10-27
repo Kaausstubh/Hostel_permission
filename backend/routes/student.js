@@ -30,6 +30,7 @@ const {
 const {
   sendParentApprovalEmail,
 } = require('../services/gasMailService');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 const logger = require('../utils/logger');
 const { sendLeaveRequestEmail } = require('../services/mailService');
 const {
@@ -989,7 +990,7 @@ router.post('/home-visit', async (req, res) => {
 
     if (parentEmail) {
       try {
-        const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+        const baseUrl = getCleanFrontendUrl();
         const emailResult = await sendParentApprovalEmail({
           visit,
           rawToken,
@@ -1035,7 +1036,7 @@ router.post('/home-visit', async (req, res) => {
         status: { $ne: 'REVOKED' },
       });
 
-      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const baseUrl = getCleanFrontendUrl();
       const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
 
       for (const g of guardians) {
@@ -1140,7 +1141,7 @@ router.post('/home-visit/:id/resend-email', async (req, res) => {
     visit.parent_token_hash = tokenHash;
     visit.parent_token_expires_at = expiresAt;
 
-    const baseUrl = (process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'https://iiitpune-hosteel-gate-management.vercel.app').replace(/\/+$/, '');
+    const baseUrl = getCleanFrontendUrl();
     const emailResult = await sendParentApprovalEmail({
       visit,
       rawToken,

@@ -16,6 +16,7 @@ const Guardian = require('../models/Guardian');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
 const { sendLeaveReminderEmail } = require('../services/mailService');
 const { getRedis } = require('../services/redisClient');
+const { getCleanFrontendUrl } = require('../utils/frontendUrl');
 const logger = require('../utils/logger');
 
 let localRunning = false;
@@ -96,7 +97,7 @@ const runParentApprovalCycle = async () => {
       .populate('student_id', 'name')
       .limit(50);
 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const baseUrl = getCleanFrontendUrl();
 
     for (const visit of reminderCandidates) {
       // Atomic claim so reminder is sent once

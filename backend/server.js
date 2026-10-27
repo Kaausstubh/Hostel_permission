@@ -45,6 +45,7 @@ const { apiLimiter } = require('./middleware/rateLimiters');
 const { protect, authorize } = require('./middleware/auth');
 const session = require('express-session');
 const passport = require('./config/passport');
+const { getCleanFrontendUrl } = require('./utils/frontendUrl');
 
 // ── QR Directory (Removed — now generating dynamically in memory) ──────────
 
@@ -348,6 +349,25 @@ app.post('/api/dev/trigger-alert', async (req, res) => {
   const { runNotReturnedAlert } = require('./jobs/notReturnedAlert');
   const result = await runNotReturnedAlert();
   res.json({ success: true, result });
+});
+
+// ── Frontend SPA Link Redirects (Fallback for email links hitting backend) ───
+// If a user clicks an email notification link that mistakenly resolves to the backend Render domain,
+// seamlessly 302 redirect them to the production Vercel frontend preserving path and query params.
+app.get([
+  '/home-visit/respond/:visitId',
+  '/home-visit/respond/:visitId/:token',
+  '/parent/requests/:id',
+  '/parent/requests',
+  '/parent/onboard',
+  '/parent/login',
+  '/parent/dashboard',
+  '/parent/reset-password',
+], (req, res) => {
+  const frontendBase = getCleanFrontendUrl();
+  const targetUrl = `${frontendBase}${req.originalUrl}`;
+  logger.info(`[Redirect] Redirecting backend SPA route hit to frontend: ${req.originalUrl} -> ${targetUrl}`);
+  return res.redirect(302, targetUrl);
 });
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
