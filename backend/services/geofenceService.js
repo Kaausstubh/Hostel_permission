@@ -356,15 +356,17 @@ const getHostelGeofenceConfig = async (hostel) => {
     } catch (_) { }
   }
   const hasDbCenter = dbGeofence?.center && typeof dbGeofence.center.lat === 'number';
-  const activeGeofence = hasDbCenter ? dbGeofence : fallbackGeofence;
+  const hasDbPolygon = Array.isArray(dbGeofence?.polygon) && dbGeofence.polygon.length >= 3;
+  const activeGeofence = (hasDbCenter || hasDbPolygon) ? dbGeofence : fallbackGeofence;
   return {
     hostel: normHostel,
-    name: fallbackGeofence.name || activeGeofence.name,
-    center: fallbackGeofence.center || activeGeofence.center,
-    radius_m: fallbackGeofence.radius_m ?? activeGeofence.radius_m ?? 22,
-    buffer_m: fallbackGeofence.buffer_m ?? activeGeofence.buffer_m ?? 0,
-    accuracy_threshold_m: fallbackGeofence.accuracy_threshold_m ?? activeGeofence.accuracy_threshold_m ?? 25,
-    auto_attendance: fallbackGeofence.auto_attendance !== undefined ? fallbackGeofence.auto_attendance : (activeGeofence.auto_attendance !== false),
+    name: activeGeofence.name || fallbackGeofence.name,
+    center: activeGeofence.center || fallbackGeofence.center,
+    polygon: activeGeofence.polygon || fallbackGeofence.polygon || [],
+    radius_m: activeGeofence.radius_m ?? fallbackGeofence.radius_m ?? 22,
+    buffer_m: activeGeofence.buffer_m ?? fallbackGeofence.buffer_m ?? 0,
+    accuracy_threshold_m: activeGeofence.accuracy_threshold_m ?? fallbackGeofence.accuracy_threshold_m ?? 25,
+    auto_attendance: activeGeofence.auto_attendance !== undefined ? activeGeofence.auto_attendance : (fallbackGeofence.auto_attendance !== false),
   };
 };
 
