@@ -864,6 +864,8 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
             hostel: round.hostel,
             floor: stFloor,
             roomNo: cleanRoomNo,
+            student_name: st.name || '',
+            student_rollNo: st.rollNo || '',
             status: 'on_leave',
             method: 'staff_marked',
             remark: 'On approved home visit leave',
@@ -1114,6 +1116,8 @@ const completeRound = async ({ roundId, staffUser }) => {
           hostel: round.hostel,
           floor: round.floor,
           roomNo: r.roomNo,
+          student_name: st.name || '',
+          student_rollNo: st.rollNo || '',
           status: finalStatus,
           method,
           verified_by: staffUser._id,
@@ -1195,20 +1199,21 @@ const requestAllRoomsInRound = async ({ roundId, staffUser }) => {
     };
   }
 
-  const results = [];
-  for (const r of eligibleRooms) {
-    try {
-      const res = await requestRoomAttendance({
-        roundId: round._id,
-        roomNo: r.roomNo,
-        staffUser,
-      });
-      results.push({ roomNo: r.roomNo, success: true, count: r.occupantCount });
-    } catch (err) {
-      logger.warn(`[Attendance] Auto-request room ${r.roomNo} skipped: ${err.message}`);
-      results.push({ roomNo: r.roomNo, success: false, error: err.message });
-    }
-  }
+  const results = await Promise.all(
+    eligibleRooms.map(async (r) => {
+      try {
+        await requestRoomAttendance({
+          roundId: round._id,
+          roomNo: r.roomNo,
+          staffUser,
+        });
+        return { roomNo: r.roomNo, success: true, count: r.occupantCount };
+      } catch (err) {
+        logger.warn(`[Attendance] Auto-request room ${r.roomNo} skipped: ${err.message}`);
+        return { roomNo: r.roomNo, success: false, error: err.message };
+      }
+    })
+  );
 
   const successfulRooms = results.filter((r) => r.success);
   const totalStudentsNotified = successfulRooms.reduce((sum, r) => sum + (r.count || 0), 0);

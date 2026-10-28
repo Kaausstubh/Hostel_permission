@@ -348,11 +348,11 @@ export default function HomeVisits() {
 
                       {/* Destination & Dates */}
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#f3f4f6' }}>{v.place || 'Home'}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', marginTop: 2 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-primary)' }}>{v.place || 'Home'}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, marginTop: 2 }}>
                           {v.leave_date} → {v.return_date}
                         </div>
-                        <div style={{ fontSize: 11.5, color: '#9ca3af', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }} title={v.reason}>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }} title={v.reason}>
                           {v.reason}
                         </div>
                       </td>
@@ -363,19 +363,31 @@ export default function HomeVisits() {
                           {renderParentStatusBadge(v)}
 
                           {primaryApproval && (
-                            <div style={{ fontSize: 11, color: '#93c5fd', marginTop: 2 }}>
-                              Decided by: <strong>{primaryApproval.decided_by_name || primaryApproval.decided_by_email}</strong>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Decided by: <strong style={{ color: 'var(--text-primary)' }}>{primaryApproval.decided_by_name || primaryApproval.decided_by_email}</strong>
                               <br />
                               Time:{' '}
-                              {new Date(primaryApproval.decided_at).toLocaleString('en-IN', {
-                                timeZone: 'Asia/Kolkata',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                day: '2-digit',
-                                month: 'short',
-                              })}
+                              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                                {primaryApproval.decided_at && !isNaN(new Date(primaryApproval.decided_at).getTime())
+                                  ? new Date(primaryApproval.decided_at).toLocaleString('en-IN', {
+                                      timeZone: 'Asia/Kolkata',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      day: '2-digit',
+                                      month: 'short',
+                                    })
+                                  : v.updatedAt && !isNaN(new Date(v.updatedAt).getTime())
+                                  ? new Date(v.updatedAt).toLocaleString('en-IN', {
+                                      timeZone: 'Asia/Kolkata',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      day: '2-digit',
+                                      month: 'short',
+                                    })
+                                  : 'Recorded'}
+                              </span>
                               {primaryApproval.remarks && (
-                                <div style={{ color: '#d1d5db', fontStyle: 'italic', marginTop: 2 }}>
+                                <div style={{ color: 'var(--text-primary)', fontStyle: 'italic', marginTop: 2 }}>
                                   "{primaryApproval.remarks}"
                                 </div>
                               )}
@@ -383,15 +395,15 @@ export default function HomeVisits() {
                           )}
 
                           {/* Quick Guardian Phone Info */}
-                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 500, marginTop: 2 }}>
                             {guardians.length > 0 ? (
                               guardians.map((g, idx) => (
                                 <div key={g._id || idx}>
-                                  {g.relationship}: {maskPhone(g.phone)}
+                                  {g.relationship}: <strong style={{ color: 'var(--text-primary)' }}>{maskPhone(g.phone)}</strong>
                                 </div>
                               ))
                             ) : (
-                              <div>Phone: {maskPhone(v.parent_phone || v.student_id?.parentPhone)}</div>
+                              <div>Phone: <strong style={{ color: 'var(--text-primary)' }}>{maskPhone(v.parent_phone || v.student_id?.parentPhone)}</strong></div>
                             )}
                           </div>
                         </div>
@@ -536,7 +548,7 @@ export default function HomeVisits() {
                 <span style={{ fontSize: 28 }}>📞</span>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Manual Phone Confirmation Override</h3>
-                  <div style={{ fontSize: 12, color: '#9ca3af' }}>Hostel Staff Emergency Fallback</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Hostel Staff Emergency Fallback</div>
                 </div>
               </div>
 
@@ -612,7 +624,7 @@ export default function HomeVisits() {
                     required
                     style={{ resize: 'vertical', fontSize: 13 }}
                   />
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
                     Minimum 5 characters. Stored permanently in audit log.
                   </div>
                 </div>

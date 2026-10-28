@@ -46,6 +46,18 @@ const attendanceRecordSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    // Denormalized student details to guarantee reports retain student identity
+    // even if accounts are modified or populate relations fail
+    student_name: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    student_rollNo: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     status: {
       type: String,
       enum: ['present', 'absent', 'on_leave'],

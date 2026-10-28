@@ -5,7 +5,9 @@
  */
 
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import api from '../services/api';
+import { resolveBackendOrigin } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -63,6 +65,34 @@ export default function AttendanceReports() {
 
   useEffect(() => {
     fetchReports();
+  }, [startDate, endDate, hostel, status]);
+
+  // Real-time synchronization: listen for live attendance events without manual refresh
+  useEffect(() => {
+    let socket = null;
+    try {
+      const token = localStorage.getItem('token');
+      const origin = resolveBackendOrigin();
+      socket = io(`${origin}/dashboard`, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+      });
+
+      socket.on('student_attendance_marked', () => {
+        fetchReports();
+      });
+      socket.on('room_attendance_updated', () => {
+        fetchReports();
+      });
+      socket.on('round_completed', () => {
+        fetchReports();
+      });
+    } catch (_) {}
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [startDate, endDate, hostel, status]);
 
   const handleExportPdf = async () => {
@@ -312,8 +342,16 @@ export default function AttendanceReports() {
                         <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>Room {r.roomNo}</span>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.student?.name || 'Unknown'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{r.student?.rollNo || '-'}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {r.student?.name && r.student.name !== 'Student'
+                            ? r.student.name
+                            : r.studentName || (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Student')}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                          {r.student?.rollNo && r.student.rollNo !== '—'
+                            ? r.student.rollNo
+                            : r.studentRollNo || '-'}
+                        </div>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span

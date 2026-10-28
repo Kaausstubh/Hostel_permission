@@ -2644,17 +2644,9 @@ export default function StudentDashboard() {
         } else {
           statusMsg += `\nStatus: QR active for return scan`;
         }
-      } else if (!passes || passes.length === 0) {
-        statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate Gate Pass* below to create a 15-minute gate pass.`;
       }
 
       const statusButtons = [];
-      if (!passes || passes.length === 0) {
-        statusButtons.push({
-          id: 'open_generate_pass_modal',
-          label: '⚡ Generate Gate Pass QR',
-        });
-      }
       const qrMap = {};
 
       if (s.pendingVisits?.length > 0) {
@@ -2756,12 +2748,7 @@ export default function StudentDashboard() {
         setHvData(prev => ({ ...prev, ...qrMap }));
       }
 
-      statusButtons.push({
-        id: 'attendance_records',
-        label: '📋 View Attendance Records',
-      });
-
-      botSay(statusMsg, 'buttons', { buttons: statusButtons });
+      botSay(statusMsg, statusButtons.length > 0 ? 'buttons' : 'text', statusButtons.length > 0 ? { buttons: statusButtons } : undefined);
 
       // Daily in/out only — home visit QR opens via button (prevents duplicate cards).
       const inoutPass = passes.find((p) => p.id === 'inout');
