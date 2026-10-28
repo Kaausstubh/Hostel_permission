@@ -182,9 +182,9 @@ const sessionConfig = {
   },
 };
 
-// ── Dynamic Session middleware (prevents startup race conditions with Redis) ──
+// ── Dynamic Session middleware (OAuth only — avoids overhead on regular API calls) ──
 let sessionMiddleware;
-app.use((req, res, next) => {
+app.use('/api/auth/google', (req, res, next) => {
   if (sessionMiddleware) {
     return sessionMiddleware(req, res, next);
   }
@@ -209,7 +209,7 @@ app.use((req, res, next) => {
 
 // ── Passport (OAuth) ──────────────────────────────────────────────────────────
 app.use(passport.initialize());
-app.use(passport.session());
+app.use('/api/auth/google', passport.session());
 
 // Compression (before any route handling)
 app.use(compression({ threshold: 1024 }));
@@ -482,6 +482,25 @@ server.listen(PORT, async () => {
 
   // Campus config validation report
   await logCampusStartup();
+
+  // ── Production Keep-Alive & Anti-Cold-Start Pinger ───────────────────────────
+  // Aligns keep-alive with Render/Cloudflare upstream proxy to reuse TCP sockets
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+
+  const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || process.env.SERVER_URL;
+  if (keepAliveUrl && process.env.NODE_ENV === 'production') {
+    const pingEndpoint = `${keepAliveUrl.replace(/\/$/, '')}/health`;
+    logger.info(`[KeepAlive] 🟢 Production self-ping active (every 13m): ${pingEndpoint}`);
+    const client = pingEndpoint.startsWith('https') ? require('https') : require('http');
+    setInterval(() => {
+      client.get(pingEndpoint, (res) => {
+        logger.info(`[KeepAlive] Heartbeat ping ok (${res.statusCode})`);
+      }).on('error', (err) => {
+        logger.warn(`[KeepAlive] Heartbeat ping failed: ${err.message}`);
+      });
+    }, 13 * 60 * 1000); // 13 minutes (Render free-tier inactivity threshold is 15m)
+  }
 });
 
 // ── Graceful Shutdown ─────────────────────────────────────────────────────────

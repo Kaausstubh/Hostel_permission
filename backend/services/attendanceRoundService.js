@@ -447,19 +447,36 @@ const getRoundRoomsSummary = async (roundId) => {
       .map(([roomNo]) => roomNo);
 
     if (roomsWithoutAllocations.length > 0) {
+      const roomVariants = new Set(roomsWithoutAllocations);
+      for (const rNo of roomsWithoutAllocations) {
+        const digits = rNo.replace(/\D+/g, '');
+        if (digits) {
+          roomVariants.add(digits);
+          roomVariants.add(`B${digits}`);
+          roomVariants.add(`A${digits}`);
+          roomVariants.add(`C${digits}`);
+        }
+      }
+
       const legacyStudents = await User.find({
         role: 'student',
         isActive: true,
         hostel: getStudentHostelFilter(round.hostel),
-        roomNo: { $in: roomsWithoutAllocations },
+        roomNo: { $in: Array.from(roomVariants) },
       })
         .select('_id name rollNo hostel roomNo studentPhoto picture phone')
         .lean();
 
       for (const student of legacyStudents) {
-        const roomNo = (student.roomNo || '').trim().toUpperCase();
-        if (roomsMap.has(roomNo) && roomsMap.get(roomNo).length === 0) {
-          roomsMap.get(roomNo).push(student);
+        const rawR = (student.roomNo || '').trim().toUpperCase();
+        const digits = rawR.replace(/\D+/g, '');
+        for (const [targetRoomNo] of roomsMap.entries()) {
+          const targetDigits = targetRoomNo.replace(/\D+/g, '');
+          if (targetRoomNo === rawR || (digits && targetDigits === digits)) {
+            if (!roomsMap.get(targetRoomNo).some((existing) => String(existing._id) === String(student._id))) {
+              roomsMap.get(targetRoomNo).push(student);
+            }
+          }
         }
       }
     }
@@ -632,11 +649,16 @@ const getRoomDetails = async (roundId, roomNo) => {
 
   // Fallback if not found via RoomAllocation
   if (students.length === 0) {
+    const digitsOnly = cleanRoomNo.replace(/\D+/g, '');
+    const roomVariants = [cleanRoomNo];
+    if (digitsOnly && digitsOnly !== cleanRoomNo) roomVariants.push(digitsOnly);
+    if (digitsOnly) roomVariants.push(`B${digitsOnly}`, `A${digitsOnly}`, `C${digitsOnly}`, `D${digitsOnly}`);
+
     students = await User.find({
       role: 'student',
       isActive: true,
       hostel: getStudentHostelFilter(round.hostel),
-      roomNo: cleanRoomNo,
+      roomNo: { $in: roomVariants },
     })
       .select('_id name rollNo hostel roomNo phone email studentPhoto picture')
       .lean();
@@ -751,11 +773,16 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
   // Legacy student records may have a room number but no RoomAllocation yet.
   // Fall back to that roster when this room has no active allocations.
   if (students.length === 0) {
+    const digitsOnly = cleanRoomNo.replace(/\D+/g, '');
+    const roomVariants = [cleanRoomNo];
+    if (digitsOnly && digitsOnly !== cleanRoomNo) roomVariants.push(digitsOnly);
+    if (digitsOnly) roomVariants.push(`B${digitsOnly}`, `A${digitsOnly}`, `C${digitsOnly}`, `D${digitsOnly}`);
+
     students = await User.find({
       role: 'student',
       isActive: true,
       hostel: getStudentHostelFilter(round.hostel),
-      roomNo: cleanRoomNo,
+      roomNo: { $in: roomVariants },
     }).lean();
   }
 
@@ -864,6 +891,8 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
             hostel: round.hostel,
             floor: stFloor,
             roomNo: cleanRoomNo,
+            student_name: st.name || '',
+            student_rollNo: st.rollNo || '',
             status: 'on_leave',
             method: 'staff_marked',
             remark: 'On approved home visit leave',
@@ -1114,6 +1143,8 @@ const completeRound = async ({ roundId, staffUser }) => {
           hostel: round.hostel,
           floor: round.floor,
           roomNo: r.roomNo,
+          student_name: st.name || '',
+          student_rollNo: st.rollNo || '',
           status: finalStatus,
           method,
           verified_by: staffUser._id,
@@ -1195,20 +1226,21 @@ const requestAllRoomsInRound = async ({ roundId, staffUser }) => {
     };
   }
 
-  const results = [];
-  for (const r of eligibleRooms) {
-    try {
-      const res = await requestRoomAttendance({
-        roundId: round._id,
-        roomNo: r.roomNo,
-        staffUser,
-      });
-      results.push({ roomNo: r.roomNo, success: true, count: r.occupantCount });
-    } catch (err) {
-      logger.warn(`[Attendance] Auto-request room ${r.roomNo} skipped: ${err.message}`);
-      results.push({ roomNo: r.roomNo, success: false, error: err.message });
-    }
-  }
+  const results = await Promise.all(
+    eligibleRooms.map(async (r) => {
+      try {
+        await requestRoomAttendance({
+          roundId: round._id,
+          roomNo: r.roomNo,
+          staffUser,
+        });
+        return { roomNo: r.roomNo, success: true, count: r.occupantCount };
+      } catch (err) {
+        logger.warn(`[Attendance] Auto-request room ${r.roomNo} skipped: ${err.message}`);
+        return { roomNo: r.roomNo, success: false, error: err.message };
+      }
+    })
+  );
 
   const successfulRooms = results.filter((r) => r.success);
   const totalStudentsNotified = successfulRooms.reduce((sum, r) => sum + (r.count || 0), 0);

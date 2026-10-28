@@ -46,6 +46,18 @@ const attendanceRecordSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    // Denormalized student details to guarantee reports retain student identity
+    // even if accounts are modified or populate relations fail
+    student_name: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    student_rollNo: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     status: {
       type: String,
       enum: ['present', 'absent', 'on_leave'],
@@ -96,6 +108,7 @@ const attendanceRecordSchema = new mongoose.Schema(
 
 // Strict unique constraint: one attendance record per student per date per session
 attendanceRecordSchema.index({ student_id: 1, date: 1, session: 1 }, { unique: true });
+attendanceRecordSchema.index({ student_id: 1, date: -1 });
 attendanceRecordSchema.index({ date: 1, session: 1, hostel: 1, floor: 1 });
 attendanceRecordSchema.index({ hostel: 1, date: 1, status: 1 });
 

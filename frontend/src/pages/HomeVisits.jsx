@@ -186,49 +186,50 @@ export default function HomeVisits() {
     if (pStatus === 'parent_approved') {
       if (pSource === 'STAFF_PHONE_OVERRIDE') {
         return (
-          <span className="badge badge-approved" style={{ fontSize: 11, background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}>
+          <span className="badge badge-approved" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.4)', color: '#0284c7' }}>
             📞 Staff Override
           </span>
         );
       }
-      return <span className="badge badge-approved" style={{ fontSize: 11 }}>✅ Parent Approved</span>;
+      return <span className="badge badge-approved" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#059669' }}>✅ Parent Approved</span>;
     }
     if (pStatus === 'parent_rejected') {
-      return <span className="badge badge-rejected" style={{ fontSize: 11 }}>❌ Parent Rejected</span>;
+      return <span className="badge badge-rejected" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#dc2626' }}>❌ Parent Rejected</span>;
     }
     if (pStatus === 'parent_no_response') {
-      return <span className="badge badge-rejected" style={{ fontSize: 11, background: 'rgba(239, 68, 68, 0.15)' }}>⌛ Expired (No Response)</span>;
+      return <span className="badge badge-rejected" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#dc2626' }}>⌛ Expired (No Response)</span>;
     }
     if (visit.email_notification_status === 'FAILED') {
-      return <span className="badge badge-rejected" style={{ fontSize: 11, background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5' }}>⚠️ Email Failed</span>;
+      return <span className="badge badge-rejected" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#dc2626' }}>⚠️ Email Failed</span>;
     }
-    return <span className="badge badge-pending" style={{ fontSize: 11 }}>⏳ Pending Parent Decision</span>;
+    return <span className="badge badge-pending" style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: '#d97706' }}>⏳ Pending Parent Decision</span>;
   };
 
   const renderOverallStatusBadge = (v) => {
     if (v.overall_status === 'approved') {
-      return <span className="badge badge-approved">Approved</span>;
+      return <span className="badge badge-approved" style={{ fontWeight: 700, background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#059669' }}>Approved</span>;
     }
     if (v.overall_status === 'rejected') {
-      if (v.parent_approval_status === 'parent_rejected') {
-        return <span className="badge badge-rejected">Parent Rejected</span>;
-      }
-      return <span className="badge badge-rejected">Rejected</span>;
+      return (
+        <span className="badge badge-rejected" style={{ fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#dc2626' }}>
+          {v.parent_approval_status === 'parent_rejected' ? 'Parent Rejected' : 'Rejected'}
+        </span>
+      );
     }
     if (v.email_notification_status === 'FAILED') {
-      return <span className="badge badge-rejected" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)' }}>Notification Failed</span>;
+      return <span className="badge badge-rejected" style={{ fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', color: '#dc2626', border: '1px solid rgba(239, 68, 68, 0.4)' }}>Notification Failed</span>;
     }
     if (v.parent_approval_status === 'parent_approved' && v.warden_status === 'pending') {
       return (
-        <span className="badge badge-pending" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', whiteSpace: 'nowrap' }}>
+        <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', color: '#0284c7', border: '1px solid rgba(56, 189, 248, 0.4)', whiteSpace: 'nowrap' }}>
           Parent Approved — Awaiting Warden
         </span>
       );
     }
     if (v.parent_approval_status === 'pending') {
-      return <span className="badge badge-pending" style={{ whiteSpace: 'nowrap' }}>Awaiting Parent Approval</span>;
+      return <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(245, 158, 11, 0.15)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.4)', whiteSpace: 'nowrap' }}>Awaiting Parent Approval</span>;
     }
-    return <span className={`badge badge-${v.overall_status}`}>{v.overall_status}</span>;
+    return <span className={`badge badge-${v.overall_status}`} style={{ fontWeight: 700 }}>{v.overall_status?.toUpperCase()}</span>;
   };
 
   return (
@@ -317,6 +318,22 @@ export default function HomeVisits() {
                     v.parent_approval_status === 'parent_approved' ||
                     Boolean(v.parent_call_confirmed);
 
+                  const getDecisionTimeStr = () => {
+                    const raw = primaryApproval?.decided_at || v.parent_decision_at || v.parent_response_time || v.updatedAt || v.createdAt;
+                    if (!raw) return 'Recorded';
+                    const d = new Date(raw);
+                    if (isNaN(d.getTime())) return 'Recorded';
+                    return d.toLocaleString('en-IN', {
+                      timeZone: 'Asia/Kolkata',
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                    });
+                  };
+
                   return (
                     <tr key={v._id}>
                       {/* Student */}
@@ -328,18 +345,18 @@ export default function HomeVisits() {
                             name={v.student_id?.name || v.name}
                           />
                           <div>
-                            <div style={{ fontWeight: 600 }}>{v.student_id?.name || v.name || 'Unknown'}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{v.student_id?.rollNo || v.rollNo || '—'}</div>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text-primary, #0f172a)' }}>{v.student_id?.name || v.name || 'Unknown'}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary, #334155)', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>{v.student_id?.rollNo || v.rollNo || '—'}</div>
                           </div>
                         </div>
                       </td>
 
                       {/* Hostel */}
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span className="badge badge-out">{getHostelLabel(v.student_id?.hostel || v.hostel)}</span>
                           {(v.student_id?.roomNo || v.roomNo) && (
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>
                               Room {v.student_id?.roomNo || v.roomNo}
                             </span>
                           )}
@@ -348,34 +365,33 @@ export default function HomeVisits() {
 
                       {/* Destination & Dates */}
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#f3f4f6' }}>{v.place || 'Home'}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', marginTop: 2 }}>
-                          {v.leave_date} → {v.return_date}
+                        <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text-primary, #0f172a)' }}>{v.place || 'Home'}</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-primary, #0f172a)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, marginTop: 3 }}>
+                          📅 {v.leave_date} → {v.return_date}
                         </div>
-                        <div style={{ fontSize: 11.5, color: '#9ca3af', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }} title={v.reason}>
-                          {v.reason}
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary, #334155)', fontWeight: 600, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3 }} title={v.reason}>
+                          📝 {v.reason || 'Going Home'}
                         </div>
                       </td>
 
                       {/* Parent Approval Panel */}
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 190 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 195 }}>
                           {renderParentStatusBadge(v)}
 
                           {primaryApproval && (
-                            <div style={{ fontSize: 11, color: '#93c5fd', marginTop: 2 }}>
-                              Decided by: <strong>{primaryApproval.decided_by_name || primaryApproval.decided_by_email}</strong>
-                              <br />
-                              Time:{' '}
-                              {new Date(primaryApproval.decided_at).toLocaleString('en-IN', {
-                                timeZone: 'Asia/Kolkata',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                day: '2-digit',
-                                month: 'short',
-                              })}
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 3, lineHeight: 1.4 }}>
+                              <div>
+                                Decided by: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 800 }}>{primaryApproval.decided_by_name || primaryApproval.decided_by_email || 'Parent / Guardian'}</strong>
+                              </div>
+                              <div>
+                                Time:{' '}
+                                <span style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>
+                                  {getDecisionTimeStr()}
+                                </span>
+                              </div>
                               {primaryApproval.remarks && (
-                                <div style={{ color: '#d1d5db', fontStyle: 'italic', marginTop: 2 }}>
+                                <div style={{ color: 'var(--text-primary, #0f172a)', fontStyle: 'italic', marginTop: 2, fontWeight: 500 }}>
                                   "{primaryApproval.remarks}"
                                 </div>
                               )}
@@ -383,15 +399,15 @@ export default function HomeVisits() {
                           )}
 
                           {/* Quick Guardian Phone Info */}
-                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 3 }}>
                             {guardians.length > 0 ? (
                               guardians.map((g, idx) => (
                                 <div key={g._id || idx}>
-                                  {g.relationship}: {maskPhone(g.phone)}
+                                  {g.relationship}: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(g.phone)}</strong>
                                 </div>
                               ))
                             ) : (
-                              <div>Phone: {maskPhone(v.parent_phone || v.student_id?.parentPhone)}</div>
+                              <div>Phone: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(v.parent_phone || v.student_id?.parentPhone)}</strong></div>
                             )}
                           </div>
                         </div>
@@ -494,8 +510,8 @@ export default function HomeVisits() {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                            {v.overall_status === 'completed' ? '✅ Done' : (v.overall_status || '—')}
+                          <span style={{ color: 'var(--text-secondary, #334155)', fontSize: 12.5, fontWeight: 600, textTransform: 'capitalize' }}>
+                            {v.overall_status === 'completed' ? '✅ Completed' : (v.overall_status || '—').replace(/_/g, ' ')}
                           </span>
                         )}
                       </td>
@@ -536,7 +552,7 @@ export default function HomeVisits() {
                 <span style={{ fontSize: 28 }}>📞</span>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Manual Phone Confirmation Override</h3>
-                  <div style={{ fontSize: 12, color: '#9ca3af' }}>Hostel Staff Emergency Fallback</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Hostel Staff Emergency Fallback</div>
                 </div>
               </div>
 
@@ -612,7 +628,7 @@ export default function HomeVisits() {
                     required
                     style={{ resize: 'vertical', fontSize: 13 }}
                   />
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
                     Minimum 5 characters. Stored permanently in audit log.
                   </div>
                 </div>

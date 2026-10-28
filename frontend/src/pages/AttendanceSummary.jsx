@@ -7,7 +7,9 @@
  */
 
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import api from '../services/api';
+import { resolveBackendOrigin } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import {
   MdMeetingRoom,
@@ -50,8 +52,27 @@ export default function AttendanceSummary() {
 
   useEffect(() => {
     fetchSummary();
-    const interval = setInterval(() => fetchSummary(true), 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => fetchSummary(true), 10000);
+
+    let socket = null;
+    try {
+      const token = localStorage.getItem('token');
+      const origin = resolveBackendOrigin();
+      socket = io(`${origin}/dashboard`, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+      });
+      socket.on('student_attendance_marked', () => fetchSummary(true));
+      socket.on('room_attendance_updated', () => fetchSummary(true));
+      socket.on('round_completed', () => fetchSummary(true));
+      socket.on('night_attendance_updated', () => fetchSummary(true));
+    } catch (_) {}
+
+    return () => {
+      clearInterval(interval);
+      if (socket) socket.disconnect();
+    };
   }, [selectedDate, hostel]);
 
   return (
@@ -166,7 +187,7 @@ export default function AttendanceSummary() {
         {/* Rounds Conducted Today */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 18 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <MdMeetingRoom size={20} color="var(--primary)" /> Floor Rounds for {selectedDate}
+            <MdMeetingRoom size={20} color="var(--primary)" /> Floor Rounds for {selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? `${selectedDate.split('-')[2]}/${selectedDate.split('-')[1]}/${selectedDate.split('-')[0]}` : selectedDate}
           </h2>
 
           {summaryData?.rounds?.length === 0 ? (

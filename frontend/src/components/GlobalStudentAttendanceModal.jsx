@@ -134,15 +134,24 @@ export default function GlobalStudentAttendanceModal({
             setResultState('OUTSIDE');
             setDistanceAway(err.response?.data?.distanceMeters || null);
             setResultMessage(msg);
+            setTimeout(() => {
+              setIsMinimized(true);
+            }, 2500);
           } else if (code === 'LOW_GPS_ACCURACY') {
             setResultState('LOW_ACCURACY');
             setResultMessage(msg);
+            setTimeout(() => {
+              setIsMinimized(true);
+            }, 2500);
           } else if (code === 'REQUEST_EXPIRED') {
             setResultState('EXPIRED');
             setResultMessage('This attendance request has already expired.');
           } else {
             setResultState('ERROR');
             setResultMessage(msg);
+            setTimeout(() => {
+              setIsMinimized(true);
+            }, 2500);
           }
         } finally {
           setVerifying(false);
@@ -460,6 +469,30 @@ export default function GlobalStudentAttendanceModal({
             )}
           </button>
         )}
+
+        {/* Minimize Action Button */}
+        <button
+          type="button"
+          onClick={() => setIsMinimized(true)}
+          style={{
+            width: '100%',
+            marginTop: 8,
+            padding: '10px 16px',
+            borderRadius: 12,
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: '#cbd5e1',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+          }}
+        >
+          Minimize to Floating Badge
+        </button>
 
         {/* Helper Footer */}
         <div style={{ textAlign: 'center', marginTop: 14, fontSize: 12, color: '#64748b' }}>

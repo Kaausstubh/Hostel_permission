@@ -29,6 +29,8 @@ const buildAbsentRecord = async (attempt, student, reason, now) => {
         hostel: attempt.hostel,
         floor: student?.roomNo ? String(student.roomNo).trim() : '',
         roomNo: student?.roomNo || 'Assigned',
+        student_name: student?.name || '',
+        student_rollNo: student?.rollNo || '',
         status: 'absent',
         method: 'self_approved',
         verified_by: null,

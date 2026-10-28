@@ -132,8 +132,10 @@ const buildFrontendRedirect = (baseUrl, token, user) => {
       roomNo:       user.roomNo || null,
       rollNo:       user.rollNo || null,
       phone:        user.phone || null,
+      parentEmail:  user.parentEmail || null,
       parentPhone:  user.parentPhone || null,
       parentPhone2: user.parentPhone2 || null,
+      hasGuardians: Boolean(user.parentEmail || user.parentPhone),
     })
   ).toString('base64');
 
@@ -438,9 +440,9 @@ router.post('/login', async (req, res) => {
         hostel: user.hostel || null,
         roomNo: user.roomNo || null,
         phone: user.phone || null,
+        parentEmail: user.parentEmail || null,
         parentPhone: user.parentPhone || null,
         parentPhone2: user.parentPhone2 || null,
-        parentEmail: user.parentEmail || null,
         parentName: user.parentName || null,
         hasGuardians,
       },
@@ -468,11 +470,21 @@ router.post('/complete-guardian-details', protect, authorize('student'), async (
       actorId: req.user._id,
     });
 
+    const normParentEmail = String(guardian1.email || '').trim().toLowerCase();
+    await User.findByIdAndUpdate(req.user._id, {
+      parentEmail: normParentEmail,
+      parentPhone: guardian1.phone,
+      parentPhone2: guardian2.phone,
+    }).catch(() => {});
+    await invalidateUserCache(String(req.user._id));
+
     const { isMailConfigured } = require('../services/mailService');
     const mailActive = isMailConfigured();
 
     return res.json({
       success: true,
+      hasGuardians: true,
+      parentEmail: normParentEmail,
       mailConfigured: mailActive,
       message: mailActive
         ? 'Guardian details saved and invitations dispatched successfully to parent inboxes.'
@@ -860,7 +872,7 @@ router.get('/me', protect, async (req, res) => {
     try {
       const Guardian = require('../models/Guardian');
       const gCount = await Guardian.countDocuments({ student_id: u._id });
-      hasGuardians = gCount > 0;
+      hasGuardians = gCount > 0 || Boolean(u.parentEmail);
     } catch {
       hasGuardians = true;
     }
@@ -880,6 +892,7 @@ router.get('/me', protect, async (req, res) => {
       roomNo:       u.roomNo || null,
       rollNo:       u.rollNo || null,
       phone:        u.phone || null,
+      parentEmail:  u.parentEmail || null,
       parentPhone:  u.parentPhone || null,
       parentPhone2: u.parentPhone2 || null,
       hasGuardians,

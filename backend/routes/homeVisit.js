@@ -193,7 +193,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       });
     }
 
-    // 1. Resolve parent contact details strictly from registered guardians or verified records
+    // 1. Resolve parent contact details: fetch all registered guardians for student (Father and Mother)
     let parentEmail = null;
     let parentName = '';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -203,32 +203,39 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       status: { $ne: 'REVOKED' },
     }).sort({ guardian_slot: 1 }).lean();
 
-    const allowedGuardianEmails = registeredGuardians.map((g) => g.email.toLowerCase());
-    if (req.user.parentEmail && emailRegex.test(req.user.parentEmail)) {
-      allowedGuardianEmails.push(req.user.parentEmail.toLowerCase());
+    const targetParentEmails = [];
+    registeredGuardians.forEach((g) => {
+      if (g.email && emailRegex.test(String(g.email).trim())) {
+        const em = String(g.email).trim().toLowerCase();
+        if (!targetParentEmails.includes(em)) targetParentEmails.push(em);
+      }
+    });
+
+    if (req.user.parentEmail && emailRegex.test(String(req.user.parentEmail).trim())) {
+      const em = String(req.user.parentEmail).trim().toLowerCase();
+      if (!targetParentEmails.includes(em)) targetParentEmails.push(em);
     }
 
     if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
-      const chosenEmail = String(req.body.parent_email).trim().toLowerCase();
-      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosenEmail);
-
-      if (matchedGuardian) {
-        parentEmail = matchedGuardian.email;
+      const chosen = String(req.body.parent_email).trim().toLowerCase();
+      if (!targetParentEmails.includes(chosen)) targetParentEmails.push(chosen);
+      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosen);
+      if (matchedGuardian?.name) {
         parentName = matchedGuardian.name;
-      } else {
-        parentEmail = chosenEmail;
-        parentName = String(req.body.parent_name || req.user.parentName || 'Parent / Guardian').trim();
-      }
-    } else {
-      const primaryGuardian = registeredGuardians[0];
-      if (primaryGuardian && primaryGuardian.email) {
-        parentEmail = primaryGuardian.email.trim().toLowerCase();
-        parentName = primaryGuardian.name || '';
-      } else if (req.user.parentEmail && emailRegex.test(req.user.parentEmail)) {
-        parentEmail = req.user.parentEmail.trim().toLowerCase();
-        parentName = req.user.parentName || '';
       }
     }
+
+    if (Array.isArray(req.body.guardian_emails)) {
+      req.body.guardian_emails.forEach((em) => {
+        if (em && emailRegex.test(String(em).trim())) {
+          const norm = String(em).trim().toLowerCase();
+          if (!targetParentEmails.includes(norm)) targetParentEmails.push(norm);
+        }
+      });
+    }
+
+    parentEmail = targetParentEmails[0] || null;
+    parentName = registeredGuardians[0]?.name || req.user.parentName || 'Parent / Guardian';
 
     if (parentEmail) {
       await User.findByIdAndUpdate(req.user._id, {
@@ -276,6 +283,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       parent_phone: req.user.parentPhone ? normalizeToE164(req.user.parentPhone) : null,
       parent_phone_alt: req.user.parentPhone2 ? normalizeToE164(req.user.parentPhone2) : null,
       parent_email: parentEmail,
+      guardian_emails: targetParentEmails,
       parent_name: parentName,
       departure_time: req.body.departure_time || '09:00 AM',
       return_time: req.body.return_time || '08:00 PM',
@@ -284,8 +292,8 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       parent_approval_status: 'pending',
       warden_status: 'pending',
       overall_status: 'pending',
-      email_notification_status: parentEmail ? 'PENDING' : 'FAILED',
-      email_failure_reason: parentEmail ? null : 'No registered parent email address found for student',
+      email_notification_status: targetParentEmails.length > 0 ? 'PENDING' : 'FAILED',
+      email_failure_reason: targetParentEmails.length > 0 ? null : 'No registered parent email address found for student',
       qr_token: persistentToken,
       accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
@@ -296,59 +304,63 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       pass_type: 'HOME_VISIT',
       home_visit_id: visit._id,
       qr_token: persistentToken,
-      status: 'PENDING',
+      status: 'AWAITING_APPROVAL',
       place: visit.place,
       reason: visit.reason,
     }).catch((gpErr) => console.warn('[HomeVisit] GatePass creation notice:', gpErr.message));
 
-    // 4. Automated Parent Email Notification via Google Apps Script (Free Tier)
+    // 4. Automated Parent Email Notification via Google Apps Script (Free Tier) to BOTH parents
     let emailDispatchSuccess = false;
     let approvalPageUrl = null;
+    const dispatchResults = [];
 
-    if (parentEmail) {
-      try {
-        const baseUrl = getCleanFrontendUrl();
-        const emailResult = await sendParentApprovalEmail({
-          visit,
-          rawToken,
-          parentEmail,
-          baseUrl,
-        });
+    if (targetParentEmails.length > 0) {
+      const baseUrl = getCleanFrontendUrl();
 
-        approvalPageUrl = emailResult.approvalUrl;
+      for (const email of targetParentEmails) {
+        try {
+          const emailResult = await sendParentApprovalEmail({
+            visit,
+            rawToken,
+            parentEmail: email,
+            baseUrl,
+          });
 
-        if (emailResult.success) {
-          emailDispatchSuccess = true;
-          visit.email_notification_status = 'SUBMITTED';
-          visit.email_sent_at = new Date();
-          visit.email_failure_reason = null;
-        } else {
-          visit.email_notification_status = 'FAILED';
-          visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
+          if (emailResult.success) {
+            emailDispatchSuccess = true;
+            approvalPageUrl = emailResult.approvalUrl;
+          }
+          dispatchResults.push({ email, success: emailResult.success, error: emailResult.error });
+
+          ApprovalAuditLog.create({
+            event: 'REQUEST_NOTIFIED',
+            home_visit_request_id: visit._id,
+            student_id: req.user._id,
+            actor_id: req.user._id,
+            actor_role: 'student',
+            actor_email: req.user.email,
+            ip_address: req.ip,
+            details: {
+              parentEmail: email,
+              notificationStatus: emailResult.success ? 'SUBMITTED' : 'FAILED',
+              error: emailResult.error || null,
+            },
+          }).catch(() => {});
+        } catch (notifyErr) {
+          logger.warn(`[HomeVisit] Parent notification dispatch error for ${email}:`, notifyErr.message);
+          dispatchResults.push({ email, success: false, error: notifyErr.message });
         }
-        await visit.save();
-
-        ApprovalAuditLog.create({
-          event: 'REQUEST_NOTIFIED',
-          home_visit_request_id: visit._id,
-          student_id: req.user._id,
-          actor_id: req.user._id,
-          actor_role: 'student',
-          actor_email: req.user.email,
-          ip_address: req.ip,
-          details: {
-            parentEmail,
-            notificationStatus: visit.email_notification_status,
-            error: visit.email_failure_reason,
-          },
-        }).catch(() => {});
-      } catch (notifyErr) {
-        logger.warn('[HomeVisit] Parent notification dispatch error:', notifyErr.message);
-        visit.email_notification_status = 'FAILED';
-        visit.email_failure_reason = notifyErr.message;
-        await visit.save();
       }
-    // Also notify secondary linked guardian if registered (avoid duplicating if primary email is the same)
+
+      visit.email_notification_status = emailDispatchSuccess ? 'SUBMITTED' : 'FAILED';
+      visit.email_sent_at = emailDispatchSuccess ? new Date() : null;
+      visit.email_failure_reason = emailDispatchSuccess
+        ? null
+        : (dispatchResults.map((r) => `${r.email}: ${r.error || 'Failed'}`).join('; ') || 'Failed to dispatch email');
+      await visit.save();
+    }
+
+    // Also notify secondary linked guardian if registered (avoid duplicating if already sent)
     try {
       const guardians = await Guardian.find({
         student_id: req.user._id,
@@ -359,7 +371,7 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
 
       for (const g of guardians) {
-        if (parentEmail && g.email.trim().toLowerCase() === parentEmail.trim().toLowerCase()) {
+        if (targetParentEmails.includes(g.email.trim().toLowerCase())) {
           continue;
         }
         sendLeaveRequestEmail({
@@ -382,10 +394,11 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: parentEmail
-        ? `Home visit request submitted. Digital approval notification sent to parent (${parentEmail}).`
+      message: targetParentEmails.length > 0
+        ? `Home visit request submitted. Digital approval notification sent to registered parent(s): ${targetParentEmails.join(', ')}.`
         : 'Home visit request submitted. Note: No parent email is registered; please notify warden.',
       parentEmail,
+      guardianEmails: targetParentEmails,
       emailSent: emailDispatchSuccess,
       email_notification_status: visit.email_notification_status,
       visit: cleanVisit,

@@ -250,6 +250,9 @@ export default function ParentLogin() {
 
         <div className="login-footer" style={{ marginTop: 24, textAlign: 'center' }}>
           Student or Hostel Staff? <Link to="/login">Click here to sign in</Link>
+          <div style={{ marginTop: 8, fontSize: 12 }}>
+            <Link to="/privacy-policy" style={{ color: 'var(--text-muted)' }}>Privacy Policy</Link>
+          </div>
         </div>
       </div>
     </div>

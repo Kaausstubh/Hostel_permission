@@ -93,6 +93,12 @@ export default function AttendanceFloorRound() {
         }
       });
 
+      socket.on('student_attendance_marked', (data) => {
+        if (!data || !data.hostel || !round || data.hostel === round.hostel) {
+          fetchRooms(true);
+        }
+      });
+
       socket.on('round_completed', (data) => {
         if (!data || !data.roundId || String(data.roundId) === String(roundId)) {
           fetchRooms(true);
@@ -278,7 +284,7 @@ export default function AttendanceFloorRound() {
                   {round?.hostel} · {round?.floor?.toLowerCase().includes('all') ? 'All Students' : `Floor ${round?.floor}`}
                 </h2>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {round?.session_name} · {round?.date} {round?.status === 'completed' && <strong style={{ color: 'var(--success)' }}>(Locked)</strong>}
+                  {round?.session_name} · {round?.date && /^\d{4}-\d{2}-\d{2}$/.test(round.date) ? `${round.date.split('-')[2]}/${round.date.split('-')[1]}/${round.date.split('-')[0]}` : round?.date} {round?.status === 'completed' && <strong style={{ color: 'var(--success)' }}>(Locked)</strong>}
                 </div>
               </div>
             </div>

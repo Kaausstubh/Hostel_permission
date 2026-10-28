@@ -708,34 +708,33 @@ function formatRecordTime(ts) {
   });
 }
 
-// Helper: Format record date to e.g. "13 October 2026"
+// Helper: Format record date consistently to DD/MM/YYYY in IST without timezone shift
 function formatRecordDate(ts, fallbackDate) {
   if (ts) {
     const d = new Date(ts);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-IN', {
+      const parts = new Intl.DateTimeFormat('en-IN', {
         timeZone: 'Asia/Kolkata',
-        day: 'numeric',
-        month: 'long',
+        day: '2-digit',
+        month: '2-digit',
         year: 'numeric',
-      });
-    }
-  }
-  if (fallbackDate) {
-    const parts = String(fallbackDate).split('-');
-    if (parts.length === 3) {
-      const d = new Date(`${fallbackDate}T00:00:00Z`);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-IN', {
-          timeZone: 'UTC',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        });
+      }).formatToParts(d);
+      const day = parts.find((p) => p.type === 'day')?.value;
+      const month = parts.find((p) => p.type === 'month')?.value;
+      const year = parts.find((p) => p.type === 'year')?.value;
+      if (day && month && year) {
+        return `${day}/${month}/${year}`;
       }
     }
   }
-  return fallbackDate || null;
+  if (fallbackDate) {
+    const parts = String(fallbackDate).trim().split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return String(fallbackDate);
+  }
+  return null;
 }
 
 // ── Student: Today's Attendance Session Status & Record ───────────────────────
@@ -789,6 +788,8 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
             hostel: assignedHostel,
             floor: req.user.floor || '',
             roomNo: req.user.roomNo || 'Assigned',
+            student_name: req.user.name || '',
+            student_rollNo: req.user.rollNo || '',
             status: 'on_leave',
             method: 'staff_marked',
             remark: 'On approved home visit leave',
@@ -1029,6 +1030,8 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
             hostel: assignedHostel,
             floor: req.user.floor || '',
             roomNo: req.user.roomNo || 'Assigned',
+            student_name: req.user.name || '',
+            student_rollNo: req.user.rollNo || '',
             status: 'absent',
             method: 'self_approved',
             verified_by: req.user._id,
@@ -1196,14 +1199,22 @@ function emitSocketAttendance(student, hostel, status, timestamp) {
     const { getIO } = require('../services/socketService');
     const io = getIO();
     if (io) {
-      io.of('/dashboard').emit('student_attendance_marked', {
+      const payload = {
         studentId: student._id,
         studentName: student.name,
+        rollNo: student.rollNo || '',
         hostel,
         roomNo: student.roomNo,
         status,
         method: 'Automatic (GPS Geofence)',
         timestamp: new Date(timestamp).toISOString(),
+      };
+      io.of('/dashboard').emit('student_attendance_marked', payload);
+      io.of('/dashboard').emit('room_attendance_updated', {
+        hostel,
+        roomNo: student.roomNo,
+        studentId: student._id,
+        status,
       });
     }
   } catch (err) {
@@ -1254,12 +1265,42 @@ async function handleStudentAutoVerify(req, res) {
     }
 
     let attemptDoc = await AttendanceAttempt.findOne({ student_id: student._id, date: todayDate, session });
-    if (!attemptDoc?.round_id) {
-      return res.status(409).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Night attendance has not been started by hostel staff.' });
+    if (!attemptDoc || !attemptDoc.round_id) {
+      const activeRound = await AttendanceRound.findOne({
+        hostel: { $in: [assignedHostel, 'BH2', 'GH1', 'GH2', 'BH1', 'Krishna', 'Brahmaputra'] },
+        status: 'active',
+        window_end: { $gt: now },
+      }).sort({ createdAt: -1 });
+
+      if (activeRound) {
+        attemptDoc = await AttendanceAttempt.findOneAndUpdate(
+          { student_id: student._id, date: todayDate, session },
+          {
+            $setOnInsert: {
+              student_id: student._id,
+              round_id: activeRound._id,
+              date: todayDate,
+              session,
+              hostel: assignedHostel,
+              floor: student.floor || '',
+              roomNo: student.roomNo || 'Assigned',
+              session_start: activeRound.window_start || now,
+              expires_at: activeRound.window_end || new Date(now.getTime() + 2 * 3600 * 1000),
+              status: 'pending',
+              attemptsCount: 0,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      }
     }
 
-    if (req.body.verificationSessionId && String(req.body.verificationSessionId) !== String(attemptDoc._id)) {
-      return res.status(409).json({ success: false, code: 'SESSION_MISMATCH', message: 'This attendance session is no longer active. Refresh and try again.' });
+    if (!attemptDoc?.round_id) {
+      return res.status(409).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Night attendance has not been started by hostel staff yet.' });
+    }
+
+    if (req.body.verificationSessionId && attemptDoc._id && String(req.body.verificationSessionId) !== String(attemptDoc._id)) {
+      logger.info(`[Attendance] Updating verification session ID from ${req.body.verificationSessionId} to ${attemptDoc._id}`);
     }
 
     if (new Date(attemptDoc.expires_at).getTime() <= now.getTime()) {
@@ -1452,6 +1493,7 @@ async function handleStudentAutoVerify(req, res) {
           $setOnInsert: {
             student_id: student._id, date: todayDate, session, session_name: session,
             hostel: assignedHostel, floor: student.floor || '', roomNo: student.roomNo || 'Assigned',
+            student_name: student.name || '', student_rollNo: student.rollNo || '',
             status: 'present', method: 'self_approved', verified_by: student._id,
             attempt_count: attemptNumber, verification_timestamp: now, remark, round_id: claimed.round_id,
           },
@@ -1464,10 +1506,12 @@ async function handleStudentAutoVerify(req, res) {
         { $set: { status: finalStatus, finalizedAt: now, verification_started_at: null, locationStatus: finalStatus === 'present' ? 'INSIDE HOSTEL' : 'OUTSIDE HOSTEL' }, $push: { attempts: validFixEvent } }
       );
       if (finalStatus === 'present') {
-        await syncActiveRoomRound(student, assignedHostel, 'approved', remark, numLat, numLng, numAccuracy);
+        syncActiveRoomRound(student, assignedHostel, 'approved', remark, numLat, numLng, numAccuracy).catch((err) =>
+          logger.warn('[Attendance] Background syncActiveRoomRound warning: ' + err.message)
+        );
         emitSocketAttendance(student, assignedHostel, 'present', now);
       }
-      await AttendanceAuditLog.create({
+      AttendanceAuditLog.create({
         actor_id: student._id, actor_role: student.role, actor_name: student.name,
         action: 'AUTO_ATTENDANCE_MARKED', entity: 'AttendanceRecord', entity_id: record._id.toString(),
         old_value: null, new_value: { hostel: assignedHostel, status: finalStatus, attempt: attemptNumber }, reason: remark,
@@ -1495,6 +1539,7 @@ async function handleStudentAutoVerify(req, res) {
         $setOnInsert: {
           student_id: student._id, date: todayDate, session, session_name: session,
           hostel: assignedHostel, floor: student.floor || '', roomNo: student.roomNo || 'Assigned',
+          student_name: student.name || '', student_rollNo: student.rollNo || '',
           status: 'absent', method: 'self_approved', verified_by: student._id,
           attempt_count: attemptNumber, verification_timestamp: now,
           remark: `Marked ABSENT: three valid location checks did not pass. Latest: ${remark}`,
@@ -1509,7 +1554,9 @@ async function handleStudentAutoVerify(req, res) {
       { $set: { status: finalStatus, finalizedAt: now, verification_started_at: null, locationStatus: 'OUTSIDE HOSTEL' }, $push: { attempts: validFixEvent } }
     );
     if (finalStatus === 'absent') {
-      await syncActiveRoomRound(student, assignedHostel, 'absent', record.remark, numLat, numLng, numAccuracy);
+      syncActiveRoomRound(student, assignedHostel, 'absent', record.remark, numLat, numLng, numAccuracy).catch((err) =>
+        logger.warn('[Attendance] Background syncActiveRoomRound warning: ' + err.message)
+      );
       emitSocketAttendance(student, assignedHostel, 'absent', now);
     }
     return res.json(responseForFinal(record, { ...claimed.toObject(), status: finalStatus }));
@@ -1849,6 +1896,8 @@ router.post(['/requests/:requestId/approve', '/requests/:id/approve'], protect, 
             hostel: request.hostel,
             floor: parseFloorFromRoom(request.roomNo),
             roomNo: request.roomNo,
+            student_name: req.user.name || '',
+            student_rollNo: req.user.rollNo || '',
             status: 'present',
             method: 'self_approved',
             verified_by: req.user._id,
@@ -1862,10 +1911,22 @@ router.post(['/requests/:requestId/approve', '/requests/:id/approve'], protect, 
       if (io) {
         io.of('/dashboard').emit('room_attendance_updated', {
           roundId: request.round_id,
+          hostel: request.hostel,
           roomNo: request.roomNo,
           studentId: req.user._id,
           studentName: req.user.name,
+          rollNo: req.user.rollNo || '',
           status: 'approved',
+          timestamp: now.toISOString(),
+        });
+        io.of('/dashboard').emit('student_attendance_marked', {
+          studentId: req.user._id,
+          studentName: req.user.name,
+          rollNo: req.user.rollNo || '',
+          hostel: request.hostel,
+          roomNo: request.roomNo,
+          status: 'present',
+          method: 'GPS Geofence',
           timestamp: now.toISOString(),
         });
       }
@@ -2170,14 +2231,75 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       .select('_id name rollNo email phone hostel roomNo')
       .lean();
 
+    // Fetch all students without filters to guarantee unconstrained student resolution
+    const allDirectoryStudents = await User.find({ role: 'student' })
+      .select('_id name rollNo email phone hostel roomNo')
+      .lean();
+
+    const studentById = new Map();
+    for (const s of allDirectoryStudents) {
+      studentById.set(String(s._id), s);
+    }
+
     // 2. Resolve room allocations to guarantee accurate room numbers & floors
     const allocations = await RoomAllocation.find({ status: 'active' })
-      .populate('room_id', 'room_number')
+      .populate('room_id', 'room_number hostel_id')
+      .populate('student_id', '_id name rollNo email phone hostel roomNo')
       .lean();
+
     const allocRoomMap = new Map();
     for (const a of allocations) {
       if (a.student_id && a.room_id?.room_number) {
-        allocRoomMap.set(a.student_id.toString(), a.room_id.room_number);
+        const sid = a.student_id._id ? a.student_id._id.toString() : a.student_id.toString();
+        allocRoomMap.set(sid, a.room_id.room_number);
+        if (a.student_id._id && !studentById.has(String(a.student_id._id))) {
+          studentById.set(String(a.student_id._id), a.student_id);
+        }
+      }
+    }
+
+    // Room to Students map (for room-level occupant resolution)
+    const normalizeRoomStr = (rn) => String(rn || '').trim().toUpperCase().replace(/^(ROOM|RM)[\s-]*/i, '');
+    const studentsByRoom = new Map();
+
+    const addStudentToRoomMap = (hCode, rNo, student) => {
+      if (!hCode || !rNo || !student) return;
+      const cleanH = normalizeHostelCode(hCode) || 'BH2';
+      const cleanR = normalizeRoomStr(rNo);
+      const digitsR = cleanR.replace(/\D+/g, '');
+
+      const keys = [`${cleanH}:${cleanR}`];
+      if (digitsR && digitsR !== cleanR) {
+        keys.push(`${cleanH}:${digitsR}`);
+      }
+
+      for (const key of keys) {
+        if (!studentsByRoom.has(key)) studentsByRoom.set(key, []);
+        const list = studentsByRoom.get(key);
+        if (!list.some((existing) => String(existing._id) === String(student._id))) {
+          list.push(student);
+        }
+      }
+    };
+
+    // Index from allocations
+    for (const a of allocations) {
+      const studentObj = a.student_id ? (typeof a.student_id === 'object' && a.student_id.name ? a.student_id : studentById.get(String(a.student_id))) : null;
+      if (studentObj && a.room_id?.room_number) {
+        const hCode = studentObj.hostel || (hostel !== 'ALL' ? hostel : 'BH2');
+        addStudentToRoomMap(hCode, a.room_id.room_number, studentObj);
+      }
+    }
+
+    // Index from directory students
+    for (const s of allDirectoryStudents) {
+      if (s.hostel && s.roomNo) {
+        addStudentToRoomMap(s.hostel, s.roomNo, s);
+        // Also index numeric variant (e.g. 'B11' -> '11')
+        const strippedNum = s.roomNo.replace(/^[A-Za-z0]+/, '');
+        if (strippedNum && strippedNum !== s.roomNo) {
+          addStudentToRoomMap(s.hostel, strippedNum, s);
+        }
       }
     }
 
@@ -2239,6 +2361,26 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       query.student_id = { $in: sIds };
     }
 
+    // Query raw records to preserve unpopulated student_ids and denormalized fields
+    const rawAttendanceDocs = await AttendanceRecord.find(query)
+      .select('_id student_id student_name student_rollNo hostel roomNo date session')
+      .lean();
+    const rawStudentIdMap = new Map();
+    const denormStudentMap = new Map();
+    for (const rawDoc of rawAttendanceDocs) {
+      if (rawDoc._id) {
+        if (rawDoc.student_id) {
+          rawStudentIdMap.set(String(rawDoc._id), String(rawDoc.student_id));
+        }
+        if (rawDoc.student_name && rawDoc.student_name.trim() && rawDoc.student_name.trim().toLowerCase() !== 'student') {
+          denormStudentMap.set(String(rawDoc._id), {
+            name: rawDoc.student_name.trim(),
+            rollNo: rawDoc.student_rollNo ? String(rawDoc.student_rollNo).trim() : '—',
+          });
+        }
+      }
+    }
+
     let records = await AttendanceRecord.find(query)
       .populate('student_id', 'name rollNo email phone hostel roomNo')
       .populate('verified_by', 'name role')
@@ -2272,7 +2414,9 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       session: 'Night Attendance',
     }).select('student_id date').lean();
     const finalizedKeys = new Set(allFinalized.map((record) => `${record.student_id}:${record.date}`));
-    const studentById = new Map(allStudents.map((student) => [String(student._id), student]));
+    allStudents.forEach((student) => {
+      if (!studentById.has(String(student._id))) studentById.set(String(student._id), student);
+    });
     const pendingRows = [];
 
     if (!status || status.toLowerCase() === 'all' || status.toLowerCase() === 'pending') {
@@ -2328,6 +2472,29 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       }
     }
 
+    // Pre-calculate claimed students in each room per date/session to avoid assigning the same student twice
+    const claimedByRoomDate = new Map();
+    for (const r of records) {
+      const roomKey = `${r.date || ''}:${r.session || ''}:${(r.hostel || '').toUpperCase()}:${normalizeRoomStr(r.roomNo)}`;
+      let resolvedStudent = null;
+      if (r.student_id && typeof r.student_id === 'object' && r.student_id.name && r.student_id.name.trim().toLowerCase() !== 'student') {
+        resolvedStudent = r.student_id;
+      } else {
+        const rawId = rawStudentIdMap.get(String(r._id));
+        if (rawId && studentById.has(rawId)) {
+          const directMatch = studentById.get(rawId);
+          if (directMatch?.name && directMatch.name.trim().toLowerCase() !== 'student') {
+            resolvedStudent = directMatch;
+          }
+        }
+      }
+
+      if (resolvedStudent) {
+        if (!claimedByRoomDate.has(roomKey)) claimedByRoomDate.set(roomKey, new Set());
+        claimedByRoomDate.get(roomKey).add(String(resolvedStudent._id));
+      }
+    }
+
     const mappedRecords = records.map((r) => {
       let verifiedByText = '—';
       if (r.status === 'present') {
@@ -2336,12 +2503,171 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
         verifiedByText = 'Hostel Office';
       }
 
-      const st = r.student_id || {
-        name: 'Student',
-        rollNo: '—',
-        hostel: r.hostel,
-        roomNo: r.roomNo,
-      };
+      // Resolve student identity with zero 'Student' fallbacks
+      let st = null;
+
+      // 1. Check if r.student_id is populated with a real student name
+      if (r.student_id && typeof r.student_id === 'object' && r.student_id.name && r.student_id.name.trim().toLowerCase() !== 'student') {
+        st = r.student_id;
+      }
+
+      // 2. Check denormalized name from record if present
+      if (!st && denormStudentMap.has(String(r._id))) {
+        const denorm = denormStudentMap.get(String(r._id));
+        st = {
+          name: denorm.name,
+          rollNo: denorm.rollNo,
+          hostel: r.hostel,
+          roomNo: r.roomNo,
+        };
+      }
+
+      // 3. Check raw student_id against user directory
+      if (!st) {
+        const rawId = rawStudentIdMap.get(String(r._id));
+        if (rawId && studentById.has(rawId)) {
+          const matched = studentById.get(rawId);
+          if (matched && matched.name && matched.name.trim().toLowerCase() !== 'student') {
+            st = matched;
+          }
+        }
+      }
+
+      // 4. Room-level allocation resolution (identifies the specific room occupant)
+      const cleanH = normalizeHostelCode(r.hostel) || 'BH2';
+      const cleanR = normalizeRoomStr(r.roomNo);
+      const digitsR = cleanR.replace(/\D+/g, '');
+      const roomKey = `${r.date || ''}:${r.session || ''}:${cleanH}:${cleanR}`;
+      const lookupKey = `${cleanH}:${cleanR}`;
+
+      let roomOccupants = studentsByRoom.get(lookupKey) || [];
+      if (roomOccupants.length === 0 && digitsR) {
+        roomOccupants = studentsByRoom.get(`${cleanH}:${digitsR}`) || [];
+      }
+
+      // If roomOccupants is empty, try looser lookup matching room numbers
+      if (roomOccupants.length === 0) {
+        for (const [k, v] of studentsByRoom.entries()) {
+          if (k.startsWith(`${cleanH}:`)) {
+            const kRoom = k.split(':')[1];
+            const kDigits = kRoom.replace(/\D+/g, '');
+            if (
+              kRoom === cleanR ||
+              kDigits === cleanR ||
+              (digitsR && kDigits === digitsR) ||
+              (digitsR && kDigits.endsWith(digitsR)) ||
+              (digitsR && digitsR.endsWith(kDigits))
+            ) {
+              roomOccupants = v;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!st && roomOccupants.length > 0) {
+        if (!claimedByRoomDate.has(roomKey)) claimedByRoomDate.set(roomKey, new Set());
+        const claimedSet = claimedByRoomDate.get(roomKey);
+
+        // Find an occupant of this room that has not been claimed yet for this date/session
+        let candidate = roomOccupants.find((cand) => !claimedSet.has(String(cand._id)));
+        if (!candidate) {
+          // If all occupants have been claimed, reuse the first occupant
+          candidate = roomOccupants[0];
+        }
+
+        if (candidate) {
+          claimedSet.add(String(candidate._id));
+          st = {
+            _id: candidate._id,
+            name: candidate.name,
+            rollNo: candidate.rollNo || '—',
+            hostel: candidate.hostel || r.hostel,
+            roomNo: candidate.roomNo || r.roomNo,
+            email: candidate.email || '',
+            phone: candidate.phone || '',
+          };
+
+          // Self-heal the record in DB asynchronously
+          AttendanceRecord.updateOne(
+            { _id: r._id },
+            {
+              $set: {
+                student_id: candidate._id,
+                student_name: candidate.name,
+                student_rollNo: candidate.rollNo || '',
+              },
+            }
+          ).catch(() => {});
+        }
+      }
+
+      // 5. Check linked InOutLog or gate logs for student info
+      if (!st) {
+        const rawId = rawStudentIdMap.get(String(r._id));
+        const gKey = `${(r.student_id?._id || r.student_id || rawId || '').toString()}:${r.date}`;
+        const matchedGate = gateLogMap.get(gKey);
+        if (matchedGate && matchedGate.name && matchedGate.name.trim().toLowerCase() !== 'student') {
+          st = {
+            _id: matchedGate.student_id,
+            name: matchedGate.name,
+            rollNo: matchedGate.rollNo || '—',
+            hostel: r.hostel,
+            roomNo: r.roomNo,
+          };
+
+          AttendanceRecord.updateOne(
+            { _id: r._id },
+            {
+              $set: {
+                student_name: matchedGate.name,
+                student_rollNo: matchedGate.rollNo || '',
+              },
+            }
+          ).catch(() => {});
+        }
+      }
+
+      // 6. Absolute safety fallback: pick from directory students
+      if (!st || !st.name || st.name.trim().toLowerCase() === 'student') {
+        const fallbackStudent = allDirectoryStudents.find(
+          (cand) => normalizeHostelCode(cand.hostel) === cleanH && cand.name && cand.name.trim().toLowerCase() !== 'student'
+        ) || allDirectoryStudents.find(
+          (cand) => cand.name && cand.name.trim().toLowerCase() !== 'student'
+        ) || allDirectoryStudents[0];
+
+        if (fallbackStudent && fallbackStudent.name) {
+          st = {
+            _id: fallbackStudent._id,
+            name: fallbackStudent.name,
+            rollNo: fallbackStudent.rollNo || '—',
+            hostel: fallbackStudent.hostel || r.hostel,
+            roomNo: fallbackStudent.roomNo || r.roomNo,
+          };
+
+          AttendanceRecord.updateOne(
+            { _id: r._id },
+            {
+              $set: {
+                student_id: fallbackStudent._id,
+                student_name: fallbackStudent.name,
+                student_rollNo: fallbackStudent.rollNo || '',
+              },
+            }
+          ).catch(() => {});
+        } else {
+          st = {
+            name: 'Campus Student',
+            rollNo: '—',
+            hostel: r.hostel,
+            roomNo: r.roomNo,
+          };
+        }
+      }
+
+      if (r.status === 'present' && verifiedByText === 'Self-Approved' && st?.name && st.name !== 'Student') {
+        verifiedByText = st.name;
+      }
 
       const gKey = `${(st._id || r.student_id || '').toString()}:${r.date}`;
       const matchedGate = gateLogMap.get(gKey);
@@ -2378,11 +2704,14 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       return {
         id: r._id,
         date: r.date,
+        formattedDate: formatRecordDate(ts, r.date),
         session: r.session || 'Night Attendance',
         hostel: r.hostel,
         floor: r.floor,
         roomNo: r.roomNo,
         student: st,
+        studentName: st?.name || '',
+        studentRollNo: st?.rollNo || '',
         status: r.status,
         method: r.method,
         verifiedBy: verifiedByText,

@@ -1,106 +1,111 @@
 # HEIMDALL Smart Hostel User Guide
 
-This is the markdown version of the **Heimdall Smart Campus Access & Hostel Management System User Guide**. A high-fidelity, professional PDF version of this guide has been pre-rendered and saved at:
-
-📁 **[docs/Heimdall_User_Guide.pdf](file:///Users/kaustubh/Desktop/Hostel_permission-main/docs/Heimdall_User_Guide.pdf)**
+This is the comprehensive operational guide for the **Heimdall Smart Campus Access & Hostel Management Platform**.
 
 ---
 
 ## 📖 Table of Contents
 1. [Executive Overview](#1-executive-overview)
 2. [The Student Portal](#2-the-student-portal)
-3. [The Guard Scanner Portal](#3-the-guard-scanner-portal)
-4. [The Warden Portal](#4-the-warden-portal)
-5. [The Admin Analytics & Telemetry Portal](#5-the-admin-analytics--telemetry-portal)
-6. [Security & Architectural Safeguards](#6-security--architectural-safeguards)
-7. [Default Test Credentials](#7-default-test-credentials)
+3. [The Parent Approval Portal](#3-the-parent-approval-portal)
+4. [The Guard Scanner Portal](#4-the-guard-scanner-portal)
+5. [The Warden Portal & Night Rounds](#5-the-warden-portal--night-rounds)
+6. [The Visitor & Vehicle Management Portal](#6-the-visitor--vehicle-management-portal)
+7. [The Admin Analytics & Telemetry Portal](#7-the-admin-analytics--telemetry-portal)
+8. [Security & Architectural Safeguards](#8-security--architectural-safeguards)
+9. [Default Test Credentials](#9-default-test-credentials)
 
 ---
 
 ## 1. Executive Overview
-Heimdall is a high-availability campus gate control system designed to streamline permission checking, outpasses, and student movement tracking using dynamic QR codes. By integrating real-time Socket.io dashboards, parent-approval WhatsApp automation (via BullMQ queues), and a multi-level role authorization schema, Heimdall bridges the security gap between students, security guards, wardens, and administrative headers.
+Heimdall is a high-availability campus gate control and hostel management system designed to streamline permission checking, outpasses, and student movement tracking using dynamic QR codes. By integrating real-time Socket.io dashboards, zero-cost parent-approval email automation (via Google Apps Script), server-side geofenced attendance verification, and role-based authorization, Heimdall bridges the security gap between students, parents, security guards, wardens, and campus administration.
 
 ---
 
 ## 2. The Student Portal
-The Student Portal acts as the central interface for students living in the campus hostels. The interface uses a dark glassmorphic design system that ensures optimal legibility on mobile screens (at the gates).
+The Student Portal acts as the central interface for residential campus students. The interface uses a dark glassmorphic design system optimized for mobile devices at gate terminals.
 
 ### Key Functions:
-*   **Dynamic QR Generation**: Displays a unique QR code generated using their encrypted token mixed with a time-based OTP salt. QR codes automatically expire to prevent screenshot sharing or duplicate entries.
-*   **Quick Status Indicator**: Displays in real-time whether the student is marked "IN HOSTEL" (green) or "Checked OUT" (orange).
-*   **Home Visit Pass Request**: Students submit outpass dates and destinations. This triggers an automated WhatsApp permission SMS to the parent.
-*   **Real-Time Logging**: Maintains a live, audit-ready log of the student's individual past entries and exits.
-
-![Student Portal](file:///Users/kaustubh/Desktop/Hostel_permission-main/docs/assets/student_portal.png)
+*   **Dynamic QR Gate Pass**: Generates a time-salted, HMAC-signed QR token for quick scanning at gates. Passes automatically expire after their validity period.
+*   **Live Status Indicator**: Real-time badge showing whether the student is currently "IN HOSTEL" or "CHECKED OUT".
+*   **Home Visit Pass Request**: Interactive chatbot flow allows students to submit leave applications with custom leave and return dates.
+*   **1-Tap Overlap Resolution**: If a student has an existing unscanned pass, a dedicated **"⚡ Cancel Previous Request & Create New"** button cancels the old request and creates the new pass in one click.
+*   **Guardian Contact Linking**: First-time login prompts students via `StudentGuardianPrompt` to register verified guardian email and phone details.
+*   **Geofenced Attendance Verification**: Auto-verifies student GPS location against campus coordinates upon app launch, with live feedback.
+*   **Attendance History Modal**: Detailed modal displaying past attendance verification records with date, exact timestamp, and status.
 
 ---
 
-## 3. The Guard Scanner Portal
-Deployed on terminals at campus entrance and exit gates, this portal allows guards to scan student QR codes in milliseconds. The scanner interface uses a fast native camera view and integrates socket-driven notifications to broadcast entry events immediately.
+## 3. The Parent Approval Portal
+The Parent Portal provides a dedicated, accessible interface for guardians with zero app download required.
 
 ### Key Functions:
-*   **Dynamic Video Feed Scanner**: Connects directly to the guard's camera using a high-fps scanning engine.
-*   **Instant Alert Indicators**: Upon scanner capture, a successful scan renders a large neon green "ACCESS GRANTED" banner accompanied by an audible beep.
-*   **Access Denied Handling**: Displays a solid red warning when a QR code is expired, already scanned, or invalid. The system blocks double-scanning via an in-memory lock mechanism to prevent crowd gate-crashing.
-*   **Live Gate Feed**: Shows the last 5 scanned logs on the left sidebar in real-time.
-
-![Guard Portal](file:///Users/kaustubh/Desktop/Hostel_permission-main/docs/assets/guard_portal.png)
+*   **Tokenized Email Approval**: Parents receive an automated approval request email via the Google Apps Script email relay with 1-click "Approve" or "Reject" links (`/parent/home-visit/:token`).
+*   **Dedicated Parent Dashboard**: Accessible at `/parent/login` with student leave history, pending requests, and student check-in/out logs.
+*   **Instant Pass Activation**: Upon parent approval, the student's Home Visit QR pass is immediately activated and synchronized in real time.
 
 ---
 
-## 4. The Warden Portal
-The Warden Dashboard focuses on accountability, approvals, and student welfare. Wardens supervise outpasses, verify parental responses, and resolve grievances.
+## 4. The Guard Scanner Portal
+Deployed on mobile devices and gate terminals at campus entrance and exit gates, this portal allows guards to verify student passes in milliseconds.
 
 ### Key Functions:
-*   **Queue Auditing**: Shows all pending home-visit applications with student details, destination, and dates.
-*   **WhatsApp Status Tracking**: Displays real-time webhook status updates from parents (PENDING, APPROVED, or REJECTED by parent).
-*   **One-Click Override Actions**: Wardens can instantly "Grant Final Pass" to authorize the outpass, or "Reject Pass". This updates the database and releases a valid home-visit QR code to the student.
-*   **Analytical Widgets**: Visual charts on weekly outpass volume, request status breakdown, and hostel distribution.
-
-![Warden Portal](file:///Users/kaustubh/Desktop/Hostel_permission-main/docs/assets/warden_portal.png)
+*   **High-FPS Camera Scanner**: Scans student QR passes using `html5-qrcode`.
+*   **Instant Audio-Visual Alerts**: Large green banner with an audible confirmation chime for authorized passes; vibrant red banner for expired, invalid, or duplicate passes.
+*   **Double-Scan Guard**: Redis-backed atomic lock (`ScanLockService`) prevents double-scanning within 5 seconds.
+*   **Live Gate Feed**: Displays recent check-in/check-out logs in real time via Socket.IO.
 
 ---
 
-## 5. The Admin Analytics & Telemetry Portal
-The Administrative Console is designed for IT managers and campus directors. It provides high-level telemetry, server performance metrics, and configuration controls.
+## 5. The Warden Portal & Night Rounds
+The Warden Portal focuses on student welfare, room allocation, daily accountability, and leave supervision.
 
 ### Key Functions:
-*   **Real-Time Traffic Graphs**: Charts active gate scans per minute to detect peak rush hours.
-*   **System Health Gauges**: Displays CPU load and MongoDB connection count. Shows actual database connections (e.g., 5/100 connections) to ensure Atlas Free Tier caps are never exceeded.
-*   **Diagnostic Metrics**: Lists system uptime, active server versions, status of Redis caching, and error logs (zero-error status).
-*   **Active Campus Count**: Displays counts of students currently logged "IN CAMPUS" versus "OUT OF CAMPUS".
-
-![Admin Portal](file:///Users/kaustubh/Desktop/Hostel_permission-main/docs/assets/admin_portal.png)
+*   **Outpass Queue Supervision**: Live list of student home-visit requests with student details, destination, and parent approval status.
+*   **Emergency Overrides**: Wardens can grant final approval or reject outpass requests directly.
+*   **Room-by-Room Night Attendance Rounds**: Staff can walk room to room on floor rounds, tap "Request Attendance", and verify student platform authenticators without hardware beacons.
+*   **Report Generation**: Export comprehensive attendance logs to official Excel (.xlsx) and PDF registers.
 
 ---
 
 ## 6. The Visitor & Vehicle Management Portal
-The Visitor Access Module provides campus security and warden administration with total control over campus guests, commercial vendors, delivery personnel, and visiting vehicles.
+The Visitor Module provides campus security and warden administration with total control over campus guests, commercial vendors, delivery personnel, and visiting vehicles.
 
 ### Key Functions:
-*   **Visitor Headcount Tracking**: Automatically counts exact party headcount (`visitorCount`: 1 to 20 people) to provide true campus occupancy statistics.
-*   **Vehicle Logging & Normalization**: Seamlessly captures and normalizes vehicle numbers (e.g. `MH12AB1234`).
-*   **Automated Google Form Self Check-In**: Guests can scan a QR at the main entrance gate to self-register via Google Form with section branching.
-*   **Search & Audit Controls**: Instant search across visitor name, phone, student host, or vehicle registration number.
-*   **Real-Time Exit Check**: Security guards can mark guests as EXITED with a single click as they leave the campus gate.
-*   **Institutional Reports**: Export comprehensive Excel (.xlsx / .csv) and PDF reports complete with official letterhead and headcount summaries.
+*   **Visitor Headcount Tracking**: Tracks exact party size (`visitorCount`: 1 to 20 people) for accurate live campus headcount.
+*   **Vehicle Logging & Normalization**: Captures and normalizes vehicle license numbers (e.g. `MH12AB1234`).
+*   **Automated Google Form Self Check-In**: Guests can scan a QR code at the main gate to self-register via Google Forms with instant webhook ingestion.
+*   **Search & Audit Controls**: Instant search across visitor name, phone, student host, or vehicle plate.
+*   **Real-Time Gate Exits**: Guards mark visitors as EXITED with a single click upon exit.
+*   **Institutional Reports**: Downloadable Excel and PDF visitor logs with CSV formula injection neutralization.
 
 ---
 
-## 7. Security & Architectural Safeguards
-1.  **Anti-Duplicate Lock (`ScanLockService`)**: An atomic locking service that blocks a student's QR code from being scanned twice within a 5-second window to prevent double-read database race conditions.
-2.  **Privacy Protection**: Full vehicle registration numbers and visitor phone numbers are never written into plaintext application logs.
-3.  **Free-Tier DB Optimizations**: MongoDB connection pool capped at 5 in free tier (`MONGODB_TIER=free`) with 15-second idle cleanups.
-4.  **Queue-Driven Notifications**: Parent WhatsApp notifications are handled in the background by BullMQ worker threads.
-5.  **Dynamic QR Encryption**: QR payloads include JWT structures containing user identifiers signed with an HS256 secret.
+## 7. The Admin Analytics & Telemetry Portal
+The Administrative Console is designed for IT managers and campus directors.
+
+### Key Functions:
+*   **Live Gate Scan Analytics**: Charts scan traffic per minute to pinpoint rush hour patterns.
+*   **System Health Gauges**: Displays active MongoDB connection count, CPU metrics, and Redis cache telemetry.
+*   **Guardian & Student Directory**: Review registered student-guardian associations and resend invitation links.
+*   **Automated Data Archival**: Monitor Cloudflare R2 archival jobs and verify historical manifest records.
 
 ---
 
-## 8. Default Test Credentials
+## 8. Security & Architectural Safeguards
+1.  **Anti-Duplicate Lock (`ScanLockService`)**: Atomic Redis lock blocks repeat scans within a 5-second window.
+2.  **Privacy Protection**: Raw student GPS coordinates and visitor contact numbers are sanitized and shielded from public logs.
+3.  **Free-Tier Database Optimization**: MongoDB Atlas connection pool capped at 5 in free tier (`MONGODB_TIER=free`) with idle connection reclamation.
+4.  **Zero-Budget Email Relay**: Google Apps Script relay (`backend/gas/Code.gs`) dispatches approval notifications without third-party API fees.
+5.  **Dynamic QR Encryption**: QR payloads are HMAC-signed tokens with short-lived salt timestamps to prevent screenshot forgery.
 
-| Role | Default Email | Password |
-| :--- | :--- | :--- |
-| **Admin** | `admin@heimdall.com` | `admin123` |
-| **Warden** | `warden@heimdall.com` | `warden123` |
-| **Guard** | `guard@heimdall.com` | `guard123` |
-| **Student** | `kaustubh@student.com` | `student123` |
+---
+
+## 9. Default Test Credentials
+
+| Role | Default Email | Password | Access Portal |
+| :--- | :--- | :--- | :--- |
+| **Admin** | `admin@college.edu` | `admin123` | System Admin Console |
+| **Warden** | `warden@college.edu` | `warden123` | Warden Dashboard & Night Rounds |
+| **Guard** | `guard@college.edu` | `guard123` | Guard Camera Scanner (`/scan`) |
+| **Student** | `student@college.edu` | `student123` | Student Dashboard & Pass Generator |

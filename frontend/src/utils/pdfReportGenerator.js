@@ -708,15 +708,34 @@ export const downloadAttendanceReportPDF = async ({
         ? 'Unverified'
         : 'Staff Override';
 
+    const studentName =
+      student.name && student.name.trim().toLowerCase() !== 'student'
+        ? student.name
+        : r.studentName && r.studentName.trim().toLowerCase() !== 'student'
+        ? r.studentName
+        : (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Campus Resident');
+    const studentRoll =
+      student.rollNo && student.rollNo !== '—'
+        ? student.rollNo
+        : r.studentRollNo && r.studentRollNo !== '—'
+        ? r.studentRollNo
+        : '—';
+    const displayDate =
+      r.formattedDate ||
+      (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)
+        ? `${r.date.split('-')[2]}/${r.date.split('-')[1]}/${r.date.split('-')[0]}`
+        : r.date) ||
+      '—';
+
     return [
       index + 1,
-      r.date || '—',
+      displayDate,
       r.session || 'Night',
       getHostelLabel(r.hostel),
       r.floor || '—',
       r.roomNo || '—',
-      student.rollNo || '—',
-      student.name || 'Unknown',
+      studentRoll,
+      studentName,
       statusText,
       methodText,
       r.verificationTime || '—',

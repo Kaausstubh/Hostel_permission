@@ -5,7 +5,9 @@
  */
 
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import api from '../services/api';
+import { resolveBackendOrigin } from '../services/backendUrl';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -63,6 +65,34 @@ export default function AttendanceReports() {
 
   useEffect(() => {
     fetchReports();
+  }, [startDate, endDate, hostel, status]);
+
+  // Real-time synchronization: listen for live attendance events without manual refresh
+  useEffect(() => {
+    let socket = null;
+    try {
+      const token = localStorage.getItem('token');
+      const origin = resolveBackendOrigin();
+      socket = io(`${origin}/dashboard`, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+      });
+
+      socket.on('student_attendance_marked', () => {
+        fetchReports();
+      });
+      socket.on('room_attendance_updated', () => {
+        fetchReports();
+      });
+      socket.on('round_completed', () => {
+        fetchReports();
+      });
+    } catch (_) {}
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [startDate, endDate, hostel, status]);
 
   const handleExportPdf = async () => {
@@ -304,16 +334,38 @@ export default function AttendanceReports() {
                   const isPresent = r.status === 'present';
                   const isLeave = r.status === 'on_leave';
                   const isPending = r.status === 'pending';
+                  const formatDateDisplay = (dStr, fStr) => {
+                    if (fStr) return fStr;
+                    if (dStr && /^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+                      const [y, m, d] = dStr.split('-');
+                      return `${d}/${m}/${y}`;
+                    }
+                    return dStr || '—';
+                  };
                   return (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}>
-                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{r.date}</td>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {formatDateDisplay(r.date, r.formattedDate)}
+                      </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.hostel}</span>
                         <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>Room {r.roomNo}</span>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.student?.name || 'Unknown'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{r.student?.rollNo || '-'}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {r.student?.name && r.student.name.trim().toLowerCase() !== 'student'
+                            ? r.student.name
+                            : r.studentName && r.studentName.trim().toLowerCase() !== 'student'
+                              ? r.studentName
+                              : (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Campus Resident')}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                          {r.student?.rollNo && r.student.rollNo !== '—'
+                            ? r.student.rollNo
+                            : r.studentRollNo && r.studentRollNo !== '—'
+                              ? r.studentRollNo
+                              : '-'}
+                        </div>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span
@@ -350,8 +402,8 @@ export default function AttendanceReports() {
                         {r.verificationTime || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
-                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
-                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
+                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
+                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
                         <strong>{r.attemptsUsed || 0}/3 checks</strong>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontSize: 12.5 }}>

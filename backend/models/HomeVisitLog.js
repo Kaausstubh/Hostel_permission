@@ -143,6 +143,11 @@ const homeVisitLogSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    guardian_emails: [{
+      type: String,
+      lowercase: true,
+      trim: true,
+    }],
     parent_name: {
       type: String,
       default: '',
