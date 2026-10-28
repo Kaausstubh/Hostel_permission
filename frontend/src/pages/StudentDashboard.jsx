@@ -6150,6 +6150,8 @@ export default function StudentDashboard() {
         <StudentAttendanceHistoryModal
           onClose={() => setAttendanceHistoryOpen(false)}
           todayStatus={attendanceStatus}
+          user={user}
+          onStatusChange={handleAttendanceStatusChange}
           onVerifyNow={() => {
             setAttendanceHistoryOpen(false);
             setAttendancePromptOpenTrigger((prev) => prev + 1);

@@ -1265,12 +1265,42 @@ async function handleStudentAutoVerify(req, res) {
     }
 
     let attemptDoc = await AttendanceAttempt.findOne({ student_id: student._id, date: todayDate, session });
-    if (!attemptDoc?.round_id) {
-      return res.status(409).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Night attendance has not been started by hostel staff.' });
+    if (!attemptDoc || !attemptDoc.round_id) {
+      const activeRound = await AttendanceRound.findOne({
+        hostel: { $in: [assignedHostel, 'BH2', 'GH1', 'GH2', 'BH1', 'Krishna', 'Brahmaputra'] },
+        status: 'active',
+        window_end: { $gt: now },
+      }).sort({ createdAt: -1 });
+
+      if (activeRound) {
+        attemptDoc = await AttendanceAttempt.findOneAndUpdate(
+          { student_id: student._id, date: todayDate, session },
+          {
+            $setOnInsert: {
+              student_id: student._id,
+              round_id: activeRound._id,
+              date: todayDate,
+              session,
+              hostel: assignedHostel,
+              floor: student.floor || '',
+              roomNo: student.roomNo || 'Assigned',
+              session_start: activeRound.window_start || now,
+              expires_at: activeRound.window_end || new Date(now.getTime() + 2 * 3600 * 1000),
+              status: 'pending',
+              attemptsCount: 0,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      }
     }
 
-    if (req.body.verificationSessionId && String(req.body.verificationSessionId) !== String(attemptDoc._id)) {
-      return res.status(409).json({ success: false, code: 'SESSION_MISMATCH', message: 'This attendance session is no longer active. Refresh and try again.' });
+    if (!attemptDoc?.round_id) {
+      return res.status(409).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Night attendance has not been started by hostel staff yet.' });
+    }
+
+    if (req.body.verificationSessionId && attemptDoc._id && String(req.body.verificationSessionId) !== String(attemptDoc._id)) {
+      logger.info(`[Attendance] Updating verification session ID from ${req.body.verificationSessionId} to ${attemptDoc._id}`);
     }
 
     if (new Date(attemptDoc.expires_at).getTime() <= now.getTime()) {

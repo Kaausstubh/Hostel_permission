@@ -21,10 +21,14 @@ export default function StudentAttendanceHistoryModal({
   onClose = () => {},
   todayStatus = null,
   onVerifyNow = null,
+  user = null,
+  onStatusChange = null,
 }) {
   const [history, setHistory] = useState([]);
   const [serverToday, setServerToday] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyNotice, setVerifyNotice] = useState(null);
 
   const fetchHistory = async () => {
     try {
@@ -46,6 +50,78 @@ export default function StudentAttendanceHistoryModal({
   useEffect(() => {
     fetchHistory();
   }, []);
+
+  const handleGpsVerification = async () => {
+    if (verifying) return;
+    setVerifying(true);
+    setVerifyNotice({ type: 'info', text: '🛰️ Requesting device GPS coordinates...' });
+
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your device browser.');
+      setVerifyNotice({ type: 'error', text: 'Geolocation not supported by device.' });
+      setVerifying(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          setVerifyNotice({ type: 'info', text: '📍 Validating hostel geofence coordinates...' });
+          const { latitude, longitude, accuracy } = pos.coords;
+
+          const res = await api.post('/attendance/auto-verify', {
+            lat: latitude,
+            lng: longitude,
+            accuracy,
+            timestamp: pos.timestamp,
+            hostel: effectiveToday?.hostel || user?.hostel || 'BH2',
+          });
+
+          if (res.data?.success && (res.data?.status === 'PRESENT' || res.data?.isMarked)) {
+            toast.success('🎉 Attendance verified successfully! Marked PRESENT.');
+            setVerifyNotice({ type: 'success', text: '✅ Attendance verified: Marked PRESENT!' });
+            await fetchHistory();
+            if (onStatusChange) {
+              onStatusChange({
+                isMarked: true,
+                hasPending: false,
+                todayRecord: {
+                  status: 'present',
+                  time: res.data?.time || new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }),
+                  date: res.data?.date,
+                  method: 'self_approved',
+                },
+              });
+            }
+          } else {
+            const msg = res.data?.message || 'Geofence check failed. Ensure you are inside your hostel building.';
+            toast.error(msg);
+            setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+          }
+        } catch (err) {
+          const msg = err.response?.data?.message || err.message || 'GPS verification failed.';
+          toast.error(msg);
+          setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+        } finally {
+          setVerifying(false);
+        }
+      },
+      (err) => {
+        let msg = 'Could not acquire GPS position. Enable device location.';
+        if (err.code === 1) msg = 'Location access denied. Please allow location permissions in your browser.';
+        else if (err.code === 2) msg = 'Location unavailable. Turn on GPS/High Accuracy.';
+        else if (err.code === 3) msg = 'GPS acquisition timed out. Try again outdoors or near a window.';
+        toast.error(msg);
+        setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+        setVerifying(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   // Merge server today info with prompt props
   const effectiveToday = serverToday || {
@@ -315,30 +391,66 @@ export default function StudentAttendanceHistoryModal({
               )}
             </div>
 
-            {isPending && onVerifyNow && (
+            {isPending && (
               <button
                 type="button"
-                onClick={onVerifyNow}
+                onClick={handleGpsVerification}
+                disabled={verifying}
                 style={{
-                  marginTop: 4,
+                  marginTop: 6,
                   width: '100%',
-                  padding: '9px 14px',
-                  borderRadius: 8,
-                  background: 'linear-gradient(135deg, #4f46e5, #06b6d4)',
+                  padding: '11px 16px',
+                  borderRadius: 10,
+                  background: verifying
+                    ? 'rgba(99, 102, 241, 0.5)'
+                    : 'linear-gradient(135deg, #4f46e5, #06b6d4)',
                   color: '#ffffff',
                   border: 'none',
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  cursor: 'pointer',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: verifying ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 6,
-                  boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)',
+                  gap: 8,
+                  boxShadow: '0 4px 14px rgba(79, 70, 229, 0.4)',
+                  transition: 'all 0.2s ease',
                 }}
               >
-                <MdMyLocation size={16} /> Verify Attendance via GPS Now
+                <MdMyLocation size={17} style={{ animation: verifying ? 'spin 1s linear infinite' : 'none' }} />
+                {verifying ? 'Verifying GPS Location…' : 'Verify Attendance via GPS Now'}
               </button>
+            )}
+
+            {verifyNotice && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: verifyNotice.type === 'success'
+                    ? 'rgba(16, 185, 129, 0.15)'
+                    : verifyNotice.type === 'error'
+                    ? 'rgba(239, 68, 68, 0.15)'
+                    : 'rgba(99, 102, 241, 0.15)',
+                  color: verifyNotice.type === 'success'
+                    ? '#10b981'
+                    : verifyNotice.type === 'error'
+                    ? '#ef4444'
+                    : '#818cf8',
+                  border: `1px solid ${
+                    verifyNotice.type === 'success'
+                      ? 'rgba(16, 185, 129, 0.3)'
+                      : verifyNotice.type === 'error'
+                      ? 'rgba(239, 68, 68, 0.3)'
+                      : 'rgba(99, 102, 241, 0.3)'
+                  }`,
+                }}
+              >
+                {verifyNotice.text}
+              </div>
             )}
           </div>
 
