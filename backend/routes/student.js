@@ -403,7 +403,7 @@ router.get('/active-qr-pass', async (req, res) => {
     const studentId = user._id.toString();
     const today = todayStr();
 
-    // 1. Check for active approved Home Visit first
+    // 1. Check for active approved Home Visit first (requires verified digital parent approval)
     const activeHomeVisit = await HomeVisitLog.findOne({
       student_id: user._id,
       $or: [
@@ -714,7 +714,7 @@ router.post('/reset-pass', async (req, res) => {
     // Cancel or complete any active GatePass
     const activePasses = await GatePass.find({
       student_id: studentId,
-      status: { $in: ['PENDING', 'OUTSIDE'] },
+      status: { $in: ['PENDING', 'OUTSIDE', 'APPROVED', 'AWAITING_APPROVAL'] },
     });
 
     const { removePassFromCache } = require('../services/gatePassService');
@@ -724,6 +724,22 @@ router.post('/reset-pass', async (req, res) => {
       await p.save();
       await removePassFromCache(p).catch(() => {});
     }
+
+    // Also cancel any unscanned active HomeVisitLog passes so student starts clean
+    await HomeVisitLog.updateMany(
+      {
+        student_id: studentId,
+        overall_status: { $in: ['pending', 'parent_approved', 'approved'] },
+        qr_used_out: false,
+      },
+      {
+        $set: {
+          overall_status: 'rejected',
+          parent_approval_status: 'parent_rejected',
+          warden_status: 'rejected',
+        },
+      }
+    );
 
     res.json({
       success: true,
@@ -866,7 +882,7 @@ router.post('/home-visit', async (req, res) => {
       });
     }
 
-    // 1. Resolve parent contact details strictly from registered guardians or verified records
+    // 1. Resolve parent contact details: fetch all registered guardians for student (Father and Mother)
     let parentEmail = null;
     let parentName = '';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -876,32 +892,39 @@ router.post('/home-visit', async (req, res) => {
       status: { $ne: 'REVOKED' },
     }).sort({ guardian_slot: 1 }).lean();
 
-    const allowedGuardianEmails = registeredGuardians.map((g) => g.email.toLowerCase());
-    if (user.parentEmail && emailRegex.test(user.parentEmail)) {
-      allowedGuardianEmails.push(user.parentEmail.toLowerCase());
+    const targetParentEmails = [];
+    registeredGuardians.forEach((g) => {
+      if (g.email && emailRegex.test(String(g.email).trim())) {
+        const em = String(g.email).trim().toLowerCase();
+        if (!targetParentEmails.includes(em)) targetParentEmails.push(em);
+      }
+    });
+
+    if (user.parentEmail && emailRegex.test(String(user.parentEmail).trim())) {
+      const em = String(user.parentEmail).trim().toLowerCase();
+      if (!targetParentEmails.includes(em)) targetParentEmails.push(em);
     }
 
     if (req.body.parent_email && emailRegex.test(String(req.body.parent_email).trim())) {
-      const chosenEmail = String(req.body.parent_email).trim().toLowerCase();
-      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosenEmail);
-
-      if (matchedGuardian) {
-        parentEmail = matchedGuardian.email;
+      const chosen = String(req.body.parent_email).trim().toLowerCase();
+      if (!targetParentEmails.includes(chosen)) targetParentEmails.push(chosen);
+      const matchedGuardian = registeredGuardians.find((g) => g.email.toLowerCase() === chosen);
+      if (matchedGuardian?.name) {
         parentName = matchedGuardian.name;
-      } else {
-        parentEmail = chosenEmail;
-        parentName = String(req.body.parent_name || user.parentName || 'Parent / Guardian').trim();
-      }
-    } else {
-      const primaryGuardian = registeredGuardians[0];
-      if (primaryGuardian && primaryGuardian.email) {
-        parentEmail = primaryGuardian.email.trim().toLowerCase();
-        parentName = primaryGuardian.name || '';
-      } else if (user.parentEmail && emailRegex.test(user.parentEmail)) {
-        parentEmail = user.parentEmail.trim().toLowerCase();
-        parentName = user.parentName || '';
       }
     }
+
+    if (Array.isArray(req.body.guardian_emails)) {
+      req.body.guardian_emails.forEach((em) => {
+        if (em && emailRegex.test(String(em).trim())) {
+          const norm = String(em).trim().toLowerCase();
+          if (!targetParentEmails.includes(norm)) targetParentEmails.push(norm);
+        }
+      });
+    }
+
+    parentEmail = targetParentEmails[0] || null;
+    parentName = registeredGuardians[0]?.name || user.parentName || 'Parent / Guardian';
 
     if (parentEmail) {
       await User.findByIdAndUpdate(user._id, {
@@ -944,6 +967,7 @@ router.post('/home-visit', async (req, res) => {
       parent_phone: user.parentPhone ? normalizeToE164(user.parentPhone) : null,
       parent_phone_alt: user.parentPhone2 ? normalizeToE164(user.parentPhone2) : null,
       parent_email: parentEmail,
+      guardian_emails: targetParentEmails,
       parent_name: parentName,
       departure_time: req.body.departure_time || '09:00 AM',
       return_time: req.body.return_time || '08:00 PM',
@@ -956,11 +980,10 @@ router.post('/home-visit', async (req, res) => {
       parent_token_expires_at: expiresAt,
       parent_approval_status: 'pending',
       overall_status: 'pending',
-      warden_status: 'pending',
       hostel: user.hostel || 'BH1',
       room_no: user.roomNo || '',
-      email_notification_status: parentEmail ? 'PENDING' : 'FAILED',
-      email_failure_reason: parentEmail ? null : 'No registered parent email address found for student',
+      email_notification_status: targetParentEmails.length > 0 ? 'PENDING' : 'FAILED',
+      email_failure_reason: targetParentEmails.length > 0 ? null : 'No registered parent email address found for student',
       accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
 
@@ -977,49 +1000,51 @@ router.post('/home-visit', async (req, res) => {
       console.warn('[HomeVisit] GatePass creation notice:', gpErr.message);
     });
 
-    // 4. Automated Parent Email Notification via Google Apps Script (Free Tier)
+    // 4. Automated Parent Email Notification to BOTH parents via Google Apps Script (Free Tier)
     let anyEmailSent = false;
     let approvalUrl = null;
+    const dispatchResults = [];
 
-    if (parentEmail) {
-      try {
-        const baseUrl = getCleanFrontendUrl();
-        const emailResult = await sendParentApprovalEmail({
-          visit,
-          rawToken,
-          parentEmail,
-          baseUrl,
-        });
+    if (targetParentEmails.length > 0) {
+      const baseUrl = getCleanFrontendUrl();
 
-        approvalUrl = emailResult.approvalUrl;
+      for (const email of targetParentEmails) {
+        try {
+          const emailResult = await sendParentApprovalEmail({
+            visit,
+            rawToken,
+            parentEmail: email,
+            baseUrl,
+          });
 
-        if (emailResult.success) {
-          anyEmailSent = true;
-          visit.email_notification_status = 'SUBMITTED';
-          visit.email_sent_at = new Date();
-          visit.email_failure_reason = null;
-        } else {
-          visit.email_notification_status = 'FAILED';
-          visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
+          if (emailResult.success) {
+            anyEmailSent = true;
+            approvalUrl = emailResult.approvalUrl;
+          }
+          dispatchResults.push({ email, success: emailResult.success, error: emailResult.error });
+
+          ApprovalAuditLog.create({
+            event: 'REQUEST_NOTIFIED',
+            home_visit_request_id: visit._id,
+            student_id: user._id,
+            actor_id: user._id,
+            actor_role: 'student',
+            actor_email: user.email,
+            ip_address: req.ip,
+            details: { recipientEmail: email, allRecipients: targetParentEmails, success: emailResult.success },
+          }).catch(() => {});
+        } catch (notifyErr) {
+          logger.warn(`[HomeVisit] Parent notification dispatch error for ${email}:`, notifyErr.message);
+          dispatchResults.push({ email, success: false, error: notifyErr.message });
         }
-        await visit.save();
-
-        ApprovalAuditLog.create({
-          event: 'REQUEST_NOTIFIED',
-          home_visit_request_id: visit._id,
-          student_id: user._id,
-          actor_id: user._id,
-          actor_role: 'student',
-          actor_email: user.email,
-          ip_address: req.ip,
-          details: { parentEmail, notificationStatus: visit.email_notification_status, error: visit.email_failure_reason },
-        }).catch(() => {});
-      } catch (notifyErr) {
-        logger.warn('[HomeVisit] Parent notification dispatch error:', notifyErr.message);
-        visit.email_notification_status = 'FAILED';
-        visit.email_failure_reason = notifyErr.message;
-        await visit.save();
       }
+
+      visit.email_notification_status = anyEmailSent ? 'SUBMITTED' : 'FAILED';
+      visit.email_sent_at = anyEmailSent ? new Date() : null;
+      visit.email_failure_reason = anyEmailSent
+        ? null
+        : (dispatchResults.map((r) => `${r.email}: ${r.error || 'Failed'}`).join('; ') || 'Failed to dispatch email');
+      await visit.save();
     }
 
     // Also notify linked guardians if registered
@@ -1067,14 +1092,18 @@ router.post('/home-visit', async (req, res) => {
     const cleanVisit = visit.toObject ? visit.toObject() : { ...visit };
     delete cleanVisit.parent_token_hash;
 
+    const emailSummaryMsg = targetParentEmails.length > 1
+      ? `Home visit request submitted. Digital approval requests sent to both parents (${targetParentEmails.join(', ')}).`
+      : targetParentEmails.length === 1
+      ? `Home visit request submitted. Digital approval request sent to parent email (${targetParentEmails[0]}).`
+      : 'Home visit request submitted. Note: No parent email registered for student.';
+
     res.status(201).json({
       success: true,
-      message: parentEmail
-        ? `Home visit request submitted. Digital approval request sent to parent email (${parentEmail}).`
-        : 'Home visit request submitted. Notification emails sent to parents for approval.',
-      guardianEmails: parentEmail ? [parentEmail] : [],
-      parentEmail,
-      hasGuardians: Boolean(parentEmail),
+      message: emailSummaryMsg,
+      guardianEmails: targetParentEmails,
+      parentEmail: parentEmail,
+      hasGuardians: targetParentEmails.length > 0,
       emailSent: anyEmailSent,
       email_notification_status: visit.email_notification_status,
       visit: cleanVisit,

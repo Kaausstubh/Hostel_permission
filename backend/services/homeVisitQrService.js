@@ -28,10 +28,8 @@ const findHomeVisitByScanToken = async (token) => {
   if (!trimmed) return null;
 
   const approvedFilter = {
-    $or: [
-      { overall_status: 'approved' },
-      { parent_approval_status: 'parent_approved' },
-    ],
+    parent_approval_status: 'parent_approved',
+    overall_status: { $in: ['approved', 'parent_approved'] },
     qr_used_in: false,
   };
 
@@ -120,9 +118,11 @@ const syncHomeVisitActiveQR = async (visit, token) => {
  * Migrates legacy JWT qr_token to compact automatically.
  */
 const issueHomeVisitGatePass = async (visit) => {
-  const isApproved = visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved';
+  const isApproved =
+    (visit.overall_status === 'approved' || visit.overall_status === 'parent_approved') &&
+    visit.parent_approval_status === 'parent_approved';
   if (!isApproved || visit.qr_used_in) {
-    throw new Error('Visit not approved or pass already closed');
+    throw new Error('Visit not approved by parent or pass already closed');
   }
 
   let token = visit.qr_token;

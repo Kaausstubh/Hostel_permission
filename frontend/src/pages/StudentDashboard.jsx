@@ -1170,6 +1170,11 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (id === 'open_generate_pass_modal' || id === 'open_generate_modal') {
+      setShowGenerateQrModal(true);
+      return;
+    }
+
     if (id.startsWith('qr_')) {
       const entry = hvData?.[id];
       const payload =
@@ -1273,7 +1278,21 @@ export default function StudentDashboard() {
       setStep(STEPS.HV_PLACE);
       botSay('📍 Step 2/5 — Where is your destination place (e.g. Satara, Pune, Home Address)?');
     } else if (step === STEPS.HV_PARENT_EMAIL) {
-      if (id === 'use_guardian_0') {
+      if (id === 'send_both_guardians') {
+        const g0 = registeredGuardians[0];
+        const g1 = registeredGuardians[1];
+        const emails = [g0?.email, g1?.email].filter(Boolean);
+        if (emails.length === 0) {
+          botSay('⚠️ No registered parent emails found on file. Please complete parent registration.');
+          return;
+        }
+        await submitHomeVisit({
+          ...hvData,
+          guardian_emails: emails,
+          parent_email: g0?.email || emails[0],
+          parent_name: `${g0?.name || 'Father'} & ${g1?.name || 'Mother'}`,
+        });
+      } else if (id === 'use_guardian_0') {
         const g0 = registeredGuardians[0];
         const targetEmail = g0?.email || parentEmailOnRecord || user?.parentEmail;
         const targetName = g0?.name || user?.parentName || '';
@@ -1739,14 +1758,32 @@ export default function StudentDashboard() {
         const g0 = currentGuardians[0];
         const g1 = currentGuardians[1];
         botSay(
-          `📧 Step 5/5 — *Select Registered Parent for Approval*\n\n` +
-          `Your home visit pass requires verified digital approval from your registered parent or guardian.\n\n` +
-          `Please click one of your registered parent emails below to send the approval request:\n\n` +
-          `1️⃣ *${g0.name || 'Guardian 1'}* (${g0.relationship || 'Parent'}):\n` +
+          `📧 Step 5/5 — *Send Approval Notification to Parents*\n\n` +
+          `Your home visit pass requires verified digital approval from your registered parents.\n\n` +
+          `Approval request emails will be sent to *both* registered parent emails:\n` +
+          `👨‍💼 *${g0.name || 'Father'}* (${g0.relationship || 'Father'}):\n` +
           `   📬 \`${g0.email}\`\n\n` +
-          `2️⃣ *${g1.name || 'Guardian 2'}* (${g1.relationship || 'Parent'}):\n` +
+          `👩‍💼 *${g1.name || 'Mother'}* (${g1.relationship || 'Mother'}):\n` +
           `   📬 \`${g1.email}\`\n\n` +
-          `Tap a registered email below, or type any parent email address in the chatbox:`
+          `Tap below to dispatch digital approval links to both parents, or type any parent email in the chatbox:`,
+          'buttons',
+          {
+            buttons: [
+              {
+                id: 'send_both_guardians',
+                label: `📨 Send Approval Request to Both Parents`,
+              },
+              {
+                id: 'use_guardian_0',
+                label: `👨‍💼 ${g0.name || 'Father'}: ${g0.email}`,
+              },
+              {
+                id: 'use_guardian_1',
+                label: `👩‍💼 ${g1.name || 'Mother'}: ${g1.email}`,
+              },
+              { id: 'flow_menu', label: '🏠 Main menu' },
+            ],
+          }
         );
       } else if (currentGuardians && currentGuardians.length === 1) {
         const g0 = currentGuardians[0];
@@ -1930,28 +1967,39 @@ export default function StudentDashboard() {
     if (!s) return passes;
 
     if (s.pendingInOutRequest?.qrDataUrl) {
-      const meta = {
-        qrDataUrl: s.pendingInOutRequest.qrDataUrl,
-        qrToken: s.pendingInOutRequest.qrToken || s.pendingInOutRequest.qr_token,
-        scanType: s.pendingInOutRequest.scanType,
-        student: user,
-        place: s.pendingInOutRequest.place,
-        reason: s.pendingInOutRequest.reason,
-        expiresAt: s.pendingInOutRequest.expiresAt,
-        passKind: 'inout',
-      };
-      const display = getPassDisplay(meta);
-      passes.push({
-        ...meta,
-        ...display,
-        id: 'inout',
-        tabLabel: 'Daily In/Out',
-      });
+      const isExpired =
+        s.pendingInOutRequest.scanType === 'OUT' &&
+        s.pendingInOutRequest.expiresAt &&
+        new Date(s.pendingInOutRequest.expiresAt).getTime() <= Date.now();
+
+      if (!isExpired) {
+        const meta = {
+          qrDataUrl: s.pendingInOutRequest.qrDataUrl,
+          qrToken: s.pendingInOutRequest.qrToken || s.pendingInOutRequest.qr_token,
+          scanType: s.pendingInOutRequest.scanType,
+          student: user,
+          place: s.pendingInOutRequest.place,
+          reason: s.pendingInOutRequest.reason,
+          expiresAt: s.pendingInOutRequest.expiresAt,
+          passKind: 'inout',
+        };
+        const display = getPassDisplay(meta);
+        passes.push({
+          ...meta,
+          ...display,
+          id: 'inout',
+          tabLabel: 'Daily In/Out',
+        });
+      }
     }
 
     if (s.approvedVisits?.length > 0) {
       s.approvedVisits.forEach((v, idx) => {
-        if (v.qrDataUrl) {
+        const isApproved =
+          v.parent_approval_status === 'parent_approved' &&
+          (v.overall_status === 'approved' || v.overall_status === 'parent_approved');
+
+        if (v.qrDataUrl && isApproved) {
           const phase = v.qr_used_out ? 'return' : 'departure';
           const meta = {
             qrDataUrl: v.qrDataUrl,
@@ -1993,8 +2041,11 @@ export default function StudentDashboard() {
       if (Array.isArray(s.guardians) && s.guardians.length > 0) {
         setRegisteredGuardians(s.guardians);
       }
-      if (s.hasGuardians !== undefined && user?.hasGuardians !== s.hasGuardians) {
-        updateUser({ hasGuardians: s.hasGuardians });
+      const computedHasGuardians = s.hasGuardians !== undefined
+        ? s.hasGuardians
+        : Boolean(s.parentEmail || (Array.isArray(s.guardians) && s.guardians.length > 0));
+      if (user?.hasGuardians !== computedHasGuardians) {
+        updateUser({ hasGuardians: computedHasGuardians });
       }
 
       const passes = parseActivePasses(s);
@@ -2503,7 +2554,10 @@ export default function StudentDashboard() {
       const qrMap = {};
       if (s?.approvedVisits?.length > 0) {
         s.approvedVisits.forEach((v) => {
-          if (v.qrDataUrl) {
+          const isApproved =
+            v.parent_approval_status === 'parent_approved' &&
+            (v.overall_status === 'approved' || v.overall_status === 'parent_approved');
+          if (v.qrDataUrl && isApproved) {
             const phase = v.qr_used_out ? 'return' : 'departure';
             qrMap[`qr_${v._id}`] = {
               qrDataUrl: v.qrDataUrl,
@@ -2529,17 +2583,19 @@ export default function StudentDashboard() {
         return;
       }
 
+      // No active pass found -> clear any stale zoomedQR and open Generate QR modal
+      setZoomedQR(null);
       if (s?.pendingVisits?.length > 0) {
-        toast('Your Home Visit request is pending approval. QR will appear once approved.', { icon: '⏳' });
+        toast('Your Home Visit request is pending parent approval. Daily pass options are available below.', { icon: '⏳' });
       } else {
-        toast('No valid pass currently. Please generate a pass.', {
+        toast('No valid pass currently. Please select a destination to generate a pass.', {
           icon: 'ℹ️',
           duration: 4000,
           id: 'no-valid-pass',
         });
       }
 
-      // No active pass found -> Pop up the "Generate New QR" modal
+      // Pop up the "Generate Gate Pass QR" modal
       setShowGenerateQrModal(true);
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Could not fetch current QR status.');
@@ -2559,8 +2615,11 @@ export default function StudentDashboard() {
       if (Array.isArray(s?.guardians) && s.guardians.length > 0) {
         setRegisteredGuardians(s.guardians);
       }
-      if (s?.hasGuardians !== undefined && user?.hasGuardians !== s.hasGuardians) {
-        updateUser({ hasGuardians: s.hasGuardians });
+      const computedHasGuardians = s?.hasGuardians !== undefined
+        ? s.hasGuardians
+        : Boolean(s?.parentEmail || (Array.isArray(s?.guardians) && s.guardians.length > 0));
+      if (user?.hasGuardians !== computedHasGuardians) {
+        updateUser({ hasGuardians: computedHasGuardians });
       }
       const passes = parseActivePasses(s);
       setActivePasses(passes);
@@ -2585,11 +2644,17 @@ export default function StudentDashboard() {
         } else {
           statusMsg += `\nStatus: QR active for return scan`;
         }
-      } else if (!s.approvedVisits || s.approvedVisits.length === 0) {
-        statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate QR Pass* below to create a 15-minute gate pass.`;
+      } else if (!passes || passes.length === 0) {
+        statusMsg += `\n\nℹ️ *No active QR code generated.*\nTap *Generate Gate Pass* below to create a 15-minute gate pass.`;
       }
 
       const statusButtons = [];
+      if (!passes || passes.length === 0) {
+        statusButtons.push({
+          id: 'open_generate_pass_modal',
+          label: '⚡ Generate Gate Pass QR',
+        });
+      }
       const qrMap = {};
 
       if (s.pendingVisits?.length > 0) {
@@ -2699,19 +2764,18 @@ export default function StudentDashboard() {
       botSay(statusMsg, 'buttons', { buttons: statusButtons });
 
       // Daily in/out only — home visit QR opens via button (prevents duplicate cards).
-      if (s.pendingInOutRequest?.qrDataUrl) {
+      const inoutPass = passes.find((p) => p.id === 'inout');
+      if (inoutPass?.qrDataUrl) {
         pushQrMessage({
-          qrDataUrl: s.pendingInOutRequest.qrDataUrl,
-          scanType: s.pendingInOutRequest.scanType,
+          qrDataUrl: inoutPass.qrDataUrl,
+          scanType: inoutPass.scanType,
           student: user,
-          place: s.pendingInOutRequest.place,
-          reason: s.pendingInOutRequest.reason,
+          place: inoutPass.place,
+          reason: inoutPass.reason,
           passKind: 'inout',
         });
-        goToMainMenu();
-      } else {
-        goToMainMenu();
       }
+      goToMainMenu();
     } catch (err) {
       botSay(`❌ ${err.response?.data?.message || 'Could not fetch status.'}`);
     } finally {
