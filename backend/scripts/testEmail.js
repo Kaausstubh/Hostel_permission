@@ -1,116 +1,122 @@
 /**
- * Diagnostic script to test SMTP credentials and Gmail connectivity
- * Usage: node scripts/testEmail.js [recipient_email]
+ * HEIMDALL — Email Transport Diagnostic & Live Verification Tool
+ *
+ * Tests the configured email dispatch pipeline (Gmail API v1 / SMTP / GAS)
+ * by sending a single verification email to a recipient address you specify.
+ *
+ * Usage:
+ *   node scripts/testEmail.js [your_test_email@example.com]
+ *
+ * Examples:
+ *   node scripts/testEmail.js mypersonal@gmail.com
  */
 
-require('dotenv').config();
-const nodemailer = require('nodemailer');
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+const { isGmailApiConfigured, sendViaGmailApi, getAccessToken } = require('../services/gmailApiService');
+const { isMailConfigured, sendMail } = require('../services/mailService');
 
-async function testSmtp() {
-  console.log('\n=========================================');
-  console.log('   HEIMDALL SMTP DIAGNOSTIC TEST TOOL   ');
-  console.log('=========================================\n');
+async function runDiagnostic() {
+  console.log('\n=============================================================');
+  console.log('   HEIMDALL — EMAIL TRANSPORT DIAGNOSTIC & VERIFICATION TOOL  ');
+  console.log('=============================================================\n');
 
-  const rawUser = process.env.SMTP_USER || '';
-  const rawPass = process.env.SMTP_PASS || '';
-  const rawHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const rawPort = process.env.SMTP_PORT || '587';
+  const hasGmailApi = isGmailApiConfigured();
+  const hasSmtpUser = Boolean(process.env.SMTP_USER);
+  const hasSmtpPass = Boolean(process.env.SMTP_PASS);
+  const hasGas = Boolean(process.env.GOOGLE_APPS_SCRIPT_URL);
 
-  const cleanUser = rawUser.trim().replace(/^["']|["']$/g, '');
-  const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+  console.log('Detected Configurations:');
+  console.log(`- Gmail API (OAuth2):  ${hasGmailApi ? '✅ CONFIGURED (GMAIL_REFRESH_TOKEN set)' : '❌ Not configured'}`);
+  console.log(`- SMTP (App Password): ${hasSmtpUser && hasSmtpPass ? '✅ CONFIGURED' : '❌ Not configured'}`);
+  console.log(`- Google Apps Script:  ${hasGas ? '✅ CONFIGURED' : '❌ Not configured'}\n`);
 
-  console.log('Configuration Check:');
-  console.log(`- SMTP_HOST: ${rawHost}`);
-  console.log(`- SMTP_PORT: ${rawPort}`);
-  console.log(`- SMTP_USER: ${cleanUser ? cleanUser : '❌ [EMPTY]'}`);
-  console.log(`- SMTP_PASS: ${cleanPass ? `[SET: ${cleanPass.length} chars]` : '❌ [EMPTY]'}`);
-
-  if (!cleanUser || !cleanPass) {
-    console.error('\n❌ ERROR: SMTP_USER or SMTP_PASS is missing in backend/.env!');
-    console.error('Please make sure you have typed them into backend/.env AND SAVED the file (Ctrl + S).\n');
+  if (hasGmailApi) {
+    console.log('Active Transport Mode: 🚀 Official Gmail REST API v1 (OAuth2)');
+    console.log(`- Sender Account:      ${process.env.GMAIL_SENDER_ADDRESS || 'Not specified (will detect from OAuth profile)'}`);
+    console.log(`- OAuth Client ID:     ${process.env.GOOGLE_CLIENT_ID?.slice(0, 16)}...`);
+    console.log('- Required Scope:      https://www.googleapis.com/auth/gmail.send\n');
+  } else if (hasSmtpUser && hasSmtpPass) {
+    console.log('Active Transport Mode: 📧 Direct SMTP Transport');
+    console.log(`- Host:                ${process.env.SMTP_HOST || 'smtp.gmail.com'}`);
+    console.log(`- User:                ${process.env.SMTP_USER}`);
+    console.log('- Password:            [Configured]\n');
+  } else if (hasGas) {
+    console.log('Active Transport Mode: ☁️  Google Apps Script Relay (Free Quota)\n');
+  } else {
+    console.error('❌ ERROR: No active email transport found!');
+    console.error('To configure the Gmail API, run:');
+    console.error('  node scripts/authorizeGmailSender.js\n');
+    console.error('Or set SMTP_USER and SMTP_PASS in backend/.env.\n');
     process.exit(1);
   }
 
-  const isGmail = rawHost.includes('gmail') || cleanUser.endsWith('@gmail.com');
-  console.log(`- Mode:      ${isGmail ? 'Gmail Service (service: gmail)' : `Custom SMTP (${rawHost}:${rawPort})`}`);
+  const targetRecipient = process.argv[2] || process.env.GMAIL_SENDER_ADDRESS || process.env.SMTP_USER;
 
-  const transportOptions = isGmail
-    ? {
-        service: 'gmail',
-        auth: {
-          user: cleanUser,
-          pass: cleanPass,
-        },
-      }
-    : {
-        host: rawHost,
-        port: parseInt(rawPort, 10),
-        secure: process.env.SMTP_SECURE === 'true' || rawPort === '465',
-        auth: {
-          user: cleanUser,
-          pass: cleanPass,
-        },
-      };
+  if (!targetRecipient) {
+    console.error('❌ Please specify a recipient email address to test sending:');
+    console.error('  node scripts/testEmail.js your_email@example.com\n');
+    process.exit(1);
+  }
 
-  const transporter = nodemailer.createTransport(transportOptions);
-
-  console.log('\n[1/2] Verifying SMTP connection and credentials with mail server...');
-  try {
-    await transporter.verify();
-    console.log('✅ Connection SUCCESS! Gmail accepted your credentials.');
-  } catch (verifyErr) {
-    console.error('\n❌ SMTP VERIFICATION FAILED:');
-    console.error(verifyErr.message);
-    if (verifyErr.message.includes('535') || verifyErr.message.includes('Username and Password not accepted')) {
-      console.error('\n👉 Cause: Google rejected the login credentials.');
-      console.error('   1. Ensure 2-Step Verification is turned ON for your Google Account.');
-      console.error('   2. You MUST use a 16-character "App Password", NOT your personal Google account password.');
-      console.error('   3. Generate an App Password at: https://myaccount.google.com/apppasswords');
-      console.error('   4. Paste the 16 characters into SMTP_PASS in backend/.env and save (Ctrl + S).\n');
+  console.log(`[Step 1/2] Verifying authentication credentials...`);
+  if (hasGmailApi) {
+    try {
+      const token = await getAccessToken();
+      console.log(`✅ Token validation SUCCESS! Obtained valid access token (${token.slice(0, 10)}...).`);
+    } catch (authErr) {
+      console.error('\n❌ GMAIL API AUTHENTICATION FAILED:');
+      console.error(authErr.message);
+      console.error('\nPlease re-authorize your designated sender account:');
+      console.error('  node scripts/authorizeGmailSender.js\n');
+      process.exit(1);
     }
-    process.exit(1);
   }
 
-  const targetRecipient = process.argv[2] || cleanUser;
-  console.log(`\n[2/2] Sending test email to: ${targetRecipient}...`);
+  console.log(`\n[Step 2/2] Dispatching live test email to: ${targetRecipient}...`);
+
+  const subject = `✅ HEIMDALL Email Transport Test — ${new Date().toLocaleTimeString('en-US')}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 12px; border: 1px solid #1e293b;">
+      <h2 style="color: #38bdf8; margin-top: 0;">🏛️ HEIMDALL Email Service Verified</h2>
+      <p style="font-size: 15px; color: #e2e8f0;">Your automated notification pipeline is working successfully!</p>
+      <div style="background: #1e293b; padding: 14px; border-radius: 8px; font-size: 13.5px; line-height: 1.6; margin: 16px 0;">
+        <strong>Transport:</strong> ${hasGmailApi ? 'Official Gmail REST API v1 (OAuth2)' : 'SMTP Transport'}<br>
+        <strong>Recipient:</strong> ${targetRecipient}<br>
+        <strong>Timestamp:</strong> ${new Date().toISOString()}<br>
+        <strong>Status:</strong> Live Dispatched
+      </div>
+      <p style="color: #4ade80; font-weight: 600; font-size: 14px;">Automated hostel exit/entry, parent approval, and student notifications are ready to dispatch.</p>
+      <p style="font-size: 12px; color: #94a3b8; margin-top: 20px; border-top: 1px solid #334155; padding-top: 12px;">HEIMDALL Smart Campus & Hostel Management Platform</p>
+    </div>
+  `;
 
   try {
-    const info = await transporter.sendMail({
-      from: `"IIIT Pune Smart Campus" <${cleanUser}>`,
+    const result = await sendMail({
       to: targetRecipient,
-      replyTo: cleanUser,
-      envelope: { from: cleanUser, to: targetRecipient },
-      subject: '✅ HEIMDALL SMTP Test Email - Working Successfully',
-      text: `HEIMDALL Mail Service Verified\n\nYour SMTP configuration in backend/.env is working properly!\nSender: ${cleanUser}\nRecipient: ${targetRecipient}\nTimestamp: ${new Date().toISOString()}\n\nParent invitations and approval emails are ready to dispatch.`,
-      priority: 'high',
-      headers: {
-        'X-Priority': '1',
-        'Importance': 'high',
-        'X-Entity-Ref-ID': `heimdall-test-${Date.now()}`,
-        'X-Auto-Response-Suppress': 'All, OOF, AutoReply',
-      },
-      html: `
-        <div style="font-family: sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #3b82f6; border-radius: 10px;">
-          <h2 style="color: #2563eb; margin-top: 0;">HEIMDALL Mail Service Verified</h2>
-          <p>Your SMTP configuration in <strong>backend/.env</strong> is working properly!</p>
-          <div style="background: #f3f4f6; padding: 12px; border-radius: 6px; font-size: 14px;">
-            <p style="margin: 4px 0;"><strong>Sender:</strong> ${cleanUser}</p>
-            <p style="margin: 4px 0;"><strong>Recipient:</strong> ${targetRecipient}</p>
-            <p style="margin: 4px 0;"><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-          </div>
-          <p style="color: #059669; font-weight: bold; margin-top: 15px;">Parent invitations and approval emails are ready to dispatch.</p>
-        </div>
-      `,
+      subject,
+      html,
     });
 
-    console.log('✅ TEST EMAIL DISPATCHED SUCCESSFULLY!');
-    console.log(`- Message ID: ${info.messageId}`);
-    console.log(`- Response:   ${info.response}`);
-    console.log('\nNote: Check Inbox AND Spam / Junk folder. If in Spam, click "Report not spam" once to whitelist.\n');
+    if (result.success) {
+      console.log('\n=============================================================');
+      console.log('🎉 LIVE EMAIL DISPATCHED SUCCESSFULLY!');
+      console.log('=============================================================');
+      console.log(`- Provider Message ID: ${result.messageId}`);
+      console.log(`- Recipient:          ${targetRecipient}`);
+      console.log('\nCheck your inbox (and Spam/Junk folder) to view the message.\n');
+    } else {
+      console.error('\n❌ DISPATCH FAILED:');
+      console.error(`Error: ${result.error || 'Unknown dispatch failure'}\n`);
+      process.exit(1);
+    }
   } catch (sendErr) {
-    console.error('\n❌ FAILED TO DISPATCH EMAIL:', sendErr.message);
+    console.error('\n❌ UNEXPECTED ERROR:');
+    console.error(sendErr.message);
     process.exit(1);
   }
 }
 
-testSmtp();
+runDiagnostic().catch((err) => {
+  console.error('Unexpected failure:', err);
+  process.exit(1);
+});

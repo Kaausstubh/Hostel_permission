@@ -14,13 +14,19 @@ const getCleanCredentials = () => {
   return { host, user: rawUser, pass: rawPass };
 };
 
-const isConfigured = () => {
+const { isGmailApiConfigured, sendViaGmailApi } = require('./gmailApiService');
+
+const isSmtpConfigured = () => {
   const { host, user, pass } = getCleanCredentials();
   return Boolean(host && user && pass);
 };
 
+const isConfigured = () => {
+  return isGmailApiConfigured() || isSmtpConfigured() || Boolean(process.env.GOOGLE_APPS_SCRIPT_URL);
+};
+
 const createTransporter = () => {
-  if (!isConfigured()) return null;
+  if (!isSmtpConfigured()) return null;
 
   const { host, user, pass } = getCleanCredentials();
   const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
@@ -72,8 +78,28 @@ const sendMail = async ({ to, subject, html, text }) => {
     .replace(/\s{2,}/g, ' ')
     .trim() : '');
 
-  // Check if SMTP is not configured: try Google Apps Script before mocking
-  if (!isConfigured()) {
+  // 1. Primary Transport: Official Gmail REST API v1 (OAuth2 with minimal gmail.send scope)
+  if (isGmailApiConfigured()) {
+    try {
+      const gmailRes = await sendViaGmailApi({
+        to: cleanTo,
+        subject,
+        html,
+        text: cleanPlainText,
+      });
+
+      if (gmailRes.success) {
+        return { success: true, messageId: gmailRes.messageId };
+      }
+
+      logger.warn(`[MailService] Gmail API dispatch to ${cleanTo} failed: ${gmailRes.error}. Attempting fallback transport...`);
+    } catch (gmailErr) {
+      logger.error(`[MailService] Gmail API unexpected error: ${gmailErr.message}. Attempting fallback transport...`);
+    }
+  }
+
+  // 2. Secondary Transport: Direct SMTP (App Password or custom mail server)
+  if (!isSmtpConfigured()) {
     if (process.env.GOOGLE_APPS_SCRIPT_URL) {
       try {
         const { sendViaGoogleAppsScript } = require('./gasMailService');
@@ -83,11 +109,11 @@ const sendMail = async ({ to, subject, html, text }) => {
         logger.error(`[MailService] Google Apps Script fallback failed: ${gasErr.message}`);
       }
     }
-    logger.warn(`[MailService:Mock] SMTP credentials not set (SMTP_USER/SMTP_PASS missing). Skipping live email to: ${to} | Subject: "${subject}"`);
+    logger.warn(`[MailService:Mock] Neither Gmail API nor SMTP credentials configured. Skipping live email to: ${to} | Subject: "${subject}"`);
     return {
       success: false,
       mocked: true,
-      error: 'SMTP credentials not configured on backend (SMTP_USER / SMTP_PASS missing)',
+      error: 'Email transport not configured on backend (GMAIL_REFRESH_TOKEN or SMTP_PASS missing)',
       messageId: `mock-${Date.now()}`,
     };
   }
@@ -427,6 +453,8 @@ const sendLeaveOutcomeEmailToParent = async ({ to, guardianName, studentName, de
 
 module.exports = {
   isMailConfigured: isConfigured,
+  isGmailApiConfigured,
+  isSmtpConfigured,
   sendMail,
   sendGuardianInviteEmail,
   sendLeaveRequestEmail,

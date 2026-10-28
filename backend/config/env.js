@@ -121,6 +121,15 @@ const validateEnv = () => {
     }
   }
 
+  // ── Email Transport check ──────────────────────────────────────────────────
+  const hasGmailApi = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN);
+  const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const hasGas = Boolean(process.env.GOOGLE_APPS_SCRIPT_URL);
+
+  if (!hasGmailApi && !hasSmtp && !hasGas) {
+    warnings.push('No email transport configured (neither GMAIL_REFRESH_TOKEN nor SMTP_PASS nor GOOGLE_APPS_SCRIPT_URL is set). Emails will run in mock mode.');
+  }
+
   // ── Port sanity check ──────────────────────────────────────────────────────
   const port = parseInt(process.env.PORT || '5000', 10);
   if (Number.isNaN(port) || port < 1 || port > 65535) {

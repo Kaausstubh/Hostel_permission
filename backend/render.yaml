@@ -35,6 +35,14 @@ services:
         value: "false"
       - key: REDIS_URL
         sync: false
+      - key: GMAIL_SENDER_ADDRESS
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_SENDER_NAME
+        value: "HEIMDALL Hostel Management"
+      - key: GMAIL_REDIRECT_URI
+        sync: false
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT

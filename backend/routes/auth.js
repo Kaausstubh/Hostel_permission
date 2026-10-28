@@ -697,6 +697,129 @@ router.get(
   }
 );
 
+// ── Designated Gmail Sender Authorization Routes ──────────────────────────────
+// Used once by administrator to authorize the designated HEIMDALL sender Gmail account.
+// Distinct from student/staff login flow.
+router.get('/gmail/authorize', (req, res) => {
+  const setupSecret = process.env.ADMIN_SETUP_SECRET || process.env.SESSION_SECRET || 'heimdall_setup_secret';
+  const providedSecret = req.query.secret;
+
+  // Protect authorization initiation
+  if (!req.user && providedSecret !== setupSecret) {
+    return res.status(403).json({
+      success: false,
+      message: 'Forbidden: To initiate designated sender authorization, provide ?secret=<SESSION_SECRET> or authenticate as admin/warden.',
+    });
+  }
+
+  const clientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
+  if (!clientId) {
+    return res.status(500).json({ success: false, message: 'GOOGLE_CLIENT_ID not configured on backend.' });
+  }
+
+  const backendUrl = (process.env.PUBLIC_BACKEND_URL || 'http://localhost:5001').trim().replace(/\/+$/, '');
+  const redirectUri = process.env.GMAIL_REDIRECT_URI || `${backendUrl}/api/auth/gmail/callback`;
+
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'https://www.googleapis.com/auth/gmail.send');
+  authUrl.searchParams.set('access_type', 'offline');
+  authUrl.searchParams.set('prompt', 'consent');
+  authUrl.searchParams.set('state', 'heimdall_sender_auth');
+
+  return res.redirect(authUrl.toString());
+});
+
+router.get('/gmail/callback', async (req, res) => {
+  const { code, error } = req.query;
+
+  if (error) {
+    logger.error('[GmailAuth] Sender authorization rejected by Google', { error });
+    return res.status(400).send(`<h2>Authorization Failed</h2><p>${error}</p>`);
+  }
+
+  if (!code) {
+    return res.status(400).send('<h2>Authorization Failed</h2><p>No authorization code received from Google.</p>');
+  }
+
+  const clientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  const backendUrl = (process.env.PUBLIC_BACKEND_URL || 'http://localhost:5001').trim().replace(/\/+$/, '');
+  const redirectUri = process.env.GMAIL_REDIRECT_URI || `${backendUrl}/api/auth/gmail/callback`;
+
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }).toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenRes.ok || tokenData.error) {
+      logger.error('[GmailAuth] Token exchange failed', tokenData);
+      return res.status(400).send(`<h2>Token Exchange Failed</h2><p>${tokenData.error_description || tokenData.error}</p>`);
+    }
+
+    const refreshToken = tokenData.refresh_token;
+    const accessToken = tokenData.access_token;
+
+    let senderEmail = 'Designated Sender';
+    try {
+      const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        senderEmail = profileData.emailAddress;
+      }
+    } catch (_) {}
+
+    logger.info('[GmailAuth] Successfully obtained refresh token for designated sender', { senderEmail });
+
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>HEIMDALL - Gmail Sender Configured</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f3f4f6; padding: 40px 20px; line-height: 1.6; }
+          .card { max-width: 600px; margin: 0 auto; background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+          h1 { color: #38bdf8; margin-top: 0; }
+          .success { color: #10b981; font-weight: 700; font-size: 18px; margin: 16px 0; }
+          .code-box { background: #030712; border: 1px solid #374151; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13.5px; word-break: break-all; margin: 16px 0; color: #a7f3d0; }
+          .note { font-size: 13px; color: #9ca3af; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>🏛️ HEIMDALL</h1>
+          <div class="success">✅ Gmail Sender Authorization Successful!</div>
+          <p>The designated sender account <strong>${senderEmail}</strong> has authorized automated email delivery.</p>
+          <p>Please copy these environment variables into your <strong>backend/.env</strong> file and your Render deployment dashboard:</p>
+          <div class="code-box">
+            GMAIL_SENDER_ADDRESS=${senderEmail}<br>
+            GMAIL_REFRESH_TOKEN=${refreshToken || 'Note: Refresh token already issued. Check server logs if not displayed.'}
+          </div>
+          <p class="note">🔒 Keep this token private. It allows HEIMDALL to send transactional hostel notifications unattended.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    logger.error('[GmailAuth] Unexpected error during callback processing', { error: err.message });
+    return res.status(500).send(`<h2>Internal Server Error</h2><p>${err.message}</p>`);
+  }
+});
+
 // ── Get current user ──────────────────────────────────────────────────────────
 // Used by AuthContext on mount to silently re-validate the stored token.
 router.get('/me', protect, async (req, res) => {
