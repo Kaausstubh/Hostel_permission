@@ -20,6 +20,8 @@ export default function GuardianManagement() {
   // Modals state
   const [editModalData, setEditModalData] = useState(null); // { guardian, student }
   const [linkModalStudent, setLinkModalStudent] = useState(null); // student
+  const [noticeModalData, setNoticeModalData] = useState(null); // { recipientEmail, recipientName, student }
+  const [noticeForm, setNoticeForm] = useState({ subject: '', message: '' });
   const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', relationship: 'Father', reason: '' });
   const [linkForm, setLinkForm] = useState({
     slot1: { name: '', relationship: 'Father', phone: '', email: '' },
@@ -133,6 +135,42 @@ export default function GuardianManagement() {
       fetchStudents();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to link guardians');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleOpenNotice = (guardian, student) => {
+    setNoticeModalData({
+      recipientEmail: guardian.email,
+      recipientName: guardian.name,
+      student,
+    });
+    setNoticeForm({
+      subject: `Hostel Communication regarding ${student.name}`,
+      message: '',
+    });
+  };
+
+  const handleSendNotice = async (e) => {
+    e.preventDefault();
+    if (!noticeForm.subject || !noticeForm.message) {
+      toast.error('Subject and message content are required');
+      return;
+    }
+    try {
+      setActionLoading('sending_notice');
+      const res = await api.post('/admin/guardians/send-notice', {
+        to: noticeModalData.recipientEmail,
+        recipientName: noticeModalData.recipientName,
+        subject: noticeForm.subject,
+        message: noticeForm.message,
+        studentId: noticeModalData.student?._id,
+      });
+      toast.success(res.data?.message || 'Official notice email dispatched successfully!');
+      setNoticeModalData(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send notice email');
     } finally {
       setActionLoading(null);
     }
@@ -406,6 +444,24 @@ export default function GuardianManagement() {
                             >
                               <MdEdit size={14} /> Edit Details
                             </button>
+                            <button
+                              onClick={() => handleOpenNotice(g1, student)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 10px',
+                                background: 'transparent',
+                                border: '1px solid #3b82f6',
+                                borderRadius: 6,
+                                fontSize: 12,
+                                color: '#3b82f6',
+                                cursor: 'pointer'
+                              }}
+                              title="Send direct email notice to this guardian"
+                            >
+                              <MdEmail size={14} /> Send Notice
+                            </button>
                             {g1.status === 'INVITED' && (
                               <button
                                 onClick={() => handleResendInvite(g1._id)}
@@ -471,6 +527,24 @@ export default function GuardianManagement() {
                               }}
                             >
                               <MdEdit size={14} /> Edit Details
+                            </button>
+                            <button
+                              onClick={() => handleOpenNotice(g2, student)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 10px',
+                                background: 'transparent',
+                                border: '1px solid #3b82f6',
+                                borderRadius: 6,
+                                fontSize: 12,
+                                color: '#3b82f6',
+                                cursor: 'pointer'
+                              }}
+                              title="Send direct email notice to this guardian"
+                            >
+                              <MdEmail size={14} /> Send Notice
                             </button>
                             {g2.status === 'INVITED' && (
                               <button
@@ -836,6 +910,86 @@ export default function GuardianManagement() {
                     style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
                   >
                     {actionLoading === 'saving_link' ? 'Linking...' : 'Send Invitations & Link'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Send Email Notice */}
+        {noticeModalData && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16
+          }}>
+            <div style={{
+              background: 'var(--bg-card)',
+              width: '100%',
+              maxWidth: 520,
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              padding: 24,
+              boxShadow: 'var(--shadow-lg)'
+            }}>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: 18, color: 'var(--text-primary)' }}>
+                ✉️ Send Official Notice Email
+              </h3>
+              <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                To: <strong>{noticeModalData.recipientName} ({noticeModalData.recipientEmail})</strong>
+                <br />
+                Student: <strong>{noticeModalData.student.name} ({noticeModalData.student.rollNo})</strong>
+              </p>
+
+              <form onSubmit={handleSendNotice} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                    Subject Line
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={noticeForm.subject}
+                    onChange={(e) => setNoticeForm({ ...noticeForm, subject: e.target.value })}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-page)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                    Message Content
+                  </label>
+                  <textarea
+                    required
+                    rows={6}
+                    placeholder="Enter the official notice or information to send to this guardian..."
+                    value={noticeForm.message}
+                    onChange={(e) => setNoticeForm({ ...noticeForm, message: e.target.value })}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-page)', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setNoticeModalData(null)}
+                    style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading === 'sending_notice'}
+                    style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <MdSend size={15} />
+                    {actionLoading === 'sending_notice' ? 'Dispatching Email...' : 'Send Notice Now'}
                   </button>
                 </div>
               </form>

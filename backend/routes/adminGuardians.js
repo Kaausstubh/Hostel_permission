@@ -217,6 +217,57 @@ router.put(['/update', '/update/:guardianId'], async (req, res) => {
   }
 });
 
+// ── POST /send-notice - Warden direct email notice to parent or student ──────
+router.post('/send-notice', async (req, res) => {
+  try {
+    const { to, recipientName, subject, message, studentId } = req.body;
+    if (!to || !to.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Valid recipient email address is required' });
+    }
+    if (!subject || !subject.trim()) {
+      return res.status(400).json({ success: false, message: 'Notice subject is required' });
+    }
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Notice message content is required' });
+    }
+
+    const { sendWardenNoticeEmail } = require('../services/mailService');
+    const result = await sendWardenNoticeEmail({
+      to: to.trim().toLowerCase(),
+      recipientName: recipientName?.trim() || 'Parent / Student',
+      subject: subject.trim(),
+      messageContent: message.trim(),
+      wardenName: req.user?.name || 'Hostel Warden',
+    });
+
+    await ApprovalAuditLog.create({
+      event: 'WARDEN_NOTICE_SENT',
+      student_id: studentId && mongoose.isValidObjectId(studentId) ? studentId : null,
+      actor_id: req.user._id,
+      actor_role: req.user.role || 'warden',
+      actor_email: req.user.email,
+      ip_address: req.ip,
+      details: { to: to.trim().toLowerCase(), subject: subject.trim(), success: result.success, error: result.error },
+    }).catch(() => {});
+
+    if (!result.success && !result.mocked) {
+      return res.status(400).json({
+        success: false,
+        message: `Failed to deliver email: ${result.error || 'SMTP delivery rejected'}`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Official notice email dispatched successfully to ${to.trim()}`,
+      messageId: result.messageId,
+    });
+  } catch (err) {
+    logger.warn('[AdminGuardians] Send notice error', { error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── GET /export ──────────────────────────────────────────────────────────────
 router.get('/export', async (req, res) => {
   try {

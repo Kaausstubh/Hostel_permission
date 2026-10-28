@@ -437,6 +437,39 @@ const recordStaffPhoneOverride = async ({
     },
   });
 
+  // Notify student and parent via email
+  try {
+    const { sendLeaveOutcomeEmailToStudent, sendLeaveOutcomeEmailToParent } = require('./mailService');
+    if (visit.student_id?.email) {
+      sendLeaveOutcomeEmailToStudent({
+        to: visit.student_id.email,
+        studentName: visit.student_id.name || visit.name,
+        decision: 'APPROVED',
+        parentName: `Parent (Confirmed via Phone by ${staffUser.name || 'Hostel Staff'})`,
+        remarks: overrideReason,
+        place: visit.place,
+        leaveDate: visit.leave_date,
+        returnDate: visit.return_date,
+      }).catch((e) => logger.warn('[ParentApproval] Student notification on override failed:', e.message));
+    }
+    const parentNoticeEmail = guardian?.email || visit.parent_email || visit.student_id?.parentEmail;
+    if (parentNoticeEmail) {
+      sendLeaveOutcomeEmailToParent({
+        to: parentNoticeEmail,
+        guardianName: decName,
+        studentName: visit.student_id?.name || visit.name,
+        decision: 'APPROVED',
+        decidedBy: `Staff Phone Confirmation (${staffUser.name || 'Hostel Staff'})`,
+        remarks: overrideReason,
+        place: visit.place,
+        leaveDate: visit.leave_date,
+        returnDate: visit.return_date,
+      }).catch((e) => logger.warn('[ParentApproval] Parent notification on override failed:', e.message));
+    }
+  } catch (mailErr) {
+    logger.warn('[ParentApproval] Notification error on override:', mailErr.message);
+  }
+
   return { success: true, visit: updatedVisit, approval: approvalRecord };
 };
 

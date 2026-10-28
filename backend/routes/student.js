@@ -318,6 +318,7 @@ router.get('/status', async (req, res) => {
         parentEmail: primaryGuardianRec?.email || req.user?.parentEmail || null,
         parentName: primaryGuardianRec?.name || req.user?.parentName || null,
         parentPhone: primaryGuardianRec?.phone || req.user?.parentPhone || null,
+        hasGuardians: guardianRecords.length > 0 || Boolean(req.user?.parentEmail),
         guardians: guardianRecords.length > 0
           ? guardianRecords.map((g) => ({
               id: g._id,
@@ -1040,6 +1041,10 @@ router.post('/home-visit', async (req, res) => {
       const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
 
       for (const g of guardians) {
+        // If this guardian was already sent the direct 1-click token review email above, skip to avoid duplicate emails
+        if (parentEmail && g.email.trim().toLowerCase() === parentEmail.trim().toLowerCase()) {
+          continue;
+        }
         sendLeaveRequestEmail({
           to: g.email,
           guardianName: g.name,
@@ -1157,16 +1162,21 @@ router.post('/home-visit/:id/resend-email', async (req, res) => {
       visit.email_notification_status = 'FAILED';
       visit.email_failure_reason = emailResult.error || 'Failed to dispatch email via Google Apps Script';
     }
-    await visit.save();
+    if (!emailResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: `Email delivery failed: ${emailResult.error || 'Failed to dispatch email'}`,
+        email_notification_status: visit.email_notification_status,
+        email_failure_reason: visit.email_failure_reason,
+      });
+    }
 
     return res.json({
-      success: emailResult.success,
-      message: emailResult.success
-        ? `Approval email successfully resent to ${recipientEmail}.`
-        : `Email delivery failed: ${emailResult.error}`,
+      success: true,
+      message: `Approval email successfully resent to ${recipientEmail}.`,
       email_notification_status: visit.email_notification_status,
       email_failure_reason: visit.email_failure_reason,
-      emailSent: emailResult.success,
+      emailSent: true,
     });
   } catch (err) {
     logger.error('[HomeVisit] Resend email error:', err.message);
@@ -1664,6 +1674,14 @@ router.put('/onboard', async (req, res) => {
     // Invalidate session cache so subsequent requests load fresh profile & photo
     await invalidateUserCache(String(userObjectId));
 
+    let hasGuardians = false;
+    try {
+      const gCount = await Guardian.countDocuments({ student_id: userObjectId });
+      hasGuardians = gCount > 0 || Boolean(updatedUser.parentEmail);
+    } catch {
+      hasGuardians = false;
+    }
+
     res.json({
       success: true,
       message: 'Onboarding completed successfully!',
@@ -1680,6 +1698,9 @@ router.put('/onboard', async (req, res) => {
         phone:        updatedUser.phone || null,
         parentPhone:  updatedUser.parentPhone || null,
         parentPhone2: updatedUser.parentPhone2 || null,
+        parentEmail:  updatedUser.parentEmail || null,
+        parentName:   updatedUser.parentName || null,
+        hasGuardians,
       },
     });
   } catch (err) {

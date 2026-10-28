@@ -181,11 +181,15 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     });
   }
 
-  // Update denormalized parentPhone snapshot on student record for backward compatibility
+  // Persist parent contact details on student document for instant lookups & notifications
   student.parentPhone = g1PhoneE164;
+  student.parentEmail = normG1E;
+  student.parentName = guardian1.name.trim();
   if (g2PhoneE164) {
     student.parentPhone2 = g2PhoneE164;
   }
+  await student.save();
+
   const baseUrl = getCleanFrontendUrl();
   const inviteUrls = {};
 
@@ -224,7 +228,7 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     });
 
     try {
-      await sendGuardianInviteEmail({
+      const emailRes = await sendGuardianInviteEmail({
         to: guardian.email,
         guardianName: guardian.name,
         studentName: student.name,
@@ -232,6 +236,9 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
         inviteUrl,
         expiryDays: 7,
       });
+      if (emailRes && emailRes.success === false && !emailRes.mocked) {
+        logger.error(`[GuardianService] Live invite email failed for ${guardian.email}: ${emailRes.error}`);
+      }
     } catch (err) {
       logger.error(`[GuardianService] Failed to send email invite to ${guardian.email}`, { error: err.message });
     }
@@ -394,7 +401,7 @@ const resendInvitation = async ({ guardianId, actorUser, ip = '' }) => {
   guardian.last_invite_sent_at = new Date();
   await guardian.save();
 
-  await sendGuardianInviteEmail({
+  const mailResult = await sendGuardianInviteEmail({
     to: guardian.email,
     guardianName: guardian.name,
     studentName: guardian.student_id?.name || 'Student',
@@ -402,6 +409,10 @@ const resendInvitation = async ({ guardianId, actorUser, ip = '' }) => {
     inviteUrl,
     expiryDays: 7,
   });
+
+  if (mailResult && mailResult.success === false && !mailResult.mocked) {
+    throw new Error(mailResult.error || 'Failed to dispatch invitation email');
+  }
 
   await ApprovalAuditLog.create({
     event: 'INVITE_RESENT',

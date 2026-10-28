@@ -275,6 +275,7 @@ app.use('/api', apiLimiter);
 app.use('/api/auth',       authRoutes);
 app.use('/api/inout',      inOutRoutes);
 app.use('/api/homevisit',  homeVisitRoutes);
+app.use('/api/home-visit', homeVisitRoutes);
 app.use('/api/complaints', complaintRoutes);
 app.use('/api/dashboard',  dashboardRoutes);
 app.use('/api/whatsapp',   whatsappRoutes);

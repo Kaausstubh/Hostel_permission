@@ -23,8 +23,8 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
     },
   });
 
-  // Only render if student has no guardians linked
-  if (user?.hasGuardians !== false) {
+  // Only render if student has not verified guardians
+  if (user?.hasGuardians === true || !modalOpen) {
     return null;
   }
 

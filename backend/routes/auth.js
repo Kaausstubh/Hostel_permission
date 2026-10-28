@@ -344,6 +344,9 @@ router.post('/verify-registration-otp', async (req, res) => {
         phone: user.phone,
         parentPhone: user.parentPhone,
         parentPhone2: user.parentPhone2,
+        parentEmail: user.parentEmail || null,
+        parentName: user.parentName || null,
+        hasGuardians: Boolean(guardianResult?.guardian1),
       },
     });
   } catch (err) {
@@ -412,6 +415,17 @@ router.post('/login', async (req, res) => {
 
     const token = signToken(user._id);
 
+    let hasGuardians = true;
+    if (user.role === 'student') {
+      try {
+        const Guardian = require('../models/Guardian');
+        const gCount = await Guardian.countDocuments({ student_id: user._id });
+        hasGuardians = gCount > 0 || Boolean(user.parentEmail);
+      } catch {
+        hasGuardians = true;
+      }
+    }
+
     return res.json({
       success: true,
       token,
@@ -426,6 +440,9 @@ router.post('/login', async (req, res) => {
         phone: user.phone || null,
         parentPhone: user.parentPhone || null,
         parentPhone2: user.parentPhone2 || null,
+        parentEmail: user.parentEmail || null,
+        parentName: user.parentName || null,
+        hasGuardians,
       },
     });
   } catch (err) {

@@ -1991,6 +1991,9 @@ export default function StudentDashboard() {
       if (Array.isArray(s.guardians) && s.guardians.length > 0) {
         setRegisteredGuardians(s.guardians);
       }
+      if (s.hasGuardians !== undefined && user?.hasGuardians !== s.hasGuardians) {
+        updateUser({ hasGuardians: s.hasGuardians });
+      }
 
       const passes = parseActivePasses(s);
       setActivePasses(passes);
@@ -2553,6 +2556,9 @@ export default function StudentDashboard() {
       }
       if (Array.isArray(s?.guardians) && s.guardians.length > 0) {
         setRegisteredGuardians(s.guardians);
+      }
+      if (s?.hasGuardians !== undefined && user?.hasGuardians !== s.hasGuardians) {
+        updateUser({ hasGuardians: s.hasGuardians });
       }
       const passes = parseActivePasses(s);
       setActivePasses(passes);

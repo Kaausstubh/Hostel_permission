@@ -229,29 +229,30 @@ const sendLeaveReminderEmail = async ({ to, guardianName, studentName, leaveDate
 // ── 4. Leave Request Outcome to Student ───────────────────────────────────────
 const sendLeaveOutcomeEmailToStudent = async ({ to, studentName, decision, parentName, remarks, place, leaveDate, returnDate }) => {
   const isApproved = decision === 'APPROVED';
+  const approver = parentName || 'Hostel Management';
   const subject = isApproved
-    ? `✅ Leave Request Approved by Parent (${leaveDate} to ${returnDate})`
-    : `❌ Leave Request Rejected by Parent (${leaveDate} to ${returnDate})`;
+    ? `✅ Leave Request Approved (${leaveDate} to ${returnDate})`
+    : `❌ Leave Request Rejected (${leaveDate} to ${returnDate})`;
 
   const statusColor = isApproved ? '#10b981' : '#ef4444';
   const html = wrapEmail(
     subject,
     `
       <h2 style="font-size: 17px; color: ${statusColor}; margin-top: 0;">
-        ${isApproved ? '✅ Home Visit Approved by Parent' : '❌ Home Visit Rejected by Parent'}
+        ${isApproved ? '✅ Home Visit Approved' : '❌ Home Visit Rejected'}
       </h2>
       <p>Hello <strong>${studentName}</strong>,</p>
-      <p>Your guardian <strong>${parentName}</strong> has reviewed and <strong>${decision}</strong> your home visit request.</p>
+      <p>Your home visit request has been reviewed and <strong>${decision}</strong> by <strong>${approver}</strong>.</p>
 
       <div class="details-box" style="border-left-color: ${statusColor};">
         <p><strong>📍 Destination:</strong> ${place || 'Home'}</p>
         <p><strong>📅 Dates:</strong> ${leaveDate} → ${returnDate}</p>
-        ${remarks ? `<p><strong>💬 Guardian Remarks:</strong> "${remarks}"</p>` : ''}
+        ${remarks ? `<p><strong>💬 Remarks:</strong> "${remarks}"</p>` : ''}
       </div>
 
       ${isApproved
-        ? '<p>Your request is now forwarded to the Hostel Staff for final gate-pass QR release.</p>'
-        : '<p>Since your guardian rejected this request, you may not leave the hostel without warden consultation.</p>'
+        ? '<p>Your digital gate pass QR code is active on your student dashboard. Show it at the hostel gate scanner when leaving campus.</p>'
+        : '<p>You may not leave the hostel campus for this request without direct consultation with the hostel warden.</p>'
       }
     `
   );
@@ -316,6 +317,57 @@ const sendParentLoginOtpEmail = async ({ to, name, otp }) => {
   return sendMail({ to, subject, html });
 };
 
+// ── 8. Official Notice / Communication Email (from Warden / Staff) ────────────
+const sendWardenNoticeEmail = async ({ to, recipientName, subject, messageContent, wardenName = 'Hostel Warden' }) => {
+  const formattedSubject = subject?.startsWith('HEIMDALL') ? subject : `HEIMDALL Hostel Notice: ${subject || 'Important Information'}`;
+  const html = wrapEmail(
+    formattedSubject,
+    `
+      <h2 style="font-size: 17px; color: #60a5fa; margin-top: 0;">Official Hostel Communication</h2>
+      <p>Dear <strong>${recipientName || 'Student / Parent'}</strong>,</p>
+      <div class="details-box" style="border-left-color: #3b82f6; white-space: pre-wrap; font-size: 14.5px; line-height: 1.6;">${messageContent}</div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 20px;">
+        Issued by: <strong>${wardenName}</strong><br>
+        Campus Hostel Administration
+      </p>
+    `
+  );
+  return sendMail({ to, subject: formattedSubject, html });
+};
+
+// ── 9. Leave Request Outcome to Parent ────────────────────────────────────────
+const sendLeaveOutcomeEmailToParent = async ({ to, guardianName, studentName, decision, decidedBy = 'Hostel Administration', remarks, place, leaveDate, returnDate }) => {
+  const isApproved = decision === 'APPROVED';
+  const subject = isApproved
+    ? `✅ Leave Request Approved: ${studentName} (${leaveDate} to ${returnDate})`
+    : `❌ Leave Request Rejected: ${studentName} (${leaveDate} to ${returnDate})`;
+
+  const statusColor = isApproved ? '#10b981' : '#ef4444';
+  const html = wrapEmail(
+    subject,
+    `
+      <h2 style="font-size: 17px; color: ${statusColor}; margin-top: 0;">
+        ${isApproved ? '✅ Home Visit Approved' : '❌ Home Visit Rejected'}
+      </h2>
+      <p>Dear <strong>${guardianName || 'Parent / Guardian'}</strong>,</p>
+      <p>This is to notify you that the home visit request for your ward <strong>${studentName}</strong> has been <strong>${decision}</strong> by <strong>${decidedBy}</strong>.</p>
+
+      <div class="details-box" style="border-left-color: ${statusColor};">
+        <p><strong>📍 Destination:</strong> ${place || 'Home'}</p>
+        <p><strong>📅 Departure:</strong> ${leaveDate}</p>
+        <p><strong>📅 Return Date:</strong> ${returnDate}</p>
+        ${remarks ? `<p><strong>💬 Remarks / Reason:</strong> "${remarks}"</p>` : ''}
+      </div>
+
+      ${isApproved
+        ? '<p>The digital exit gate pass has been generated. Your ward can now scan at the hostel gate to leave.</p>'
+        : '<p>The request was not approved. The student is not authorized to leave the hostel campus.</p>'
+      }
+    `
+  );
+  return sendMail({ to, subject, html });
+};
+
 module.exports = {
   isMailConfigured: isConfigured,
   sendMail,
@@ -323,7 +375,10 @@ module.exports = {
   sendLeaveRequestEmail,
   sendLeaveReminderEmail,
   sendLeaveOutcomeEmailToStudent,
+  sendLeaveOutcomeEmailToParent,
   sendStudentOtpEmail,
   sendParentResetPasswordEmail,
   sendParentLoginOtpEmail,
+  sendWardenNoticeEmail,
 };
+

@@ -30,7 +30,11 @@ const {
 } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
-const { sendLeaveRequestEmail, sendLeaveOutcomeEmailToStudent } = require('../services/mailService');
+const {
+  sendLeaveRequestEmail,
+  sendLeaveOutcomeEmailToStudent,
+  sendLeaveOutcomeEmailToParent,
+} = require('../services/mailService');
 const { recordStaffPhoneOverride } = require('../services/parentApprovalService');
 const logger = require('../utils/logger');
 const { recordDeletionAudit } = require('../services/storageStatsService');
@@ -352,6 +356,33 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
         visit.email_failure_reason = notifyErr.message;
         await visit.save();
       }
+    // Also notify secondary linked guardian if registered (avoid duplicating if primary email is the same)
+    try {
+      const guardians = await Guardian.find({
+        student_id: req.user._id,
+        status: { $ne: 'REVOKED' },
+      });
+
+      const baseUrl = getCleanFrontendUrl();
+      const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
+
+      for (const g of guardians) {
+        if (parentEmail && g.email.trim().toLowerCase() === parentEmail.trim().toLowerCase()) {
+          continue;
+        }
+        sendLeaveRequestEmail({
+          to: g.email,
+          guardianName: g.name,
+          studentName: req.user.name,
+          leaveDate: visit.leave_date,
+          returnDate: visit.return_date,
+          reason: visit.reason,
+          place: visit.place,
+          requestUrl,
+        }).catch((err) => logger.warn(`[HomeVisit] Failed to send email to guardian ${g.email}: ${err.message}`));
+      }
+    } catch (gErr) {
+      // Non-blocking
     }
 
     const cleanVisit = visit.toObject ? visit.toObject() : { ...visit };
@@ -893,11 +924,18 @@ router.post('/resend-notification', protect, async (req, res) => {
 
     await visit.save();
 
+    if (!emailResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: `Email delivery failed: ${emailResult.error || 'Failed to dispatch email'}`,
+        email_notification_status: visit.email_notification_status,
+        email_failure_reason: visit.email_failure_reason,
+      });
+    }
+
     return res.json({
-      success: emailResult.success,
-      message: emailResult.success
-        ? `Approval email successfully submitted to ${recipientEmail}`
-        : `Email delivery failed: ${emailResult.error}`,
+      success: true,
+      message: `Approval email successfully submitted to ${recipientEmail}`,
       email_notification_status: visit.email_notification_status,
       email_failure_reason: visit.email_failure_reason,
       emailSentAt: visit.email_sent_at,
@@ -981,6 +1019,36 @@ router.post('/warden-approve', protect, authorize('warden', 'admin'), async (req
     }
 
     await visit.save();
+
+    // Send leave outcome email to student
+    if (student?.email) {
+      sendLeaveOutcomeEmailToStudent({
+        to: student.email,
+        studentName: student.name || visit.name,
+        decision: action === 'approve' ? 'APPROVED' : 'REJECTED',
+        parentName: `Hostel Staff (${req.user.name || 'Warden'})`,
+        remarks: visit.warden_remarks || `Decided by Hostel Staff`,
+        place: visit.place,
+        leaveDate: visit.leave_date,
+        returnDate: visit.return_date,
+      }).catch((e) => logger.warn('[HomeVisit] Student outcome email notice on warden decision:', e.message));
+    }
+
+    // Send leave outcome email to parent if email on file
+    const parentTargetEmail = visit.parent_email || student?.parentEmail;
+    if (parentTargetEmail) {
+      sendLeaveOutcomeEmailToParent({
+        to: parentTargetEmail,
+        guardianName: visit.parent_name || student?.parentName || 'Parent / Guardian',
+        studentName: student?.name || visit.name,
+        decision: action === 'approve' ? 'APPROVED' : 'REJECTED',
+        decidedBy: `Hostel Warden (${req.user.name || 'Staff'})`,
+        remarks: visit.warden_remarks || `Official warden decision recorded`,
+        place: visit.place,
+        leaveDate: visit.leave_date,
+        returnDate: visit.return_date,
+      }).catch((e) => logger.warn('[HomeVisit] Parent outcome email notice on warden decision:', e.message));
+    }
 
     res.json({ success: true, message: `Hostel staff ${action}d the request`, visit });
   } catch (error) {

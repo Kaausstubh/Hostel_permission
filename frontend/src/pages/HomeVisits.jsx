@@ -163,7 +163,11 @@ export default function HomeVisits() {
     setActioning(visitId + 'resend');
     try {
       const res = await api.post('/homevisit/resend-notification', { visit_id: visitId, parent_email: emailToSend });
-      toast.success(res.data?.message || 'Notification resent successfully');
+      if (res.data?.success) {
+        toast.success(res.data?.message || 'Approval email resent to parent successfully');
+      } else {
+        toast.error(res.data?.message || 'Failed to dispatch email');
+      }
       fetchVisits();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to resend notification');
