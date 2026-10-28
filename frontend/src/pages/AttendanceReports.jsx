@@ -334,9 +334,19 @@ export default function AttendanceReports() {
                   const isPresent = r.status === 'present';
                   const isLeave = r.status === 'on_leave';
                   const isPending = r.status === 'pending';
+                  const formatDateDisplay = (dStr, fStr) => {
+                    if (fStr) return fStr;
+                    if (dStr && /^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+                      const [y, m, d] = dStr.split('-');
+                      return `${d}/${m}/${y}`;
+                    }
+                    return dStr || '—';
+                  };
                   return (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}>
-                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{r.date}</td>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {formatDateDisplay(r.date, r.formattedDate)}
+                      </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.hostel}</span>
                         <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>Room {r.roomNo}</span>
@@ -388,8 +398,8 @@ export default function AttendanceReports() {
                         {r.verificationTime || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
-                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
-                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
+                        <div>{r.sessionStart && !isNaN(new Date(r.sessionStart).getTime()) ? `Start: ${new Date(r.sessionStart).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : 'Start: —'}</div>
+                        <div>{r.expiresAt && !isNaN(new Date(r.expiresAt).getTime()) ? `Ends: ${new Date(r.expiresAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : 'Ends: —'}</div>
                         <strong>{r.attemptsUsed || 0}/3 checks</strong>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontSize: 12.5 }}>

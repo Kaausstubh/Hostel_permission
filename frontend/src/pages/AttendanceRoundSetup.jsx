@@ -100,7 +100,8 @@ export default function AttendanceRoundSetup() {
   const [sessionName, setSessionName] = useState("Night Attendance");
   const [submitting, setSubmitting] = useState(false);
 
-  const todayStr = new Date().toLocaleDateString("en-US", {
+  const todayStr = new Date().toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
     weekday: "short",
     month: "short",
     day: "numeric",

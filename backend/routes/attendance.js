@@ -708,34 +708,33 @@ function formatRecordTime(ts) {
   });
 }
 
-// Helper: Format record date to e.g. "13 October 2026"
+// Helper: Format record date consistently to DD/MM/YYYY in IST without timezone shift
 function formatRecordDate(ts, fallbackDate) {
   if (ts) {
     const d = new Date(ts);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-IN', {
+      const parts = new Intl.DateTimeFormat('en-IN', {
         timeZone: 'Asia/Kolkata',
-        day: 'numeric',
-        month: 'long',
+        day: '2-digit',
+        month: '2-digit',
         year: 'numeric',
-      });
-    }
-  }
-  if (fallbackDate) {
-    const parts = String(fallbackDate).split('-');
-    if (parts.length === 3) {
-      const d = new Date(`${fallbackDate}T00:00:00Z`);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-IN', {
-          timeZone: 'UTC',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        });
+      }).formatToParts(d);
+      const day = parts.find((p) => p.type === 'day')?.value;
+      const month = parts.find((p) => p.type === 'month')?.value;
+      const year = parts.find((p) => p.type === 'year')?.value;
+      if (day && month && year) {
+        return `${day}/${month}/${year}`;
       }
     }
   }
-  return fallbackDate || null;
+  if (fallbackDate) {
+    const parts = String(fallbackDate).trim().split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return String(fallbackDate);
+  }
+  return null;
 }
 
 // ── Student: Today's Attendance Session Status & Record ───────────────────────
@@ -1477,7 +1476,9 @@ async function handleStudentAutoVerify(req, res) {
         { $set: { status: finalStatus, finalizedAt: now, verification_started_at: null, locationStatus: finalStatus === 'present' ? 'INSIDE HOSTEL' : 'OUTSIDE HOSTEL' }, $push: { attempts: validFixEvent } }
       );
       if (finalStatus === 'present') {
-        await syncActiveRoomRound(student, assignedHostel, 'approved', remark, numLat, numLng, numAccuracy);
+        syncActiveRoomRound(student, assignedHostel, 'approved', remark, numLat, numLng, numAccuracy).catch((err) =>
+          logger.warn('[Attendance] Background syncActiveRoomRound warning: ' + err.message)
+        );
         emitSocketAttendance(student, assignedHostel, 'present', now);
       }
       AttendanceAuditLog.create({
@@ -1523,7 +1524,9 @@ async function handleStudentAutoVerify(req, res) {
       { $set: { status: finalStatus, finalizedAt: now, verification_started_at: null, locationStatus: 'OUTSIDE HOSTEL' }, $push: { attempts: validFixEvent } }
     );
     if (finalStatus === 'absent') {
-      await syncActiveRoomRound(student, assignedHostel, 'absent', record.remark, numLat, numLng, numAccuracy);
+      syncActiveRoomRound(student, assignedHostel, 'absent', record.remark, numLat, numLng, numAccuracy).catch((err) =>
+        logger.warn('[Attendance] Background syncActiveRoomRound warning: ' + err.message)
+      );
       emitSocketAttendance(student, assignedHostel, 'absent', now);
     }
     return res.json(responseForFinal(record, { ...claimed.toObject(), status: finalStatus }));
@@ -2623,6 +2626,7 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       return {
         id: r._id,
         date: r.date,
+        formattedDate: formatRecordDate(ts, r.date),
         session: r.session || 'Night Attendance',
         hostel: r.hostel,
         floor: r.floor,

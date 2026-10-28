@@ -103,8 +103,14 @@ export default function StudentAttendanceHistoryModal({
     todayLabel = 'Verification Pending';
   }
 
-  // Summary counts
-  const presentCount = history.filter((r) => r.status === 'present').length;
+  const formatDateDisplay = (dStr, fStr) => {
+    if (fStr && !fStr.includes('NaN')) return fStr;
+    if (dStr && /^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+      const [y, m, d] = dStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+    return dStr || new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
   const absentCount = history.filter((r) => r.status === 'absent').length;
   const leaveCount = history.filter((r) => r.status === 'on_leave').length;
 
@@ -229,8 +235,8 @@ export default function StudentAttendanceHistoryModal({
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Today's Attendance Status
                 </div>
-                <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
-                  📅 {effectiveToday?.formattedDate || new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2, fontFamily: 'JetBrains Mono, monospace' }}>
+                  📅 {formatDateDisplay(effectiveToday?.date, effectiveToday?.formattedDate)}
                 </div>
               </div>
               <span
@@ -466,7 +472,7 @@ export default function StudentAttendanceHistoryModal({
                       {/* Row 1: Date & Time Pill (Uniformly displayed across all records) */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                         <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                          📅 {record.formattedDate || record.date}
+                          📅 {formatDateDisplay(record.date, record.formattedDate)}
                         </span>
                         {recordTime ? (
                           <span

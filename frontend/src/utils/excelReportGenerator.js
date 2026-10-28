@@ -314,15 +314,30 @@ export const exportAttendanceToExcel = async ({
         ? 'Unverified'
         : 'Staff Override';
 
+    const studentName =
+      student.name && student.name !== 'Student'
+        ? student.name
+        : r.studentName || (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Student');
+    const studentRoll =
+      student.rollNo && student.rollNo !== '—'
+        ? student.rollNo
+        : r.studentRollNo || '—';
+    const displayDate =
+      r.formattedDate ||
+      (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)
+        ? `${r.date.split('-')[2]}/${r.date.split('-')[1]}/${r.date.split('-')[0]}`
+        : r.date) ||
+      '—';
+
     return {
       'S.No': index + 1,
-      'Date': r.date || '—',
+      'Date': displayDate,
       'Session': r.session || 'Night Attendance',
       'Hostel': getHostelLabel(r.hostel),
       'Floor': r.floor || '—',
       'Room Number': r.roomNo || '—',
-      'Student Name': student.name || 'Unknown',
-      'Roll / MIS Number': student.rollNo || '—',
+      'Student Name': studentName,
+      'Roll / MIS Number': studentRoll,
       'Attendance Status': statusLabel,
       'Verification Method': methodLabel,
       'Verification Time': sanitizeFormula(r.verificationTime || '—'),

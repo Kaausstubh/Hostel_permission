@@ -108,6 +108,7 @@ const attendanceRecordSchema = new mongoose.Schema(
 
 // Strict unique constraint: one attendance record per student per date per session
 attendanceRecordSchema.index({ student_id: 1, date: 1, session: 1 }, { unique: true });
+attendanceRecordSchema.index({ student_id: 1, date: -1 });
 attendanceRecordSchema.index({ date: 1, session: 1, hostel: 1, floor: 1 });
 attendanceRecordSchema.index({ hostel: 1, date: 1, status: 1 });
 
