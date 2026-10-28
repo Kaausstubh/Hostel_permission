@@ -111,6 +111,7 @@ export default function StudentAttendanceHistoryModal({
     }
     return dStr || new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
   };
+  const presentCount = history.filter((r) => r.status === 'present').length;
   const absentCount = history.filter((r) => r.status === 'absent').length;
   const leaveCount = history.filter((r) => r.status === 'on_leave').length;
 
