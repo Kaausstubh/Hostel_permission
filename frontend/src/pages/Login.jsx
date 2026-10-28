@@ -388,6 +388,21 @@ export default function Login() {
           >
             Visitor Pass →
           </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => navigate('/privacy-policy')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 500,
+            }}
+          >
+            Privacy Policy
+          </button>
         </div>
       </div>
     </div>
