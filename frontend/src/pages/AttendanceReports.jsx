@@ -353,14 +353,18 @@ export default function AttendanceReports() {
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {r.student?.name && r.student.name !== 'Student'
+                          {r.student?.name && r.student.name.trim().toLowerCase() !== 'student'
                             ? r.student.name
-                            : r.studentName || (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Student')}
+                            : r.studentName && r.studentName.trim().toLowerCase() !== 'student'
+                              ? r.studentName
+                              : (r.roomNo ? `Resident (Room ${r.roomNo})` : 'Campus Resident')}
                         </div>
                         <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                           {r.student?.rollNo && r.student.rollNo !== '—'
                             ? r.student.rollNo
-                            : r.studentRollNo || '-'}
+                            : r.studentRollNo && r.studentRollNo !== '—'
+                              ? r.studentRollNo
+                              : '-'}
                         </div>
                       </td>
                       <td style={{ padding: '12px 14px' }}>

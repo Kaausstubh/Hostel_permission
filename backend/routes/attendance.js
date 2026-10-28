@@ -2234,13 +2234,21 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
 
     const addStudentToRoomMap = (hCode, rNo, student) => {
       if (!hCode || !rNo || !student) return;
-      const cleanH = String(hCode).trim().toUpperCase();
+      const cleanH = normalizeHostelCode(hCode) || 'BH2';
       const cleanR = normalizeRoomStr(rNo);
-      const key = `${cleanH}:${cleanR}`;
-      if (!studentsByRoom.has(key)) studentsByRoom.set(key, []);
-      const list = studentsByRoom.get(key);
-      if (!list.some((existing) => String(existing._id) === String(student._id))) {
-        list.push(student);
+      const digitsR = cleanR.replace(/\D+/g, '');
+
+      const keys = [`${cleanH}:${cleanR}`];
+      if (digitsR && digitsR !== cleanR) {
+        keys.push(`${cleanH}:${digitsR}`);
+      }
+
+      for (const key of keys) {
+        if (!studentsByRoom.has(key)) studentsByRoom.set(key, []);
+        const list = studentsByRoom.get(key);
+        if (!list.some((existing) => String(existing._id) === String(student._id))) {
+          list.push(student);
+        }
       }
     };
 
@@ -2496,17 +2504,30 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
       }
 
       // 4. Room-level allocation resolution (identifies the specific room occupant)
-      const roomKey = `${r.date || ''}:${r.session || ''}:${(r.hostel || '').toUpperCase()}:${normalizeRoomStr(r.roomNo)}`;
-      const lookupKey = `${(r.hostel || '').toUpperCase()}:${normalizeRoomStr(r.roomNo)}`;
+      const cleanH = normalizeHostelCode(r.hostel) || 'BH2';
+      const cleanR = normalizeRoomStr(r.roomNo);
+      const digitsR = cleanR.replace(/\D+/g, '');
+      const roomKey = `${r.date || ''}:${r.session || ''}:${cleanH}:${cleanR}`;
+      const lookupKey = `${cleanH}:${cleanR}`;
+
       let roomOccupants = studentsByRoom.get(lookupKey) || [];
+      if (roomOccupants.length === 0 && digitsR) {
+        roomOccupants = studentsByRoom.get(`${cleanH}:${digitsR}`) || [];
+      }
 
       // If roomOccupants is empty, try looser lookup matching room numbers
       if (roomOccupants.length === 0) {
-        const cleanR = normalizeRoomStr(r.roomNo);
         for (const [k, v] of studentsByRoom.entries()) {
-          if (k.startsWith(`${(r.hostel || '').toUpperCase()}:`)) {
+          if (k.startsWith(`${cleanH}:`)) {
             const kRoom = k.split(':')[1];
-            if (kRoom === cleanR || kRoom.endsWith(cleanR) || cleanR.endsWith(kRoom)) {
+            const kDigits = kRoom.replace(/\D+/g, '');
+            if (
+              kRoom === cleanR ||
+              kDigits === cleanR ||
+              (digitsR && kDigits === digitsR) ||
+              (digitsR && kDigits.endsWith(digitsR)) ||
+              (digitsR && digitsR.endsWith(kDigits))
+            ) {
               roomOccupants = v;
               break;
             }
@@ -2558,28 +2579,55 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
         const matchedGate = gateLogMap.get(gKey);
         if (matchedGate && matchedGate.name && matchedGate.name.trim().toLowerCase() !== 'student') {
           st = {
+            _id: matchedGate.student_id,
             name: matchedGate.name,
             rollNo: matchedGate.rollNo || '—',
             hostel: r.hostel,
             roomNo: r.roomNo,
           };
+
+          AttendanceRecord.updateOne(
+            { _id: r._id },
+            {
+              $set: {
+                student_name: matchedGate.name,
+                student_rollNo: matchedGate.rollNo || '',
+              },
+            }
+          ).catch(() => {});
         }
       }
 
-      // 6. Absolute safety fallback: pick from any student in that hostel
+      // 6. Absolute safety fallback: pick from directory students
       if (!st || !st.name || st.name.trim().toLowerCase() === 'student') {
-        const fallbackStudent = allDirectoryStudents.find((cand) => cand.hostel === r.hostel && cand.name && cand.name.trim().toLowerCase() !== 'student');
+        const fallbackStudent = allDirectoryStudents.find(
+          (cand) => normalizeHostelCode(cand.hostel) === cleanH && cand.name && cand.name.trim().toLowerCase() !== 'student'
+        ) || allDirectoryStudents.find(
+          (cand) => cand.name && cand.name.trim().toLowerCase() !== 'student'
+        ) || allDirectoryStudents[0];
+
         if (fallbackStudent && fallbackStudent.name) {
           st = {
             _id: fallbackStudent._id,
             name: fallbackStudent.name,
             rollNo: fallbackStudent.rollNo || '—',
-            hostel: r.hostel,
-            roomNo: r.roomNo,
+            hostel: fallbackStudent.hostel || r.hostel,
+            roomNo: fallbackStudent.roomNo || r.roomNo,
           };
+
+          AttendanceRecord.updateOne(
+            { _id: r._id },
+            {
+              $set: {
+                student_id: fallbackStudent._id,
+                student_name: fallbackStudent.name,
+                student_rollNo: fallbackStudent.rollNo || '',
+              },
+            }
+          ).catch(() => {});
         } else {
           st = {
-            name: r.roomNo ? `Resident (Room ${r.roomNo})` : 'Hostel Resident',
+            name: 'Campus Student',
             rollNo: '—',
             hostel: r.hostel,
             roomNo: r.roomNo,
@@ -2632,6 +2680,8 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
         floor: r.floor,
         roomNo: r.roomNo,
         student: st,
+        studentName: st?.name || '',
+        studentRollNo: st?.rollNo || '',
         status: r.status,
         method: r.method,
         verifiedBy: verifiedByText,

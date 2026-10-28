@@ -447,19 +447,36 @@ const getRoundRoomsSummary = async (roundId) => {
       .map(([roomNo]) => roomNo);
 
     if (roomsWithoutAllocations.length > 0) {
+      const roomVariants = new Set(roomsWithoutAllocations);
+      for (const rNo of roomsWithoutAllocations) {
+        const digits = rNo.replace(/\D+/g, '');
+        if (digits) {
+          roomVariants.add(digits);
+          roomVariants.add(`B${digits}`);
+          roomVariants.add(`A${digits}`);
+          roomVariants.add(`C${digits}`);
+        }
+      }
+
       const legacyStudents = await User.find({
         role: 'student',
         isActive: true,
         hostel: getStudentHostelFilter(round.hostel),
-        roomNo: { $in: roomsWithoutAllocations },
+        roomNo: { $in: Array.from(roomVariants) },
       })
         .select('_id name rollNo hostel roomNo studentPhoto picture phone')
         .lean();
 
       for (const student of legacyStudents) {
-        const roomNo = (student.roomNo || '').trim().toUpperCase();
-        if (roomsMap.has(roomNo) && roomsMap.get(roomNo).length === 0) {
-          roomsMap.get(roomNo).push(student);
+        const rawR = (student.roomNo || '').trim().toUpperCase();
+        const digits = rawR.replace(/\D+/g, '');
+        for (const [targetRoomNo] of roomsMap.entries()) {
+          const targetDigits = targetRoomNo.replace(/\D+/g, '');
+          if (targetRoomNo === rawR || (digits && targetDigits === digits)) {
+            if (!roomsMap.get(targetRoomNo).some((existing) => String(existing._id) === String(student._id))) {
+              roomsMap.get(targetRoomNo).push(student);
+            }
+          }
         }
       }
     }
@@ -632,11 +649,16 @@ const getRoomDetails = async (roundId, roomNo) => {
 
   // Fallback if not found via RoomAllocation
   if (students.length === 0) {
+    const digitsOnly = cleanRoomNo.replace(/\D+/g, '');
+    const roomVariants = [cleanRoomNo];
+    if (digitsOnly && digitsOnly !== cleanRoomNo) roomVariants.push(digitsOnly);
+    if (digitsOnly) roomVariants.push(`B${digitsOnly}`, `A${digitsOnly}`, `C${digitsOnly}`, `D${digitsOnly}`);
+
     students = await User.find({
       role: 'student',
       isActive: true,
       hostel: getStudentHostelFilter(round.hostel),
-      roomNo: cleanRoomNo,
+      roomNo: { $in: roomVariants },
     })
       .select('_id name rollNo hostel roomNo phone email studentPhoto picture')
       .lean();
@@ -751,11 +773,16 @@ const requestRoomAttendance = async ({ roundId, roomNo, staffUser }) => {
   // Legacy student records may have a room number but no RoomAllocation yet.
   // Fall back to that roster when this room has no active allocations.
   if (students.length === 0) {
+    const digitsOnly = cleanRoomNo.replace(/\D+/g, '');
+    const roomVariants = [cleanRoomNo];
+    if (digitsOnly && digitsOnly !== cleanRoomNo) roomVariants.push(digitsOnly);
+    if (digitsOnly) roomVariants.push(`B${digitsOnly}`, `A${digitsOnly}`, `C${digitsOnly}`, `D${digitsOnly}`);
+
     students = await User.find({
       role: 'student',
       isActive: true,
       hostel: getStudentHostelFilter(round.hostel),
-      roomNo: cleanRoomNo,
+      roomNo: { $in: roomVariants },
     }).lean();
   }
 
