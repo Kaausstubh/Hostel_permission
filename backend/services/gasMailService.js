@@ -97,13 +97,24 @@ async function sendViaGoogleAppsScript({ requestId, to, subject, html, text }) {
 
     if (!res.ok || data.success === false) {
       const errMsg = data.error || `HTTP ${res.status}: ${res.statusText}`;
-      logger.error(`[GAS MailService] Delivery submission error for ${to}: ${errMsg}`);
-      return {
-        success: false,
-        status: 'FAILED',
-        error: errMsg,
-        quotaRemaining: data.quotaRemaining,
-      };
+      logger.warn(`[GAS MailService] GAS submission error for ${to}: ${errMsg}. Falling back to SMTP...`);
+      try {
+        const { sendMail } = require('./mailService');
+        const smtpRes = await sendMail({ to, subject, html, text });
+        return {
+          success: smtpRes.success,
+          status: smtpRes.success ? 'SUBMITTED' : 'FAILED',
+          messageId: smtpRes.messageId || `fallback-${Date.now()}`,
+          error: smtpRes.error,
+          isMocked: Boolean(smtpRes.mocked),
+        };
+      } catch (fallbackErr) {
+        return {
+          success: false,
+          status: 'FAILED',
+          error: `${errMsg} (and SMTP fallback failed: ${fallbackErr.message})`,
+        };
+      }
     }
 
     logger.info(`[GAS MailService] Email submitted via Google Apps Script to ${to}`, {
@@ -119,12 +130,24 @@ async function sendViaGoogleAppsScript({ requestId, to, subject, html, text }) {
     };
   } catch (err) {
     const errMsg = err.name === 'AbortError' ? 'Google Apps Script request timed out (15s)' : err.message;
-    logger.error(`[GAS MailService] Network/system exception dispatching to ${to}: ${errMsg}`);
-    return {
-      success: false,
-      status: 'FAILED',
-      error: errMsg,
-    };
+    logger.warn(`[GAS MailService] GAS network exception dispatching to ${to}: ${errMsg}. Falling back to SMTP...`);
+    try {
+      const { sendMail } = require('./mailService');
+      const smtpRes = await sendMail({ to, subject, html, text });
+      return {
+        success: smtpRes.success,
+        status: smtpRes.success ? 'SUBMITTED' : 'FAILED',
+        messageId: smtpRes.messageId || `fallback-${Date.now()}`,
+        error: smtpRes.error,
+        isMocked: Boolean(smtpRes.mocked),
+      };
+    } catch (fbErr) {
+      return {
+        success: false,
+        status: 'FAILED',
+        error: `${errMsg} (and SMTP fallback failed: ${fbErr.message})`,
+      };
+    }
   }
 }
 

@@ -888,17 +888,9 @@ router.post('/home-visit', async (req, res) => {
       if (matchedGuardian) {
         parentEmail = matchedGuardian.email;
         parentName = matchedGuardian.name;
-      } else if (allowedGuardianEmails.includes(chosenEmail)) {
-        parentEmail = chosenEmail;
-        parentName = req.body.parent_name || user.parentName || 'Parent / Guardian';
-      } else if (allowedGuardianEmails.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please select one of your registered parent email addresses on file.',
-        });
       } else {
         parentEmail = chosenEmail;
-        parentName = String(req.body.parent_name || '').trim();
+        parentName = String(req.body.parent_name || user.parentName || 'Parent / Guardian').trim();
       }
     } else {
       const primaryGuardian = registeredGuardians[0];

@@ -20,8 +20,8 @@ export default function GuardianManagement() {
   // Modals state
   const [editModalData, setEditModalData] = useState(null); // { guardian, student }
   const [linkModalStudent, setLinkModalStudent] = useState(null); // student
-  const [noticeModalData, setNoticeModalData] = useState(null); // { recipientEmail, recipientName, student }
-  const [noticeForm, setNoticeForm] = useState({ subject: '', message: '' });
+  const [noticeModalData, setNoticeModalData] = useState(null); // { recipientEmail, recipientName, student, isGeneral }
+  const [noticeForm, setNoticeForm] = useState({ to: '', recipientName: '', subject: '', message: '' });
   const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', relationship: 'Father', reason: '' });
   const [linkForm, setLinkForm] = useState({
     slot1: { name: '', relationship: 'Father', phone: '', email: '' },
@@ -142,18 +142,41 @@ export default function GuardianManagement() {
 
   const handleOpenNotice = (guardian, student) => {
     setNoticeModalData({
-      recipientEmail: guardian.email,
-      recipientName: guardian.name,
+      recipientEmail: guardian?.email || '',
+      recipientName: guardian?.name || (student ? `Parent of ${student.name}` : ''),
       student,
+      isGeneral: false,
     });
     setNoticeForm({
-      subject: `Hostel Communication regarding ${student.name}`,
+      to: guardian?.email || '',
+      recipientName: guardian?.name || (student ? `Parent of ${student.name}` : ''),
+      subject: student ? `Hostel Communication regarding ${student.name}` : 'Official Hostel Administration Notice',
+      message: '',
+    });
+  };
+
+  const handleOpenGeneralCompose = () => {
+    setNoticeModalData({
+      recipientEmail: '',
+      recipientName: '',
+      student: null,
+      isGeneral: true,
+    });
+    setNoticeForm({
+      to: '',
+      recipientName: '',
+      subject: 'Important Hostel Administration Notice',
       message: '',
     });
   };
 
   const handleSendNotice = async (e) => {
     e.preventDefault();
+    const cleanTo = (noticeForm.to || '').trim().toLowerCase();
+    if (!cleanTo || !cleanTo.includes('@')) {
+      toast.error('A valid recipient email address is required');
+      return;
+    }
     if (!noticeForm.subject || !noticeForm.message) {
       toast.error('Subject and message content are required');
       return;
@@ -161,13 +184,13 @@ export default function GuardianManagement() {
     try {
       setActionLoading('sending_notice');
       const res = await api.post('/admin/guardians/send-notice', {
-        to: noticeModalData.recipientEmail,
-        recipientName: noticeModalData.recipientName,
-        subject: noticeForm.subject,
-        message: noticeForm.message,
-        studentId: noticeModalData.student?._id,
+        to: cleanTo,
+        recipientName: noticeForm.recipientName?.trim() || 'Parent / Student',
+        subject: noticeForm.subject.trim(),
+        message: noticeForm.message.trim(),
+        studentId: noticeModalData?.student?._id || undefined,
       });
-      toast.success(res.data?.message || 'Official notice email dispatched successfully!');
+      toast.success(res.data?.message || `Official notice dispatched successfully to ${cleanTo}!`);
       setNoticeModalData(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to send notice email');
@@ -237,7 +260,26 @@ export default function GuardianManagement() {
               Manage parent accounts, track invitation statuses, and view audit history.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleOpenGeneralCompose}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                background: '#059669',
+                border: 'none',
+                borderRadius: 8,
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 14,
+                boxShadow: '0 2px 8px rgba(5, 150, 105, 0.35)'
+              }}
+            >
+              <MdEmail size={18} /> Compose Notice / Email
+            </button>
             <button
               onClick={handleExportCSV}
               style={{
@@ -939,18 +981,48 @@ export default function GuardianManagement() {
               boxShadow: 'var(--shadow-lg)'
             }}>
               <h3 style={{ margin: '0 0 4px 0', fontSize: 18, color: 'var(--text-primary)' }}>
-                ✉️ Send Official Notice Email
+                ✉️ Send Official Notice / Email
               </h3>
               <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                To: <strong>{noticeModalData.recipientName} ({noticeModalData.recipientEmail})</strong>
-                <br />
-                Student: <strong>{noticeModalData.student.name} ({noticeModalData.student.rollNo})</strong>
+                {noticeModalData?.student ? (
+                  <>Student: <strong>{noticeModalData.student.name} ({noticeModalData.student.rollNo})</strong></>
+                ) : (
+                  <>Direct official communication dispatched to student, parent, or guardian.</>
+                )}
               </p>
 
               <form onSubmit={handleSendNotice} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                      Recipient Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="e.g. parent@gmail.com"
+                      value={noticeForm.to}
+                      onChange={(e) => setNoticeForm({ ...noticeForm, to: e.target.value })}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-page)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                      Recipient Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Parent Name / Student"
+                      value={noticeForm.recipientName}
+                      onChange={(e) => setNoticeForm({ ...noticeForm, recipientName: e.target.value })}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-page)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
-                    Subject Line
+                    Subject Line *
                   </label>
                   <input
                     type="text"

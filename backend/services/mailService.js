@@ -29,18 +29,14 @@ const getTransporter = () => {
     const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
 
     const timeoutOptions = {
-      connectionTimeout: 10000,
-      greetingTimeout: 8000,
-      socketTimeout: 15000,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     };
 
     if (isGmail) {
       transporter = nodemailer.createTransport({
         service: 'gmail',
-        pool: true,
-        maxConnections: 1,
-        rateDelta: 1000,
-        rateLimit: 5,
         ...timeoutOptions,
         auth: {
           user,
@@ -52,8 +48,6 @@ const getTransporter = () => {
         host,
         port: parseInt(process.env.SMTP_PORT || '587', 10),
         secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-        pool: true,
-        maxConnections: 1,
         ...timeoutOptions,
         auth: {
           user,
@@ -79,6 +73,12 @@ const sendMail = async ({ to, subject, html, text }) => {
     };
   }
 
+  const cleanTo = (Array.isArray(to) ? to.join(', ') : String(to || '')).trim();
+  if (!cleanTo) {
+    logger.error('[MailService] Failed to send email: recipient address (to) is empty');
+    return { success: false, error: 'Recipient address (to) is empty' };
+  }
+
   const { host, user } = getCleanCredentials();
   const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
 
@@ -92,17 +92,21 @@ const sendMail = async ({ to, subject, html, text }) => {
 
   try {
     const tx = getTransporter();
+    if (!tx) {
+      throw new Error('Could not initialize mail transporter with current SMTP settings');
+    }
     const info = await tx.sendMail({
       from,
-      to,
+      to: cleanTo,
       subject,
       html,
       text: text || html.replace(/<[^>]+>/g, ''),
     });
-    logger.info(`[MailService] Sent email to ${to}`, { messageId: info.messageId });
+    logger.info(`[MailService] Sent email to ${cleanTo}`, { messageId: info.messageId });
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    logger.error(`[MailService] Failed to send email to ${to}: ${error.message}`);
+    logger.error(`[MailService] Failed to send email to ${cleanTo}: ${error.message}`);
+    transporter = null; // Clean up so next call gets a fresh socket
     return { success: false, error: error.message };
   }
 };

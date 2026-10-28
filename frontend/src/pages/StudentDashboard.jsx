@@ -1371,7 +1371,23 @@ export default function StudentDashboard() {
     } else if (step === STEPS.HV_LEAVE || step === STEPS.HV_RETURN) {
       await processHomeVisitDate(text, step);
     } else if (step === STEPS.HV_PARENT_EMAIL) {
-      botSay('⚠️ Arbitrary email entry is disabled for safety. Please tap one of your registered parent email buttons above to proceed.');
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const normalizedEmail = text.trim().toLowerCase();
+      if (!emailRegex.test(normalizedEmail)) {
+        botSay('❌ Please enter a valid parent/guardian email address (e.g. parent@gmail.com), or tap one of the buttons above:');
+        return;
+      }
+      const myEmail = (user?.email || '').trim().toLowerCase();
+      if (normalizedEmail === myEmail) {
+        botSay('❌ Parent email cannot be identical to your own student college email. Please enter your parent or guardian\'s personal email address:');
+        return;
+      }
+      const collegeDomains = ['iiitpune.ac.in', 'cse.iiitp.ac.in', 'ece.iiitp.ac.in', 'cysec.iiitp.ac.in', 'aids.iiitp.ac.in', 'mevd.iiitp.ac.in', 'iiitp.ac.in', 'college.edu'];
+      if (collegeDomains.some((d) => normalizedEmail.endsWith('@' + d))) {
+        botSay('❌ Parent email must be a personal email address (e.g. Gmail, Yahoo, Outlook), not a college domain:');
+        return;
+      }
+      await submitHomeVisit({ ...hvData, parent_email: normalizedEmail, parent_name: 'Parent / Guardian' });
       return;
     } else if (step === STEPS.CPL_PHOTO) {
       if (complaintPhoto) {
@@ -1730,30 +1746,16 @@ export default function StudentDashboard() {
           `   📬 \`${g0.email}\`\n\n` +
           `2️⃣ *${g1.name || 'Guardian 2'}* (${g1.relationship || 'Parent'}):\n` +
           `   📬 \`${g1.email}\`\n\n` +
-          `Tap a registered email below to send the approval link:`,
-          'buttons',
-          {
-            buttons: [
-              {
-                id: 'use_guardian_0',
-                label: `👨‍👩‍👦 ${g0.relationship || 'Parent 1'}: ${g0.email}`,
-              },
-              {
-                id: 'use_guardian_1',
-                label: `👨‍👩‍👦 ${g1.relationship || 'Parent 2'}: ${g1.email}`,
-              },
-              { id: 'flow_menu', label: '🏠 Main menu' },
-            ],
-          }
+          `Tap a registered email below, or type any parent email address in the chatbox:`
         );
       } else if (currentGuardians && currentGuardians.length === 1) {
         const g0 = currentGuardians[0];
         botSay(
-          `📧 Step 5/5 — *Registered Parent Approval*\n\n` +
-          `Your home visit pass requires verified digital approval from your registered parent or guardian.\n\n` +
+          `📧 Step 5/5 — *Parent Approval*\n\n` +
+          `Your home visit pass requires digital approval from your parent or guardian.\n\n` +
           `Registered parent on file:\n` +
           `📬 *${g0.name ? `${g0.name} (${g0.relationship || 'Parent'}) — ` : ''}${g0.email}*\n\n` +
-          `Tap below to send the approval link to this registered parent email:`,
+          `Tap below to send the approval link to this parent, or type a different parent email in the chatbox:`,
           'buttons',
           {
             buttons: [
@@ -1769,11 +1771,11 @@ export default function StudentDashboard() {
         const fallbackEmail = parentEmailOnRecord || user?.parentEmail || '';
         if (fallbackEmail) {
           botSay(
-            `📧 Step 5/5 — *Registered Parent Approval*\n\n` +
-            `Your home visit pass requires verified digital approval from your registered parent.\n\n` +
-            `Registered parent email on file:\n` +
+            `📧 Step 5/5 — *Parent Approval*\n\n` +
+            `Your home visit pass requires verified digital approval from your parent.\n\n` +
+            `Parent email on file:\n` +
             `📬 *${fallbackEmail}*\n\n` +
-            `Tap below to send the approval link:`,
+            `Tap below to send the approval link, or type a different parent email in the chatbox:`,
             'buttons',
             {
               buttons: [
@@ -1787,9 +1789,9 @@ export default function StudentDashboard() {
           );
         } else {
           botSay(
-            `⚠️ *No Registered Parent Email Found*\n\n` +
-            `You do not have a registered parent or guardian email on file.\n\n` +
-            `Please register your parent and guardian details first before applying for a home visit.`,
+            `📧 Step 5/5 — *Parent Approval Email Required*\n\n` +
+            `Please type your parent or guardian's personal email address (e.g. parent@gmail.com) below to send them the digital approval link:\n\n` +
+            `(Or tap *Complete Guardian Details* to register primary and secondary guardians on your profile)`,
             'buttons',
             {
               buttons: [

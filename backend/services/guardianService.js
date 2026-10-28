@@ -129,9 +129,20 @@ const validateGuardianInputs = ({ studentPhone, studentEmail, guardian1, guardia
  * Rule: Students can submit guardian details ONLY when none exist.
  */
 const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', actorId = null }) => {
-  const existingCount = await Guardian.countDocuments({ student_id: studentId });
-  if (existingCount > 0) {
-    throw new Error('Guardian details are already linked for this student. Updates can only be performed by Hostel Staff or Admins.');
+  const existingGuardians = await Guardian.find({ student_id: studentId });
+  const hasActiveGuardian = existingGuardians.some((g) => g.status === 'ACTIVE');
+  const isSelf = actorId && String(actorId) === String(studentId);
+
+  // If student already has a verified active guardian, require warden for changes
+  if (hasActiveGuardian && isSelf) {
+    throw new Error('A verified guardian account is already active for your profile. Please contact the Hostel Warden to update your registered guardian details.');
+  }
+
+  // Clean up any previous unactivated or stale guardian records before re-linking
+  if (existingGuardians.length > 0) {
+    const existingIds = existingGuardians.map((g) => g._id);
+    await GuardianInvitation.deleteMany({ guardian_id: { $in: existingIds } });
+    await Guardian.deleteMany({ _id: { $in: existingIds } });
   }
 
   const student = await User.findById(studentId);
@@ -197,7 +208,7 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
   const sendInviteFor = async (guardian, existingUser) => {
     if (!guardian) return;
     if (existingUser) {
-      // Sibling parent already active — simply notify them
+      // Sibling parent already active — notify them
       logger.info(`[GuardianService] Guardian ${guardian.email} already has account — linked to sibling ${student.name}`);
       await ApprovalAuditLog.create({
         event: 'PARENT_ACTIVATED',
@@ -209,6 +220,15 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
         ip_address: ip,
         details: { note: 'Auto-linked to existing parent account for sibling' },
       });
+
+      const { sendWardenNoticeEmail } = require('./mailService');
+      await sendWardenNoticeEmail({
+        to: guardian.email,
+        recipientName: guardian.name,
+        subject: `HEIMDALL: Student ${student.name} Linked to Your Parent Account`,
+        messageContent: `Hello ${guardian.name},\n\nYour ward ${student.name} (${student.rollNo || 'Student'}) has linked you as their authorized guardian on the HEIMDALL Smart Campus platform.\n\nYou can log in with your existing parent credentials to review and approve their leave requests:\n${baseUrl}/parent/login\n\nRegards,\nCampus Hostel Administration`,
+        wardenName: 'Campus Administration',
+      }).catch((e) => logger.warn('[GuardianService] Sibling notification failed:', e.message));
       return;
     }
 
