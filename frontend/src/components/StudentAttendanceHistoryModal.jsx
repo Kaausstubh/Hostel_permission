@@ -3,7 +3,7 @@
  * Shows personal attendance ledger history and live today status for the student.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
@@ -29,6 +29,13 @@ export default function StudentAttendanceHistoryModal({
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [verifyNotice, setVerifyNotice] = useState(null);
+  const autoMinimizeTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+    };
+  }, []);
 
   const fetchHistory = async () => {
     try {
@@ -53,6 +60,7 @@ export default function StudentAttendanceHistoryModal({
 
   const handleGpsVerification = async () => {
     if (verifying) return;
+    if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
     setVerifying(true);
     setVerifyNotice({ type: 'info', text: '🛰️ Requesting device GPS coordinates...' });
 
@@ -77,10 +85,16 @@ export default function StudentAttendanceHistoryModal({
             hostel: effectiveToday?.hostel || user?.hostel || 'BH2',
           });
 
+          await fetchHistory();
+
           if (res.data?.success && (res.data?.status === 'PRESENT' || res.data?.isMarked)) {
             toast.success('🎉 Attendance verified successfully! Marked PRESENT.');
-            setVerifyNotice({ type: 'success', text: '✅ Attendance verified: Marked PRESENT!' });
-            await fetchHistory();
+            setServerToday(res.data);
+            setVerifyNotice({
+              type: 'success',
+              text: `✅ Attendance verified: Marked PRESENT at ${res.data?.time || 'now'}! Minimizing in 2s...`,
+              canCancel: false,
+            });
             if (onStatusChange) {
               onStatusChange({
                 isMarked: true,
@@ -93,15 +107,43 @@ export default function StudentAttendanceHistoryModal({
                 },
               });
             }
+            autoMinimizeTimerRef.current = setTimeout(() => {
+              onClose();
+            }, 2000);
           } else {
-            const msg = res.data?.message || 'Geofence check failed. Ensure you are inside your hostel building.';
-            toast.error(msg);
-            setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+            const count = res.data?.attemptsCount || 1;
+            const remaining = res.data?.attemptsRemaining ?? Math.max(0, 3 - count);
+            const msg = res.data?.message || (res.data?.locationStatus === 'OUTSIDE HOSTEL' ? 'Outside hostel geofence.' : 'Verification check completed.');
+            if (res.data) setServerToday(res.data);
+            toast.error(`Attempt ${count}/3 recorded: ${msg}`);
+            setVerifyNotice({
+              type: 'warning',
+              text: `⚠️ Attempt ${count}/3 recorded — ${msg} (${remaining}/3 checks left). Minimizing in 2s...`,
+              canCancel: true,
+            });
+            if (onStatusChange) {
+              onStatusChange({
+                isMarked: false,
+                hasPending: Boolean(res.data?.hasActiveSession ?? true),
+                pendingRequest: { remainingSeconds: res.data?.remainingSeconds || 7200 },
+                todayStatus: res.data,
+              });
+            }
+            autoMinimizeTimerRef.current = setTimeout(() => {
+              onClose();
+            }, 2200);
           }
         } catch (err) {
           const msg = err.response?.data?.message || err.message || 'GPS verification failed.';
           toast.error(msg);
-          setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+          setVerifyNotice({
+            type: 'error',
+            text: `❌ ${msg}. Minimizing in 2.5s...`,
+            canCancel: true,
+          });
+          autoMinimizeTimerRef.current = setTimeout(() => {
+            onClose();
+          }, 2500);
         } finally {
           setVerifying(false);
         }
@@ -112,8 +154,15 @@ export default function StudentAttendanceHistoryModal({
         else if (err.code === 2) msg = 'Location unavailable. Turn on GPS/High Accuracy.';
         else if (err.code === 3) msg = 'GPS acquisition timed out. Try again outdoors or near a window.';
         toast.error(msg);
-        setVerifyNotice({ type: 'error', text: `❌ ${msg}` });
+        setVerifyNotice({
+          type: 'error',
+          text: `❌ ${msg}. Minimizing in 3s...`,
+          canCancel: true,
+        });
         setVerifying(false);
+        autoMinimizeTimerRef.current = setTimeout(() => {
+          onClose();
+        }, 3000);
       },
       {
         enableHighAccuracy: true,
@@ -260,6 +309,29 @@ export default function StudentAttendanceHistoryModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
               type="button"
+              onClick={() => {
+                if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                onClose();
+              }}
+              title="Minimize to dashboard"
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '4px 10px',
+                borderRadius: 6,
+                fontSize: 11.5,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              Minimize
+            </button>
+            <button
+              type="button"
               onClick={fetchHistory}
               title="Refresh attendance records"
               style={{
@@ -277,7 +349,10 @@ export default function StudentAttendanceHistoryModal({
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => {
+                if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                onClose();
+              }}
               style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
             >
               <MdClose size={22} />
@@ -392,64 +467,138 @@ export default function StudentAttendanceHistoryModal({
             </div>
 
             {isPending && (
-              <button
-                type="button"
-                onClick={handleGpsVerification}
-                disabled={verifying}
-                style={{
-                  marginTop: 6,
-                  width: '100%',
-                  padding: '11px 16px',
-                  borderRadius: 10,
-                  background: verifying
-                    ? 'rgba(99, 102, 241, 0.5)'
-                    : 'linear-gradient(135deg, #4f46e5, #06b6d4)',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontWeight: 800,
-                  fontSize: 13,
-                  cursor: verifying ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  boxShadow: '0 4px 14px rgba(79, 70, 229, 0.4)',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <MdMyLocation size={17} style={{ animation: verifying ? 'spin 1s linear infinite' : 'none' }} />
-                {verifying ? 'Verifying GPS Location…' : 'Verify Attendance via GPS Now'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleGpsVerification}
+                  disabled={verifying}
+                  style={{
+                    marginTop: 6,
+                    width: '100%',
+                    padding: '11px 16px',
+                    borderRadius: 10,
+                    background: verifying
+                      ? 'rgba(99, 102, 241, 0.5)'
+                      : 'linear-gradient(135deg, #4f46e5, #06b6d4)',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: verifying ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 4px 14px rgba(79, 70, 229, 0.4)',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <MdMyLocation size={17} style={{ animation: verifying ? 'spin 1s linear infinite' : 'none' }} />
+                  {verifying ? 'Verifying GPS Location…' : 'Verify Attendance via GPS Now'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                    onClose();
+                  }}
+                  style={{
+                    marginTop: 6,
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  Minimize to Background Banner
+                </button>
+              </>
             )}
 
             {verifyNotice && (
               <div
                 style={{
                   marginTop: 8,
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   borderRadius: 8,
                   fontSize: 12,
                   fontWeight: 600,
                   background: verifyNotice.type === 'success'
                     ? 'rgba(16, 185, 129, 0.15)'
-                    : verifyNotice.type === 'error'
-                    ? 'rgba(239, 68, 68, 0.15)'
-                    : 'rgba(99, 102, 241, 0.15)',
+                    : verifyNotice.type === 'warning'
+                    ? 'rgba(245, 158, 11, 0.15)'
+                    : 'rgba(239, 68, 68, 0.15)',
                   color: verifyNotice.type === 'success'
                     ? '#10b981'
-                    : verifyNotice.type === 'error'
-                    ? '#ef4444'
-                    : '#818cf8',
+                    : verifyNotice.type === 'warning'
+                    ? '#fbbf24'
+                    : '#ef4444',
                   border: `1px solid ${
                     verifyNotice.type === 'success'
                       ? 'rgba(16, 185, 129, 0.3)'
-                      : verifyNotice.type === 'error'
-                      ? 'rgba(239, 68, 68, 0.3)'
-                      : 'rgba(99, 102, 241, 0.3)'
+                      : verifyNotice.type === 'warning'
+                      ? 'rgba(245, 158, 11, 0.3)'
+                      : 'rgba(239, 68, 68, 0.3)'
                   }`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  flexWrap: 'wrap',
                 }}
               >
-                {verifyNotice.text}
+                <div style={{ flex: 1, minWidth: 180 }}>{verifyNotice.text}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {verifyNotice.canCancel && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                        setVerifyNotice((prev) => (prev ? { ...prev, text: prev.text.replace(/\. Minimizing.*$/, ''), canCancel: false } : null));
+                      }}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        color: 'inherit',
+                        borderRadius: 6,
+                        padding: '3px 8px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Keep Open
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                      onClose();
+                    }}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.18)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      color: 'inherit',
+                      borderRadius: 6,
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Minimize Now
+                  </button>
+                </div>
               </div>
             )}
           </div>

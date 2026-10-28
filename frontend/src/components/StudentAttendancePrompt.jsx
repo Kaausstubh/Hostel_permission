@@ -95,11 +95,20 @@ export default function StudentAttendancePrompt({
   const [verifyingStage, setVerifyingStage] = useState('');
   const [errorMessage, setErrorMessage] = useState(null);
   const [closingNotice, setClosingNotice] = useState(null);
+  const [attemptNotice, setAttemptNotice] = useState(null);
 
   const lastExternalTriggerRef = useRef(externalOpenTrigger);
   const autoFinalizeTriggeredRef = useRef(false);
   const autoVerifyStartedRef = useRef(false);
   const finalizationNoticeRef = useRef(null);
+  const autoMinimizeTimerRef = useRef(null);
+  const hasManuallyOrAutoMinimizedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+    };
+  }, []);
 
   const isFinalized =
     sessionData.isFinalized ||
@@ -150,6 +159,8 @@ export default function StudentAttendancePrompt({
       }
 
       if (isFinal) {
+        if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+        setAttemptNotice(null);
         if (showClosingDelay || isUserAction) {
           // Keep modal open to show celebratory / final result banner before auto-closing
           setClosingNotice({
@@ -177,22 +188,38 @@ export default function StudentAttendancePrompt({
           }
 
           // Smoothly close modal after showing result
-          setTimeout(() => {
+          autoMinimizeTimerRef.current = setTimeout(() => {
             setClosingNotice(null);
+            hasManuallyOrAutoMinimizedRef.current = true;
             setIsOpen(false);
-          }, 2600);
+          }, 2400);
         } else {
           // If already finalized on initial page load, never open popup
           setClosingNotice(null);
+          hasManuallyOrAutoMinimizedRef.current = true;
           setIsOpen(false);
         }
       } else {
-        if (isUserAction) {
+        if (isUserAction || count > 0) {
+          const reasonMsg = data.message || (data.locationStatus === 'OUTSIDE HOSTEL' ? 'Outside hostel geofence.' : 'Location check recorded.');
           if (data.locationStatus === 'OUTSIDE HOSTEL') {
             toast.error(`Outside hostel geofence! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
           } else if (data.locationStatus === 'LOCATION UNAVAILABLE') {
             toast.error(`Location unavailable! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
           }
+          setAttemptNotice({
+            count,
+            remaining,
+            message: reasonMsg,
+          });
+
+          // Smoothly auto-minimize to discreet banner after showing attempt result for 2.2 seconds
+          if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+          autoMinimizeTimerRef.current = setTimeout(() => {
+            hasManuallyOrAutoMinimizedRef.current = true;
+            setIsOpen(false);
+            setAttemptNotice(null);
+          }, 2200);
         }
       }
 
@@ -225,8 +252,14 @@ export default function StudentAttendancePrompt({
       const res = await api.get('/attendance/today').catch(() => null);
       if (res?.data?.success) {
         handleServerResponse(res.data, { isUserAction: false, showClosingDelay: false });
-        // If there is an active pending session, open modal automatically so user sees live process
-        if (res.data.hasActiveSession && !res.data.isFinalized && !res.data.isMarked && res.data.status === 'PENDING') {
+        // If there is an active pending session, open modal automatically ONLY if student has not yet minimized it
+        if (
+          res.data.hasActiveSession &&
+          !res.data.isFinalized &&
+          !res.data.isMarked &&
+          res.data.status === 'PENDING' &&
+          !hasManuallyOrAutoMinimizedRef.current
+        ) {
           setIsOpen(true);
         }
       }
@@ -254,6 +287,9 @@ export default function StudentAttendancePrompt({
   useEffect(() => {
     if (externalOpenTrigger > 0 && externalOpenTrigger !== lastExternalTriggerRef.current) {
       lastExternalTriggerRef.current = externalOpenTrigger;
+      hasManuallyOrAutoMinimizedRef.current = false;
+      if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+      setAttemptNotice(null);
       if (!isFinalized && sessionData.hasActiveSession) {
         setIsOpen(true);
       } else {
@@ -465,6 +501,9 @@ export default function StudentAttendancePrompt({
         <button
           type="button"
           onClick={() => {
+            hasManuallyOrAutoMinimizedRef.current = false;
+            if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+            setAttemptNotice(null);
             setIsOpen(true);
             if (!verifying) executePresenceVerification();
           }}
@@ -520,6 +559,8 @@ export default function StudentAttendancePrompt({
     <div
       onClick={(e) => {
         if (e.target === e.currentTarget && !closingNotice) {
+          if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+          hasManuallyOrAutoMinimizedRef.current = true;
           setIsOpen(false);
         }
       }}
@@ -599,26 +640,58 @@ export default function StudentAttendancePrompt({
             </div>
           </div>
 
-          {!closingNotice && (
-            <button
-              type="button"
-              onClick={() => setIsOpen(false)}
-              title="Minimize to banner"
-              style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: 'none',
-                borderRadius: 8,
-                color: '#cbd5e1',
-                padding: 6,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <MdClose size={18} />
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!closingNotice && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                  hasManuallyOrAutoMinimizedRef.current = true;
+                  setIsOpen(false);
+                }}
+                title="Minimize to banner"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: 8,
+                  color: '#ffffff',
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                Minimize
+              </button>
+            )}
+            {!closingNotice && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                  hasManuallyOrAutoMinimizedRef.current = true;
+                  setIsOpen(false);
+                }}
+                title="Close"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#cbd5e1',
+                  padding: 6,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <MdClose size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -668,6 +741,76 @@ export default function StudentAttendancePrompt({
               </div>
               <div style={{ fontSize: 11.5, color: closingNotice.status === 'PRESENT' ? '#6ee7b7' : '#f87171', marginTop: 4 }}>
                 Closing automatically...
+              </div>
+            </div>
+          ) : attemptNotice ? (
+            /* ATTEMPT RECORDED CARD (Auto-minimizing notice) */
+            <div
+              style={{
+                background: 'rgba(245, 158, 11, 0.14)',
+                border: '1.5px solid rgba(245, 158, 11, 0.45)',
+                borderRadius: 14,
+                padding: '14px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                flexWrap: 'wrap',
+                animation: 'fadeInUp 0.2s ease-out',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#fbbf24' }}>
+                  ⚠️ Attempt {attemptNotice.count}/3 Recorded
+                </div>
+                <div style={{ fontSize: 12, color: '#fde68a', marginTop: 2 }}>
+                  {attemptNotice.message} ({attemptNotice.remaining}/3 checks remaining)
+                </div>
+                <div style={{ fontSize: 11, color: '#93c5fd', marginTop: 3 }}>
+                  Auto-minimizing to background banner in 2s...
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                    setAttemptNotice(null);
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                    color: '#ffffff',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Keep Open
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                    hasManuallyOrAutoMinimizedRef.current = true;
+                    setIsOpen(false);
+                    setAttemptNotice(null);
+                  }}
+                  style={{
+                    background: '#fbbf24',
+                    border: 'none',
+                    color: '#1e1b4b',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Minimize Now
+                </button>
               </div>
             </div>
           ) : verifying ? (
@@ -1006,6 +1149,34 @@ export default function StudentAttendancePrompt({
                   : `Verify Location (${sessionData.attemptsRemaining}/3 checks left)`}
               </span>
             </button>
+            {!closingNotice && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (autoMinimizeTimerRef.current) clearTimeout(autoMinimizeTimerRef.current);
+                  hasManuallyOrAutoMinimizedRef.current = true;
+                  setIsOpen(false);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#cbd5e1',
+                  borderRadius: 12,
+                  padding: '9px 16px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  marginTop: 8,
+                }}
+              >
+                Minimize to Background Banner
+              </button>
+            )}
           </div>
         </div>
       </div>
