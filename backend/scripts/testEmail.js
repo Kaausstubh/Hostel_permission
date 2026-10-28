@@ -78,7 +78,17 @@ async function testSmtp() {
     const info = await transporter.sendMail({
       from: `"IIIT Pune Smart Campus" <${cleanUser}>`,
       to: targetRecipient,
+      replyTo: cleanUser,
+      envelope: { from: cleanUser, to: targetRecipient },
       subject: '✅ HEIMDALL SMTP Test Email - Working Successfully',
+      text: `HEIMDALL Mail Service Verified\n\nYour SMTP configuration in backend/.env is working properly!\nSender: ${cleanUser}\nRecipient: ${targetRecipient}\nTimestamp: ${new Date().toISOString()}\n\nParent invitations and approval emails are ready to dispatch.`,
+      priority: 'high',
+      headers: {
+        'X-Priority': '1',
+        'Importance': 'high',
+        'X-Entity-Ref-ID': `heimdall-test-${Date.now()}`,
+        'X-Auto-Response-Suppress': 'All, OOF, AutoReply',
+      },
       html: `
         <div style="font-family: sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #3b82f6; border-radius: 10px;">
           <h2 style="color: #2563eb; margin-top: 0;">HEIMDALL Mail Service Verified</h2>
@@ -96,7 +106,7 @@ async function testSmtp() {
     console.log('✅ TEST EMAIL DISPATCHED SUCCESSFULLY!');
     console.log(`- Message ID: ${info.messageId}`);
     console.log(`- Response:   ${info.response}`);
-    console.log('\nCheck your inbox (and spam folder) for the test email.\n');
+    console.log('\nNote: Check Inbox AND Spam / Junk folder. If in Spam, click "Report not spam" once to whitelist.\n');
   } catch (sendErr) {
     console.error('\n❌ FAILED TO DISPATCH EMAIL:', sendErr.message);
     process.exit(1);

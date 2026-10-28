@@ -90,6 +90,20 @@ const sendMail = async ({ to, subject, html, text }) => {
     from = `"${displayName}" <${user}>`;
   }
 
+  // Clean plain text fallback (strips CSS blocks & HTML entities so spam filters don't penalize)
+  const cleanPlainText = text || (html ? html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s{2,}/g, ' ')
+    .trim() : '');
+
   try {
     const tx = getTransporter();
     if (!tx) {
@@ -98,9 +112,18 @@ const sendMail = async ({ to, subject, html, text }) => {
     const info = await tx.sendMail({
       from,
       to: cleanTo,
+      replyTo: user || 'no-reply@iiitpune.ac.in',
+      envelope: user ? { from: user, to: cleanTo } : undefined,
       subject,
       html,
-      text: text || html.replace(/<[^>]+>/g, ''),
+      text: cleanPlainText,
+      priority: 'high',
+      headers: {
+        'X-Priority': '1',
+        'Importance': 'high',
+        'X-Entity-Ref-ID': `heimdall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        'X-Auto-Response-Suppress': 'All, OOF, AutoReply',
+      },
     });
     logger.info(`[MailService] Sent email to ${cleanTo}`, { messageId: info.messageId });
     return { success: true, messageId: info.messageId };
