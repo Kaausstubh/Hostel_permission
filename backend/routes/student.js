@@ -1410,32 +1410,68 @@ router.post('/home-visit/cancel-active', async (req, res) => {
 
 // ── POST /home-visit/:id/cancel ───────────────────────────────────────────────
 // Student withdraws/cancels their own pending unscanned home visit request
-router.post('/home-visit/:id/cancel', async (req, res) => {
+router.post(['/home-visit/:id/cancel', '/home-visits/:id/cancel', '/home-visit/cancel'], async (req, res) => {
   try {
-    const { id } = req.params;
+    const rawId = String(req.params.id || req.body.id || req.body.visitId || '').trim();
+    const id = rawId.replace(/^cancel_hv_/, '');
     let visit = null;
 
-    if (id === 'active' || id === 'all') {
+    if (!id || id === 'active' || id === 'all') {
       visit = await HomeVisitLog.findOne({
-        student_id: req.user._id,
+        $or: [
+          { student_id: req.user._id },
+          { rollNo: req.user.rollNo },
+          { email: req.user.email },
+        ],
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
         qr_used_out: false,
       }).sort({ createdAt: -1 });
     } else if (mongoose.Types.ObjectId.isValid(id)) {
       visit = await HomeVisitLog.findOne({
         _id: id,
-        student_id: req.user._id,
+        $or: [
+          { student_id: req.user._id },
+          { rollNo: req.user.rollNo },
+          { email: req.user.email },
+        ],
       });
-    } else {
+      if (!visit) {
+        const found = await HomeVisitLog.findById(id);
+        if (
+          found &&
+          (String(found.student_id) === String(req.user._id) ||
+            found.rollNo === req.user.rollNo ||
+            found.email === req.user.email)
+        ) {
+          visit = found;
+        }
+      }
+    }
+
+    if (!visit) {
+      // Fallback: check any active unscanned visit for this student
       visit = await HomeVisitLog.findOne({
-        student_id: req.user._id,
+        $or: [
+          { student_id: req.user._id },
+          { rollNo: req.user.rollNo },
+          { email: req.user.email },
+        ],
         overall_status: { $in: ACTIVE_HOME_VISIT_STATUSES },
         qr_used_out: false,
       }).sort({ createdAt: -1 });
     }
 
     if (!visit) {
-      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+      // Check if it was already cancelled
+      const anyVisit = mongoose.Types.ObjectId.isValid(id) ? await HomeVisitLog.findById(id) : null;
+      if (anyVisit && ['rejected', 'completed'].includes(anyVisit.overall_status)) {
+        return res.json({
+          success: true,
+          message: 'Home visit pass has already been cancelled.',
+          visit: anyVisit,
+        });
+      }
+      return res.status(404).json({ success: false, message: 'Home visit request not found or already cancelled' });
     }
 
     if (visit.qr_used_out) {
@@ -1450,9 +1486,9 @@ router.post('/home-visit/:id/cancel', async (req, res) => {
     visit.warden_status = 'rejected';
     await visit.save();
 
-    await GatePass.updateOne(
-      { home_visit_id: visit._id },
-      { status: 'CANCELLED' }
+    await GatePass.updateMany(
+      { $or: [{ home_visit_id: visit._id }, { student_id: req.user._id, pass_type: 'HOME_VISIT' }] },
+      { $set: { status: 'CANCELLED' } }
     ).catch(() => {});
 
     await ApprovalAuditLog.create({
@@ -1464,6 +1500,21 @@ router.post('/home-visit/:id/cancel', async (req, res) => {
       actor_email: req.user.email,
       ip_address: req.ip,
     }).catch(() => {});
+
+    const { getIO } = require('../services/socketService');
+    const io = getIO();
+    if (io) {
+      io.of('/dashboard').emit('home_visit_updated', {
+        visitId: visit._id,
+        status: 'rejected',
+        studentId: req.user._id,
+      });
+      io.emit('home_visit_updated', {
+        visitId: visit._id,
+        status: 'rejected',
+        studentId: req.user._id,
+      });
+    }
 
     res.json({
       success: true,

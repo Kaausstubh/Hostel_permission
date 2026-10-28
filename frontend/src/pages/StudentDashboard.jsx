@@ -1069,29 +1069,35 @@ export default function StudentDashboard() {
       return;
     }
 
-    if (id.startsWith('cancel_hv_')) {
-      const visitId = id.replace('cancel_hv_', '');
+    if (id.startsWith('cancel_hv_') || id.startsWith('cancel_pass_')) {
+      const visitId = id.replace(/^(cancel_hv_|cancel_pass_)/, '');
       setLoading(true);
       try {
-        const res = await api.post(`/student/home-visit/${visitId}/cancel`);
-        const savedAttempt = lastAttemptedHvDataRef.current;
-        const retryButtons = [];
-
-        if (savedAttempt && savedAttempt.leave_date && savedAttempt.return_date) {
-          retryButtons.push({
-            id: 'retry_last_hv_submit',
-            label: `🚀 Create Pass (${savedAttempt.leave_date} → ${savedAttempt.return_date})`,
-          });
+        let res;
+        try {
+          res = await api.post(`/student/home-visit/${visitId}/cancel`);
+        } catch (postErr) {
+          // Fallback to active cancel endpoint if specific ID lookup failed
+          res = await api.post('/student/home-visit/cancel-active');
         }
-        retryButtons.push({ id: '2', label: '🏠 Apply for Home Visit' });
-        retryButtons.push({ id: 'flow_menu', label: '🏠 Main menu' });
+
+        // Immediately clear active pass state and refresh silently from backend
+        setZoomedQR(null);
+        setActivePasses([]);
+        setHvData({});
+        lastAttemptedHvDataRef.current = null;
+        await checkActivePassSilently().catch(() => {});
+
+        toast.success(res?.data?.message || 'Home visit pass cancelled successfully');
+
+        const retryButtons = [
+          { id: '2', label: '🏠 Apply for Home Visit' },
+          { id: 'flow_menu', label: '🏠 Main menu' },
+        ];
 
         botSay(
-          `✅ *Previous Request Cancelled*\n\n` +
-          `${res.data?.message || 'Your previous home visit request has been cancelled.'}\n\n` +
-          (savedAttempt && savedAttempt.leave_date
-            ? `Tap below to create your new pass for *${savedAttempt.leave_date} → ${savedAttempt.return_date}*:`
-            : `You may now submit a new home visit request.`),
+          `✅ *Pass Cancelled Successfully*\n\n` +
+          `${res?.data?.message || 'Your home visit pass has been cancelled.'}\n\nYou may now submit a new home visit request if needed.`,
           'buttons',
           { buttons: retryButtons }
         );
@@ -2953,9 +2959,14 @@ export default function StudentDashboard() {
     if (m.type === 'buttons') {
       const latestButtonsId = [...messages].reverse().find((msg) => msg.type === 'buttons')?.id;
       const isLatestButtons = m.id === latestButtonsId;
-      const hasFlowActions = m.meta.buttons?.some((btn) => btn.id?.startsWith('flow_'));
-      const hasQrActions = m.meta.buttons?.some((btn) => btn.id?.startsWith('qr_'));
-      const isInteractiveButtons = isLatestButtons || hasFlowActions || hasQrActions;
+      const hasActionButtons = m.meta.buttons?.some((btn) =>
+        btn.id?.startsWith('cancel_') ||
+        btn.id?.startsWith('resend_') ||
+        btn.id?.startsWith('qr_') ||
+        btn.id?.startsWith('flow_') ||
+        btn.id === 'flow_menu'
+      );
+      const isInteractiveButtons = isLatestButtons || hasActionButtons;
       return (
         <div style={{ alignSelf: 'flex-start', maxWidth: isMobile ? '100%' : '82%', width: '100%' }}>
           {/* Text bubble - ALWAYS 100% VISIBLE */}
@@ -2977,9 +2988,13 @@ export default function StudentDashboard() {
           {/* Quick-reply buttons */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
             {m.meta.buttons.map((btn) => {
-              const isFlowBtn = btn.id?.startsWith('flow_');
-              const isQrBtn = btn.id?.startsWith('qr_');
-              const canClick = isLatestButtons || isFlowBtn || isQrBtn;
+              const isActionBtn =
+                btn.id?.startsWith('cancel_') ||
+                btn.id?.startsWith('resend_') ||
+                btn.id?.startsWith('qr_') ||
+                btn.id?.startsWith('flow_') ||
+                btn.id === 'flow_menu';
+              const canClick = isLatestButtons || isActionBtn;
               return (
                 <button
                   key={btn.id}
