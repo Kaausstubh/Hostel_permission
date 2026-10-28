@@ -81,6 +81,21 @@ const connectDB = async () => {
               logger.warn('[DB] Error dropping legacy phone index (non-critical)', { error: err.message });
             }
           });
+
+        // Ensure oauthId_1_oauthProvider_1 has partialFilterExpression so null oauthId never triggers duplicate key error
+        mongoose.connection.db.collection('users').indexes().then(async (indexes) => {
+          const oauthIdx = indexes.find((i) => i.name === 'oauthId_1_oauthProvider_1');
+          if (oauthIdx && !oauthIdx.partialFilterExpression) {
+            await mongoose.connection.db.collection('users').dropIndex('oauthId_1_oauthProvider_1');
+            const User = require('../models/User');
+            await User.syncIndexes();
+            logger.info('[DB] Upgraded oauthId_1_oauthProvider_1 index with partialFilterExpression');
+          }
+        }).catch((err) => {
+          if (err.codeName !== 'NamespaceNotFound') {
+            logger.warn('[DB] Error verifying oauthId index (non-critical)', { error: err.message });
+          }
+        });
       });
 
       // Connection lifecycle events

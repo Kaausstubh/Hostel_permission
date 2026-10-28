@@ -501,12 +501,12 @@ router.get('/devices/status', protect, authorize('student'), async (req, res) =>
       approved: Boolean(device?.approved_by),
       device: device
         ? {
-            id: device._id,
-            device_id: device.device_id,
-            device_model: device.device_model,
-            registered_at: device.registered_at,
-            approved_at: device.approved_at,
-          }
+          id: device._id,
+          device_id: device.device_id,
+          device_model: device.device_model,
+          registered_at: device.registered_at,
+          approved_at: device.approved_at,
+        }
         : null,
     });
   } catch (err) {
@@ -689,7 +689,7 @@ function getRecordTimestamp(r) {
       if (!isNaN(sec) && sec > 0) {
         return new Date(sec * 1000);
       }
-    } catch {}
+    } catch { }
   }
   return null;
 }
@@ -1042,7 +1042,7 @@ router.get('/today', protect, authorize('student'), async (req, res) => {
 
       attemptDoc.status = 'absent';
       attemptDoc.finalizedAt = now;
-      await attemptDoc.save().catch(() => {});
+      await attemptDoc.save().catch(() => { });
 
       return res.json({
         success: true,
@@ -1983,8 +1983,8 @@ router.get('/history', protect, authorize('student'), async (req, res) => {
         todayRec.status === 'present'
           ? 'Present'
           : todayRec.status === 'absent'
-          ? 'Absent'
-          : 'On Approved Leave';
+            ? 'Absent'
+            : 'On Approved Leave';
     } else if (todayLeave) {
       todayStatusVal = 'on_leave';
       todayDisplayStatus = 'On Approved Leave';
@@ -2353,8 +2353,8 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
         const timeStr = matchedGate.in_time
           ? new Date(matchedGate.in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
           : matchedGate.out_time
-          ? new Date(matchedGate.out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-          : (matchedGate.timestamp ? new Date(matchedGate.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '');
+            ? new Date(matchedGate.out_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+            : (matchedGate.timestamp ? new Date(matchedGate.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '');
 
         const scanType = matchedGate.status === 'IN' || matchedGate.returned ? 'IN' : 'OUT';
         gateEventText = `${scanType}${timeStr ? ` at ${timeStr}` : ''}${matchedGate.place ? ` (${matchedGate.place})` : ''}`;
@@ -2467,5 +2467,20 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
     res.status(500).json({ success: false, message: 'Failed to generate attendance report' });
   }
 });
+
+if (process.env.NODE_ENV === 'development') {
+  // Log registered attendance endpoints for fast developer diagnostics
+  setTimeout(() => {
+    logger.info('📋 Registered Attendance Routes:');
+    router.stack
+      .filter((r) => r.route)
+      .forEach((r) => {
+        const methods = Object.keys(r.route.methods).join(',').toUpperCase();
+        const path = r.route.path;
+        const displayPath = Array.isArray(path) ? path.join(' | ') : path;
+        logger.info(`   [${methods.padEnd(4)}] /api/attendance${displayPath}`);
+      });
+  }, 500);
+}
 
 module.exports = router;

@@ -20,10 +20,10 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     name: "Boys' Hostel 2 (Krishna)",
     // 18°45'47.1"N 73°41'57.7"E
     // center: { lat: 18.7630833, lng: 73.6993611 },
-    center: { lat: 18.715993847899085, lng: 73.66964662270149 },
+    center: { lat: 18.765372, lng: 73.696819 },
     radius_m: 100, // High-precision building perimeter (15-25m range)
     buffer_m: 20,
-    accuracy_threshold_m: 80, // Max 25m GPS accuracy allowed
+    accuracy_threshold_m: 25, // Max 25m GPS accuracy allowed
     auto_attendance: true,
   },
   BH1: {
@@ -356,15 +356,17 @@ const getHostelGeofenceConfig = async (hostel) => {
     } catch (_) { }
   }
   const hasDbCenter = dbGeofence?.center && typeof dbGeofence.center.lat === 'number';
-  const activeGeofence = hasDbCenter ? dbGeofence : fallbackGeofence;
+  const hasDbPolygon = Array.isArray(dbGeofence?.polygon) && dbGeofence.polygon.length >= 3;
+  const activeGeofence = (hasDbCenter || hasDbPolygon) ? dbGeofence : fallbackGeofence;
   return {
     hostel: normHostel,
-    name: fallbackGeofence.name || activeGeofence.name,
-    center: fallbackGeofence.center || activeGeofence.center,
-    radius_m: fallbackGeofence.radius_m ?? activeGeofence.radius_m ?? 22,
-    buffer_m: fallbackGeofence.buffer_m ?? activeGeofence.buffer_m ?? 0,
-    accuracy_threshold_m: fallbackGeofence.accuracy_threshold_m ?? activeGeofence.accuracy_threshold_m ?? 25,
-    auto_attendance: fallbackGeofence.auto_attendance !== undefined ? fallbackGeofence.auto_attendance : (activeGeofence.auto_attendance !== false),
+    name: activeGeofence.name || fallbackGeofence.name,
+    center: activeGeofence.center || fallbackGeofence.center,
+    polygon: activeGeofence.polygon || fallbackGeofence.polygon || [],
+    radius_m: activeGeofence.radius_m ?? fallbackGeofence.radius_m ?? 22,
+    buffer_m: activeGeofence.buffer_m ?? fallbackGeofence.buffer_m ?? 0,
+    accuracy_threshold_m: activeGeofence.accuracy_threshold_m ?? fallbackGeofence.accuracy_threshold_m ?? 25,
+    auto_attendance: activeGeofence.auto_attendance !== undefined ? activeGeofence.auto_attendance : (fallbackGeofence.auto_attendance !== false),
   };
 };
 
