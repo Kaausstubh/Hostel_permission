@@ -16,13 +16,39 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    // In production you'd send this to a logging service (e.g. Sentry)
     console.error('[ErrorBoundary] Caught error:', error, info.componentStack);
+    const msg = error?.message || String(error);
+    const isChunkError =
+      msg.includes('Failed to fetch dynamically imported module') ||
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('Loading chunk');
+
+    if (isChunkError) {
+      const now = Date.now();
+      const lastReload = parseInt(sessionStorage.getItem('last_boundary_reload') || '0', 10);
+      if (now - lastReload > 4000) {
+        sessionStorage.setItem('last_boundary_reload', String(now));
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('_v', String(now));
+          window.location.replace(url.toString());
+        } catch (_) {
+          window.location.reload();
+        }
+      }
+    }
   }
 
   handleReset = () => {
     this.setState({ hasError: false, error: null });
-    window.location.reload();
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('_v', String(Date.now()));
+      window.location.replace(url.toString());
+    } catch (_) {
+      window.location.reload();
+    }
   };
 
   render() {

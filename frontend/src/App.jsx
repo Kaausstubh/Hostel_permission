@@ -14,19 +14,34 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import './index.css';
 
-// Helper to automatically retry or force refresh if a chunk fails to load due to a new deployment
+// Helper to automatically retry or force refresh with cache-busting if a chunk fails to load due to a new deployment
 const lazyWithRetry = (componentImport) =>
   lazy(async () => {
     try {
       return await componentImport();
     } catch (error) {
-      const isForceRefreshed = sessionStorage.getItem('chunk_retry_refreshed');
-      if (!isForceRefreshed) {
-        sessionStorage.setItem('chunk_retry_refreshed', 'true');
-        window.location.reload();
-        return { default: () => null };
+      const msg = error?.message || String(error);
+      const isChunkError =
+        msg.includes('Failed to fetch dynamically imported module') ||
+        msg.includes('error loading dynamically imported module') ||
+        msg.includes('Importing a module script failed') ||
+        msg.includes('Loading chunk');
+
+      if (isChunkError) {
+        const now = Date.now();
+        const lastReload = parseInt(sessionStorage.getItem('last_chunk_reload') || '0', 10);
+        if (now - lastReload > 4000) {
+          sessionStorage.setItem('last_chunk_reload', String(now));
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('_v', String(now));
+            window.location.replace(url.toString());
+          } catch (_) {
+            window.location.reload();
+          }
+          return new Promise(() => {}); // Wait for reload
+        }
       }
-      sessionStorage.removeItem('chunk_retry_refreshed');
       throw error;
     }
   });
