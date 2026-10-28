@@ -7,8 +7,6 @@
 const nodemailer = require('nodemailer');
 const logger = require('../utils/logger');
 
-let transporter = null;
-
 const getCleanCredentials = () => {
   const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
   const rawUser = (process.env.SMTP_USER || '').trim().replace(/^["']|["']$/g, '');
@@ -21,73 +19,43 @@ const isConfigured = () => {
   return Boolean(host && user && pass);
 };
 
-const getTransporter = () => {
-  if (transporter) return transporter;
+const createTransporter = () => {
+  if (!isConfigured()) return null;
 
-  if (isConfigured()) {
-    const { host, user, pass } = getCleanCredentials();
-    const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
+  const { host, user, pass } = getCleanCredentials();
+  const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
 
-    const timeoutOptions = {
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 30000,
-    };
+  const timeoutOptions = {
+    connectionTimeout: 12000,
+    greetingTimeout: 12000,
+    socketTimeout: 20000,
+  };
 
-    if (isGmail) {
-      transporter = nodemailer.createTransport({
-        service: 'gmail',
-        ...timeoutOptions,
-        auth: {
-          user,
-          pass,
-        },
-      });
-    } else {
-      transporter = nodemailer.createTransport({
-        host,
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-        ...timeoutOptions,
-        auth: {
-          user,
-          pass,
-        },
-      });
-    }
+  if (isGmail) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      ...timeoutOptions,
+      auth: { user, pass },
+    });
   }
-  return transporter;
+
+  return nodemailer.createTransport({
+    host,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
+    ...timeoutOptions,
+    auth: { user, pass },
+  });
 };
 
 /**
  * Base email dispatcher
  */
 const sendMail = async ({ to, subject, html, text }) => {
-  if (!isConfigured()) {
-    logger.warn(`[MailService:Mock] SMTP credentials not set (SMTP_USER/SMTP_PASS missing). Skipping live email to: ${to} | Subject: "${subject}"`);
-    return {
-      success: false,
-      mocked: true,
-      error: 'SMTP credentials not configured on backend (SMTP_USER / SMTP_PASS missing)',
-      messageId: `mock-${Date.now()}`,
-    };
-  }
-
   const cleanTo = (Array.isArray(to) ? to.join(', ') : String(to || '')).trim();
   if (!cleanTo) {
     logger.error('[MailService] Failed to send email: recipient address (to) is empty');
     return { success: false, error: 'Recipient address (to) is empty' };
-  }
-
-  const { host, user } = getCleanCredentials();
-  const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
-
-  let from = process.env.SMTP_FROM || '"IIIT Pune Smart Campus" <no-reply@iiitpune.ac.in>';
-  // In Gmail SMTP, sender address must match authenticated user to avoid SMTP 553 / SPF drop
-  if (isGmail && user) {
-    const matchName = from.match(/^"?(.*?)"?\s*<.*?>$/);
-    const displayName = matchName && matchName[1] ? matchName[1] : 'IIIT Pune Smart Campus';
-    from = `"${displayName}" <${user}>`;
   }
 
   // Clean plain text fallback (strips CSS blocks & HTML entities so spam filters don't penalize)
@@ -104,32 +72,94 @@ const sendMail = async ({ to, subject, html, text }) => {
     .replace(/\s{2,}/g, ' ')
     .trim() : '');
 
-  try {
-    const tx = getTransporter();
-    if (!tx) {
-      throw new Error('Could not initialize mail transporter with current SMTP settings');
+  // Check if SMTP is not configured: try Google Apps Script before mocking
+  if (!isConfigured()) {
+    if (process.env.GOOGLE_APPS_SCRIPT_URL) {
+      try {
+        const { sendViaGoogleAppsScript } = require('./gasMailService');
+        const gasRes = await sendViaGoogleAppsScript({ to: cleanTo, subject, html, text: cleanPlainText });
+        return { success: gasRes.success, messageId: gasRes.messageId, error: gasRes.error };
+      } catch (gasErr) {
+        logger.error(`[MailService] Google Apps Script fallback failed: ${gasErr.message}`);
+      }
     }
-    const info = await tx.sendMail({
-      from,
-      to: cleanTo,
-      replyTo: user || 'no-reply@iiitpune.ac.in',
-      envelope: user ? { from: user, to: cleanTo } : undefined,
-      subject,
-      html,
-      text: cleanPlainText,
-      priority: 'high',
-      headers: {
-        'X-Priority': '1',
-        'Importance': 'high',
-        'X-Entity-Ref-ID': `heimdall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        'X-Auto-Response-Suppress': 'All, OOF, AutoReply',
-      },
-    });
+    logger.warn(`[MailService:Mock] SMTP credentials not set (SMTP_USER/SMTP_PASS missing). Skipping live email to: ${to} | Subject: "${subject}"`);
+    return {
+      success: false,
+      mocked: true,
+      error: 'SMTP credentials not configured on backend (SMTP_USER / SMTP_PASS missing)',
+      messageId: `mock-${Date.now()}`,
+    };
+  }
+
+  const { host, user } = getCleanCredentials();
+  const isGmail = host.includes('gmail') || user.endsWith('@gmail.com');
+
+  let from = process.env.SMTP_FROM || '"IIIT Pune Smart Campus" <no-reply@iiitpune.ac.in>';
+  // In Gmail SMTP, sender address must match authenticated user to avoid SMTP 553 / SPF drop
+  if (isGmail && user) {
+    const matchName = from.match(/^"?(.*?)"?\s*<.*?>$/);
+    const displayName = matchName && matchName[1] ? matchName[1] : 'IIIT Pune Smart Campus';
+    from = `"${displayName}" <${user}>`;
+  }
+
+  const mailOptions = {
+    from,
+    to: cleanTo,
+    replyTo: user || 'no-reply@iiitpune.ac.in',
+    envelope: user ? { from: user, to: cleanTo } : undefined,
+    subject,
+    html,
+    text: cleanPlainText,
+    priority: 'high',
+    headers: {
+      'X-Priority': '1',
+      'Importance': 'high',
+      'X-Entity-Ref-ID': `heimdall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      'X-Auto-Response-Suppress': 'All, OOF, AutoReply',
+    },
+  };
+
+  // Attempt dispatch with clean transport and 1 retry on transient network glitch
+  const attemptSend = async () => {
+    const tx = createTransporter();
+    if (!tx) throw new Error('Could not initialize mail transporter with current SMTP settings');
+    try {
+      return await tx.sendMail(mailOptions);
+    } finally {
+      try { tx.close(); } catch (_) {}
+    }
+  };
+
+  try {
+    let info;
+    try {
+      info = await attemptSend();
+    } catch (primaryErr) {
+      logger.warn(`[MailService] Primary dispatch attempt to ${cleanTo} failed (${primaryErr.message}). Retrying once...`);
+      await new Promise((r) => setTimeout(r, 1000));
+      info = await attemptSend();
+    }
+
     logger.info(`[MailService] Sent email to ${cleanTo}`, { messageId: info.messageId });
     return { success: true, messageId: info.messageId };
   } catch (error) {
     logger.error(`[MailService] Failed to send email to ${cleanTo}: ${error.message}`);
-    transporter = null; // Clean up so next call gets a fresh socket
+
+    // If SMTP failed completely and Google Apps Script is available, attempt GAS fallback
+    if (process.env.GOOGLE_APPS_SCRIPT_URL) {
+      try {
+        const { sendViaGoogleAppsScript } = require('./gasMailService');
+        const gasRes = await sendViaGoogleAppsScript({ to: cleanTo, subject, html, text: cleanPlainText });
+        if (gasRes.success) {
+          logger.info(`[MailService] Recovered via Google Apps Script fallback for ${cleanTo}`);
+          return { success: true, messageId: gasRes.messageId };
+        }
+      } catch (gasErr) {
+        logger.error(`[MailService] Secondary GAS fallback also failed: ${gasErr.message}`);
+      }
+    }
+
     return { success: false, error: error.message };
   }
 };

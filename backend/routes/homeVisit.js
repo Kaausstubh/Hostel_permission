@@ -705,6 +705,20 @@ router.post('/parent-respond', async (req, res) => {
           returnDate: updatedVisit.return_date,
         }).catch((e) => logger.warn('[HomeVisit] Student outcome email error:', e.message));
       }
+
+      if (updatedVisit.parent_email) {
+        sendLeaveOutcomeEmailToParent({
+          to: updatedVisit.parent_email,
+          guardianName: updatedVisit.parent_name || 'Parent / Guardian',
+          studentName: updatedVisit.student_id?.name || updatedVisit.name,
+          decision: isApprove ? 'APPROVED' : 'REJECTED',
+          decidedBy: 'Parent (Verified Digital Consent)',
+          remarks: cleanRemarks,
+          place: updatedVisit.place,
+          leaveDate: updatedVisit.leave_date,
+          returnDate: updatedVisit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Parent outcome email error:', e.message));
+      }
     } catch (postErr) {
       logger.warn('[HomeVisit] Post-decision notification notice:', postErr.message);
     }
