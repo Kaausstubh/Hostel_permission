@@ -292,6 +292,12 @@ app.use('/api/admin/guardians', adminGuardianRoutes);
 // ── Health & Readiness Checks ─────────────────────────────────────────────────
 const handleHealth = (req, res) => {
   res.set('Cache-Control', 'public, max-age=5');
+  let mailStatus = false;
+  try {
+    const { isMailConfigured } = require('./services/mailService');
+    mailStatus = isMailConfigured();
+  } catch (_) {}
+
   res.json({
     status: 'ok',
     requestId: req.requestId,
@@ -299,6 +305,7 @@ const handleHealth = (req, res) => {
     version: '2.1.0',
     service: 'HEIMDALL Smart Campus API',
     uptime: process.uptime(),
+    mailConfigured: mailStatus,
   });
 };
 

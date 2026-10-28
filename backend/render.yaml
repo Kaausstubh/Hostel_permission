@@ -35,3 +35,21 @@ services:
         value: "false"
       - key: REDIS_URL
         sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: '"IIIT Pune Smart Campus" <sudarshan111102@gmail.com>'
+      - key: GOOGLE_APPS_SCRIPT_URL
+        sync: false
+      - key: GOOGLE_APPS_SCRIPT_SECRET
+        sync: false
+      - key: WARDEN_ALLOWED_EMAILS
+        sync: false
