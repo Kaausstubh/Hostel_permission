@@ -60,6 +60,7 @@ const ParentForgotPassword = lazyWithRetry(() => import('./pages/ParentForgotPas
 const ParentDashboard      = lazyWithRetry(() => import('./pages/ParentDashboard'));
 const ParentRequestDetail  = lazyWithRetry(() => import('./pages/ParentRequestDetail'));
 const GuardianManagement   = lazyWithRetry(() => import('./pages/GuardianManagement'));
+const PrivacyPolicy        = lazyWithRetry(() => import('./pages/PrivacyPolicy'));
 
 // Layout
 import Sidebar from './components/Sidebar';
@@ -197,6 +198,8 @@ function AppRoutes() {
         <Route path="/parent/onboard" element={<ParentOnboard />} />
         <Route path="/parent/forgot-password" element={<ParentForgotPassword />} />
         <Route path="/parent/reset-password" element={<ParentForgotPassword />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
 
         {/* ── Parent Portal ── */}
         <Route
