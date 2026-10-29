@@ -2845,6 +2845,293 @@ router.get('/reports', protect, authorize('warden', 'admin', 'hostel_staff', 'st
   }
 });
 
+// ─── Delete Individual Attendance Record (Staff/Warden/Admin) ───────────────────
+router.delete('/records/:id', protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+  try {
+    const rawId = req.params.id;
+    if (!rawId) {
+      return res.status(400).json({ success: false, message: 'Record ID is required' });
+    }
+
+    let deletedStudentName = 'Student';
+    let deletedRollNo = '';
+    let deletedDate = '';
+    let deletedHostel = '';
+    let deletedStatus = '';
+    let targetStudentId = null;
+
+    if (rawId.startsWith('pending-')) {
+      const attemptId = rawId.replace('pending-', '');
+      const attemptDoc = await AttendanceAttempt.findById(attemptId).populate('student_id', 'name rollNo email').lean();
+      if (!attemptDoc) {
+        return res.status(404).json({ success: false, message: 'Pending attendance attempt not found' });
+      }
+      deletedStudentName = attemptDoc.student_id?.name || 'Student';
+      deletedRollNo = attemptDoc.student_id?.rollNo || '';
+      deletedDate = attemptDoc.date || '';
+      deletedHostel = attemptDoc.hostel || '';
+      deletedStatus = 'pending';
+      targetStudentId = attemptDoc.student_id?._id || attemptDoc.student_id;
+
+      await AttendanceAttempt.findByIdAndDelete(attemptId);
+    } else {
+      const record = await AttendanceRecord.findById(rawId).populate('student_id', 'name rollNo email').lean();
+      if (!record) {
+        // Fallback: check if rawId is an AttendanceAttempt ID passed without prefix
+        const attemptDoc = await AttendanceAttempt.findById(rawId).populate('student_id', 'name rollNo email').lean();
+        if (attemptDoc) {
+          deletedStudentName = attemptDoc.student_id?.name || 'Student';
+          deletedRollNo = attemptDoc.student_id?.rollNo || '';
+          deletedDate = attemptDoc.date || '';
+          deletedHostel = attemptDoc.hostel || '';
+          deletedStatus = attemptDoc.status || 'pending';
+          targetStudentId = attemptDoc.student_id?._id || attemptDoc.student_id;
+          await AttendanceAttempt.findByIdAndDelete(rawId);
+        } else {
+          return res.status(404).json({ success: false, message: 'Attendance record not found' });
+        }
+      } else {
+        deletedStudentName = record.student_name || record.student_id?.name || 'Student';
+        deletedRollNo = record.student_rollNo || record.student_id?.rollNo || '';
+        deletedDate = record.date || '';
+        deletedHostel = record.hostel || '';
+        deletedStatus = record.status || '';
+        targetStudentId = record.student_id?._id || record.student_id;
+
+        // 1. Delete the finalized AttendanceRecord
+        await AttendanceRecord.findByIdAndDelete(rawId);
+
+        // 2. Clean associated AttendanceAttempt so it does not remain stuck
+        if (targetStudentId) {
+          await AttendanceAttempt.deleteMany({
+            student_id: targetStudentId,
+            date: record.date,
+            session: record.session || 'Night Attendance',
+          });
+
+          // 3. Clean RequestResponse if linked to a room request
+          if (record.request_id) {
+            await RequestResponse.deleteMany({
+              request_id: record.request_id,
+              student_id: targetStudentId,
+            });
+          }
+        }
+      }
+    }
+
+    // Record audit trail in both audit systems
+    try {
+      await AttendanceAuditLog.create({
+        actor_id: req.user._id,
+        actor_role: req.user.role || 'hostel_staff',
+        actor_name: req.user.name || 'Staff',
+        action: 'ATTENDANCE_RECORD_DELETED',
+        entity: 'AttendanceRecord',
+        entity_id: rawId,
+        old_value: { studentName: deletedStudentName, rollNo: deletedRollNo, date: deletedDate, hostel: deletedHostel, status: deletedStatus },
+        new_value: null,
+        reason: req.body?.reason || `Deleted by ${req.user.name || req.user.email} (${req.user.role}) from Attendance Reports`,
+      });
+    } catch (auditErr) {
+      logger.warn('[Attendance] AttendanceAuditLog create warning:', auditErr.message);
+    }
+
+    try {
+      const { recordDeletionAudit } = require('../services/storageStatsService');
+      await recordDeletionAudit({
+        user: req.user,
+        action: 'DELETE_SINGLE_ATTENDANCE',
+        targetType: 'ATTENDANCE',
+        deletedCount: 1,
+        description: `Deleted attendance record for ${deletedStudentName} (${deletedStatus.toUpperCase()} on ${deletedDate}, Hostel ${deletedHostel})`,
+        metadata: { recordId: rawId, studentName: deletedStudentName, rollNo: deletedRollNo, date: deletedDate, hostel: deletedHostel },
+      });
+    } catch (auditErr) {
+      logger.warn('[Attendance] Storage recordDeletionAudit warning:', auditErr.message);
+    }
+
+    // Broadcast real-time deletion event
+    try {
+      const { getIO } = require('../services/socketService');
+      const io = getIO();
+      if (io) {
+        io.of('/dashboard').emit('attendance_record_deleted', {
+          id: rawId,
+          studentId: targetStudentId,
+          date: deletedDate,
+          deletedBy: req.user.name || req.user.email,
+        });
+        io.of('/dashboard').emit('room_attendance_updated');
+      }
+    } catch (_) {}
+
+    logger.info('[Attendance] Deleted attendance record', {
+      id: rawId,
+      studentName: deletedStudentName,
+      date: deletedDate,
+      deletedBy: req.user.email,
+    });
+
+    res.json({
+      success: true,
+      message: `Attendance record for ${deletedStudentName} (${deletedDate}) deleted successfully`,
+      deletedId: rawId,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error deleting attendance record', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to delete attendance record: ' + err.message });
+  }
+});
+
+// ─── Bulk Delete Attendance Records (Staff/Warden/Admin) ────────────────────────
+router.delete('/records', protect, authorize('warden', 'admin', 'hostel_staff', 'staff'), async (req, res) => {
+  try {
+    const { ids, startDate, endDate, hostel, status, deleteAllFiltered } = req.body || {};
+
+    let deletedCount = 0;
+
+    if (Array.isArray(ids) && ids.length > 0) {
+      const pendingIds = ids
+        .filter((id) => typeof id === 'string' && id.startsWith('pending-'))
+        .map((id) => id.replace('pending-', ''));
+      const recordIds = ids.filter((id) => typeof id === 'string' && !id.startsWith('pending-'));
+
+      if (pendingIds.length > 0) {
+        const resPending = await AttendanceAttempt.deleteMany({ _id: { $in: pendingIds } });
+        deletedCount += resPending.deletedCount || 0;
+      }
+
+      if (recordIds.length > 0) {
+        const recordsToDelete = await AttendanceRecord.find({ _id: { $in: recordIds } })
+          .select('_id student_id date session request_id')
+          .lean();
+
+        const delRes = await AttendanceRecord.deleteMany({ _id: { $in: recordIds } });
+        deletedCount += delRes.deletedCount || 0;
+
+        for (const rec of recordsToDelete) {
+          if (rec.student_id) {
+            await AttendanceAttempt.deleteMany({
+              student_id: rec.student_id,
+              date: rec.date,
+              session: rec.session || 'Night Attendance',
+            });
+            if (rec.request_id) {
+              await RequestResponse.deleteMany({
+                request_id: rec.request_id,
+                student_id: rec.student_id,
+              });
+            }
+          }
+        }
+      }
+    } else if (deleteAllFiltered && (startDate || endDate || hostel || status)) {
+      const filter = {};
+      if (startDate && endDate) {
+        filter.date = { $gte: startDate, $lte: endDate };
+      } else if (startDate) {
+        filter.date = { $gte: startDate };
+      } else if (endDate) {
+        filter.date = { $lte: endDate };
+      }
+      if (hostel && hostel.toUpperCase() !== 'ALL') {
+        const hUpper = hostel.toUpperCase();
+        if (hUpper === 'GH1' || hUpper === 'GH') {
+          filter.hostel = { $in: ['GH1', 'GH'] };
+        } else {
+          filter.hostel = hUpper;
+        }
+      }
+      if (status && status.toLowerCase() !== 'all') {
+        filter.status = status.toLowerCase();
+      }
+
+      const recordsToDelete = await AttendanceRecord.find(filter)
+        .select('_id student_id date session request_id')
+        .lean();
+      const idsToDelete = recordsToDelete.map((r) => r._id);
+
+      const delRes = await AttendanceRecord.deleteMany({ _id: { $in: idsToDelete } });
+      deletedCount += delRes.deletedCount || 0;
+
+      for (const rec of recordsToDelete) {
+        if (rec.student_id) {
+          await AttendanceAttempt.deleteMany({
+            student_id: rec.student_id,
+            date: rec.date,
+            session: rec.session || 'Night Attendance',
+          });
+          if (rec.request_id) {
+            await RequestResponse.deleteMany({
+              request_id: rec.request_id,
+              student_id: rec.student_id,
+            });
+          }
+        }
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either a list of record IDs or specify filtered criteria with deleteAllFiltered: true',
+      });
+    }
+
+    try {
+      await AttendanceAuditLog.create({
+        actor_id: req.user._id,
+        actor_role: req.user.role || 'hostel_staff',
+        actor_name: req.user.name || 'Staff',
+        action: 'ATTENDANCE_RECORDS_CLEARED',
+        entity: 'AttendanceRecord',
+        entity_id: 'bulk',
+        old_value: { deletedCount, criteria: { startDate, endDate, hostel, status } },
+        new_value: null,
+        reason: req.body?.reason || `Bulk deleted ${deletedCount} records by ${req.user.name || req.user.email} (${req.user.role})`,
+      });
+    } catch (auditErr) {
+      logger.warn('[Attendance] Bulk AttendanceAuditLog warning:', auditErr.message);
+    }
+
+    try {
+      const { recordDeletionAudit } = require('../services/storageStatsService');
+      await recordDeletionAudit({
+        user: req.user,
+        action: 'DELETE_BULK_ATTENDANCE',
+        targetType: 'ATTENDANCE',
+        deletedCount,
+        description: `Bulk deleted ${deletedCount} attendance record(s)`,
+        metadata: { deletedCount, criteria: { startDate, endDate, hostel, status } },
+      });
+    } catch (auditErr) {
+      logger.warn('[Attendance] Storage recordDeletionAudit warning:', auditErr.message);
+    }
+
+    try {
+      const { getIO } = require('../services/socketService');
+      const io = getIO();
+      if (io) {
+        io.of('/dashboard').emit('attendance_record_deleted', { bulk: true, count: deletedCount });
+        io.of('/dashboard').emit('room_attendance_updated');
+      }
+    } catch (_) {}
+
+    logger.info('[Attendance] Bulk deleted attendance records', {
+      deletedCount,
+      deletedBy: req.user.email,
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${deletedCount} attendance record(s)`,
+      deletedCount,
+    });
+  } catch (err) {
+    logger.error('[Attendance] Error during bulk deletion', { error: err.message });
+    res.status(500).json({ success: false, message: 'Failed to bulk delete attendance records: ' + err.message });
+  }
+});
+
 if (process.env.NODE_ENV === 'development') {
   // Log registered attendance endpoints for fast developer diagnostics
   setTimeout(() => {
