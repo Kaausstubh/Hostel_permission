@@ -37,13 +37,6 @@ const PARENT_STATUS_OPTIONS = [
   { value: 'legacy', label: 'Legacy Records' },
 ];
 
-const maskPhone = (phone) => {
-  if (!phone) return '—';
-  const clean = String(phone).trim();
-  if (clean.length < 7) return clean;
-  return clean.slice(0, 5) + '*** **' + clean.slice(-3);
-};
-
 export default function HomeVisits() {
   const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -398,16 +391,96 @@ export default function HomeVisits() {
                             </div>
                           )}
 
-                          {/* Quick Guardian Phone Info */}
-                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 3 }}>
+                          {/* Quick Guardian Phone Info with Direct Call */}
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
                             {guardians.length > 0 ? (
-                              guardians.map((g, idx) => (
-                                <div key={g._id || idx}>
-                                  {g.relationship}: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(g.phone)}</strong>
-                                </div>
-                              ))
+                              guardians.map((g, idx) => {
+                                const rawPhone = g.phone ? String(g.phone).trim() : '';
+                                const cleanTel = rawPhone.replace(/[^\d+]/g, '');
+                                return (
+                                  <div key={g._id || idx} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--text-muted, #64748b)', fontSize: 11.5 }}>{g.relationship}:</span>
+                                    {rawPhone ? (
+                                      <a
+                                        href={`tel:${cleanTel}`}
+                                        title={`Call ${g.relationship} (${g.name || ''}): ${rawPhone}`}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 5,
+                                          color: 'var(--primary, #4f46e5)',
+                                          fontWeight: 700,
+                                          textDecoration: 'none',
+                                          padding: '2px 8px',
+                                          borderRadius: 6,
+                                          background: 'rgba(79, 70, 229, 0.08)',
+                                          border: '1px solid rgba(79, 70, 229, 0.2)',
+                                          fontSize: 12,
+                                          transition: 'all 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+                                          e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                                          e.currentTarget.style.color = '#059669';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.background = 'rgba(79, 70, 229, 0.08)';
+                                          e.currentTarget.style.borderColor = 'rgba(79, 70, 229, 0.2)';
+                                          e.currentTarget.style.color = 'var(--primary, #4f46e5)';
+                                        }}
+                                      >
+                                        <MdPhone size={13} style={{ color: '#10b981' }} />
+                                        <span>{rawPhone}</span>
+                                      </a>
+                                    ) : (
+                                      <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                    )}
+                                  </div>
+                                );
+                              })
                             ) : (
-                              <div>Phone: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(v.parent_phone || v.student_id?.parentPhone)}</strong></div>
+                              (v.parent_phone || v.student_id?.parentPhone) ? (() => {
+                                const rawPhone = String(v.parent_phone || v.student_id?.parentPhone).trim();
+                                const cleanTel = rawPhone.replace(/[^\d+]/g, '');
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--text-muted, #64748b)', fontSize: 11.5 }}>Parent:</span>
+                                    <a
+                                      href={`tel:${cleanTel}`}
+                                      title={`Call Parent: ${rawPhone}`}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                        color: 'var(--primary, #4f46e5)',
+                                        fontWeight: 700,
+                                        textDecoration: 'none',
+                                        padding: '2px 8px',
+                                        borderRadius: 6,
+                                        background: 'rgba(79, 70, 229, 0.08)',
+                                        border: '1px solid rgba(79, 70, 229, 0.2)',
+                                        fontSize: 12,
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+                                        e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                                        e.currentTarget.style.color = '#059669';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'rgba(79, 70, 229, 0.08)';
+                                        e.currentTarget.style.borderColor = 'rgba(79, 70, 229, 0.2)';
+                                        e.currentTarget.style.color = 'var(--primary, #4f46e5)';
+                                      }}
+                                    >
+                                      <MdPhone size={13} style={{ color: '#10b981' }} />
+                                      <span>{rawPhone}</span>
+                                    </a>
+                                  </div>
+                                );
+                              })() : (
+                                <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>No parent phone on file</div>
+                              )
                             )}
                           </div>
                         </div>
@@ -605,7 +678,26 @@ export default function HomeVisits() {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Contact Phone *</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="form-label" style={{ marginBottom: 4 }}>Contact Phone *</label>
+                      {overrideModal.contactPhone && (
+                        <a
+                          href={`tel:${String(overrideModal.contactPhone).replace(/[^\d+]/g, '')}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            color: '#10b981',
+                            textDecoration: 'none',
+                            marginBottom: 4,
+                          }}
+                        >
+                          <MdPhone size={13} /> Call Directly
+                        </a>
+                      )}
+                    </div>
                     <input
                       type="text"
                       className="form-input"
