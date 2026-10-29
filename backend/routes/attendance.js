@@ -1392,12 +1392,54 @@ async function handleStudentAutoVerify(req, res) {
     }
 
     const isFetchFailure = Boolean(req.body.fetchFailed || req.body.fetchError || req.body.gpsError);
-    const { lat, lng, accuracy, timestamp } = req.body;
+    const { lat, lng, accuracy, timestamp, clientNow, clientTime } = req.body;
     const numLat = Number(lat);
     const numLng = Number(lng);
     const numAccuracy = Number(accuracy);
     let technicalError = null;
     let technicalCode = null;
+
+    // Robust timestamp parsing (supports numeric epoch ms, seconds, ISO strings, and client-clock drift tolerance)
+    let parsedTimestamp = null;
+    if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+      parsedTimestamp = timestamp < 1e11 ? timestamp * 1000 : timestamp;
+    } else if (typeof timestamp === 'string') {
+      const parsedNum = Number(timestamp);
+      if (Number.isFinite(parsedNum)) {
+        parsedTimestamp = parsedNum < 1e11 ? parsedNum * 1000 : parsedNum;
+      } else {
+        const dateParsed = Date.parse(timestamp);
+        if (Number.isFinite(dateParsed)) {
+          parsedTimestamp = dateParsed;
+        }
+      }
+    }
+
+    const rawClientTime = Number(clientNow || clientTime);
+    const validClientTime = Number.isFinite(rawClientTime)
+      ? (rawClientTime < 1e11 ? rawClientTime * 1000 : rawClientTime)
+      : null;
+
+    let isTimestampStale = false;
+    if (parsedTimestamp !== null && Number.isFinite(parsedTimestamp)) {
+      const serverDeltaMs = now.getTime() - parsedTimestamp;
+      // Stale if fix is older than 10 minutes (600,000 ms) from server
+      if (serverDeltaMs > 600_000) {
+        // If client reported its local time and the GPS fix is within 3 minutes of request dispatch, accept it
+        if (validClientTime && Math.abs(validClientTime - parsedTimestamp) < 180_000 && Math.abs(now.getTime() - validClientTime) < 900_000) {
+          isTimestampStale = false;
+        } else {
+          isTimestampStale = true;
+        }
+      } else if (serverDeltaMs < -300_000) {
+        // Stale/invalid if timestamp is more than 5 minutes in the future
+        isTimestampStale = true;
+      }
+    } else {
+      isTimestampStale = true;
+    }
+
+    const accuracyThreshold = geofenceConfig.accuracy_threshold_m ?? 40;
 
     if (isFetchFailure) {
       technicalError = req.body.reason || 'GPS location retrieval failed on this device.';
@@ -1409,11 +1451,11 @@ async function handleStudentAutoVerify(req, res) {
     ) {
       technicalError = 'Invalid GPS coordinates or accuracy received from the device.';
       technicalCode = 'INVALID_COORDINATES';
-    } else if (!Number.isFinite(Number(timestamp)) || Math.abs(now.getTime() - Number(timestamp)) > 120_000) {
+    } else if (isTimestampStale) {
       technicalError = 'GPS reading is stale or missing a valid timestamp. Please acquire a fresh location.';
       technicalCode = 'STALE_COORDINATES';
-    } else if (numAccuracy > (geofenceConfig.accuracy_threshold_m ?? 25)) {
-      technicalError = `Location accuracy (±${Math.round(numAccuracy)}m) is insufficient. Move near a window or open area and retry.`;
+    } else if (numAccuracy > accuracyThreshold) {
+      technicalError = `Location accuracy (±${Math.round(numAccuracy)}m) is insufficient (requires ±${accuracyThreshold}m or better). Move near a window or open area and retry.`;
       technicalCode = 'LOW_GPS_ACCURACY';
     }
 
@@ -1426,9 +1468,6 @@ async function handleStudentAutoVerify(req, res) {
             attempts: {
               attemptNumber: attemptDoc.attemptsCount,
               timestamp: now,
-              // The raw browser fix is used only for this validation. Retain
-              // the accuracy and outcome for auditability, not a location
-              // history of students who could not be verified.
               lat: null,
               lng: null,
               accuracy: Number.isFinite(numAccuracy) ? numAccuracy : null,
@@ -1445,9 +1484,18 @@ async function handleStudentAutoVerify(req, res) {
       );
       if (!updated) {
         const fresh = await AttendanceAttempt.findById(attemptDoc._id).lean();
-        return res.json(responseForPending(fresh || attemptDoc, { code: 'VERIFICATION_IN_PROGRESS', locationStatus: 'VERIFYING', message: 'Location verification is already in progress.' }));
+        return res.json(responseForPending(fresh || attemptDoc, {
+          code: 'VERIFICATION_IN_PROGRESS',
+          locationStatus: 'VERIFYING',
+          message: 'Location verification is already in progress.',
+        }));
       }
-      return res.json(responseForPending(updated, { locationStatus: 'LOCATION UNAVAILABLE', message: technicalError }));
+      return res.json(responseForPending(updated, {
+        locationStatus: 'LOCATION UNAVAILABLE',
+        message: technicalError,
+        technicalError: true,
+        technicalCode,
+      }));
     }
 
     // Only a complete, current and accurate GPS fix claims a location check.

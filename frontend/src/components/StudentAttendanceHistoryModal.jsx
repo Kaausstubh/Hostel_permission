@@ -77,11 +77,22 @@ export default function StudentAttendanceHistoryModal({
           setVerifyNotice({ type: 'info', text: '📍 Validating hostel geofence coordinates...' });
           const { latitude, longitude, accuracy } = pos.coords;
 
+          const clientNow = Date.now();
+          const rawGpsTime = pos.timestamp;
+          let safeGpsTime = clientNow;
+          if (typeof rawGpsTime === 'number' && Number.isFinite(rawGpsTime)) {
+            const ms = rawGpsTime < 1e11 ? rawGpsTime * 1000 : rawGpsTime;
+            if (Math.abs(clientNow - ms) < 300_000) {
+              safeGpsTime = ms;
+            }
+          }
+
           const res = await api.post('/attendance/auto-verify', {
             lat: latitude,
             lng: longitude,
             accuracy,
-            timestamp: pos.timestamp,
+            timestamp: safeGpsTime,
+            clientNow,
             hostel: effectiveToday?.hostel || user?.hostel || 'BH2',
           });
 
@@ -111,14 +122,23 @@ export default function StudentAttendanceHistoryModal({
               onClose();
             }, 2000);
           } else {
-            const count = res.data?.attemptsCount || 1;
+            const count = res.data?.attemptsCount || 0;
             const remaining = res.data?.attemptsRemaining ?? Math.max(0, 3 - count);
             const msg = res.data?.message || (res.data?.locationStatus === 'OUTSIDE HOSTEL' ? 'Outside hostel geofence.' : 'Verification check completed.');
             if (res.data) setServerToday(res.data);
-            toast.error(`Attempt ${count}/3 recorded: ${msg}`);
+
+            const isTechnical = Boolean(res.data?.technicalError || count === 0);
+            if (isTechnical) {
+              toast.error(msg);
+            } else {
+              toast.error(`Attempt ${count}/3 recorded: ${msg}`);
+            }
+
             setVerifyNotice({
               type: 'warning',
-              text: `⚠️ Attempt ${count}/3 recorded — ${msg} (${remaining}/3 checks left). Minimizing in 2s...`,
+              text: isTechnical
+                ? `⚠️ Location Check Notice — ${msg} (${remaining}/3 checks left). Minimizing in 2s...`
+                : `⚠️ Attempt ${count}/3 recorded — ${msg} (${remaining}/3 checks left). Minimizing in 2s...`,
               canCancel: true,
             });
             if (onStatusChange) {
@@ -150,9 +170,9 @@ export default function StudentAttendanceHistoryModal({
       },
       (err) => {
         let msg = 'Could not acquire GPS position. Enable device location.';
-        if (err.code === 1) msg = 'Location access denied. Please allow location permissions in your browser.';
-        else if (err.code === 2) msg = 'Location unavailable. Turn on GPS/High Accuracy.';
-        else if (err.code === 3) msg = 'GPS acquisition timed out. Try again outdoors or near a window.';
+        if (err.code === 1) msg = 'Location access denied. Please allow location permissions in your browser or device settings.';
+        else if (err.code === 2) msg = 'GPS signal unavailable. Turn on high accuracy location services and move near an open window.';
+        else if (err.code === 3) msg = 'GPS acquisition timed out after 15s. Try again in an open space.';
         toast.error(msg);
         setVerifyNotice({
           type: 'error',
@@ -166,7 +186,7 @@ export default function StudentAttendanceHistoryModal({
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 15000,
         maximumAge: 0,
       }
     );

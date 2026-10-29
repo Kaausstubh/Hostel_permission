@@ -20,7 +20,7 @@ const { getIO } = require('./socketService');
 const { finalizeExpiredNightAttendance } = require('./nightAttendanceService');
 const logger = require('../utils/logger');
 
-const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '300', 10);
+const DEFAULT_TTL_SECONDS = parseInt(process.env.ATTENDANCE_REQUEST_TTL_SECONDS || '7200', 10); // 2 hours = 7,200 seconds
 const NIGHT_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**

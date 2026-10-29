@@ -3857,7 +3857,7 @@ export default function StudentDashboard() {
                 </span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {attendanceStatus?.hasPending
-                    ? `Verify (${attendanceStatus?.pendingRequest?.remainingSeconds || 60}s)`
+                    ? `Verify (${typeof attendanceStatus?.pendingRequest?.remainingSeconds === 'number' ? (attendanceStatus.pendingRequest.remainingSeconds >= 3600 ? Math.floor(attendanceStatus.pendingRequest.remainingSeconds / 3600) + 'h ' + Math.floor((attendanceStatus.pendingRequest.remainingSeconds % 3600) / 60) + 'm' : attendanceStatus.pendingRequest.remainingSeconds >= 60 ? Math.floor(attendanceStatus.pendingRequest.remainingSeconds / 60) + 'm' : attendanceStatus.pendingRequest.remainingSeconds + 's') : '2h'})`
                     : attendanceStatus?.todayRecord?.status === 'present'
                     ? `Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'
@@ -4085,7 +4085,7 @@ export default function StudentDashboard() {
                 </span>
                 <span style={{ whiteSpace: 'nowrap' }}>
                   {attendanceStatus?.hasPending
-                    ? `Mark Attendance (${attendanceStatus?.pendingRequest?.remainingSeconds || 60}s)`
+                    ? `Mark Attendance (${typeof attendanceStatus?.pendingRequest?.remainingSeconds === 'number' ? (attendanceStatus.pendingRequest.remainingSeconds >= 3600 ? Math.floor(attendanceStatus.pendingRequest.remainingSeconds / 3600) + 'h ' + Math.floor((attendanceStatus.pendingRequest.remainingSeconds % 3600) / 60) + 'm' : attendanceStatus.pendingRequest.remainingSeconds >= 60 ? Math.floor(attendanceStatus.pendingRequest.remainingSeconds / 60) + 'm' : attendanceStatus.pendingRequest.remainingSeconds + 's') : '2h'})`
                     : attendanceStatus?.todayRecord?.status === 'present'
                     ? `Present (${attendanceStatus?.todayRecord?.time || 'Today'})`
                     : attendanceStatus?.todayRecord?.status === 'absent'

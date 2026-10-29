@@ -13,7 +13,7 @@ const logger = require('../utils/logger');
 
 const EARTH_RADIUS_METERS = 6371000;
 
-// Authoritative building center coordinates and high-precision 22m building radius (configurable via DB)
+// Authoritative building center coordinates and high-precision building radius (configurable via DB)
 const AUTHORITATIVE_HOSTEL_GEOFENCES = {
   BH2: {
     hostel: 'BH2',
@@ -23,7 +23,7 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     center: { lat: 18.765372, lng: 73.696819 },
     radius_m: 100, // High-precision building perimeter (15-25m range)
     buffer_m: 20,
-    accuracy_threshold_m: 25, // Max 25m GPS accuracy allowed
+    accuracy_threshold_m: 40, // Max 40m GPS accuracy allowed for indoor smartphone fixes
     auto_attendance: true,
   },
   BH1: {
@@ -31,9 +31,9 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     name: "Boys' Hostel 1 (Brahmaputra)",
     // 18°45'50.8"N 73°41'57.4"E
     center: { lat: 18.7641111, lng: 73.6992778 },
-    radius_m: 22, // High-precision building perimeter
-    buffer_m: 0,
-    accuracy_threshold_m: 25,
+    radius_m: 60, // Realistic building footprint radius
+    buffer_m: 15,
+    accuracy_threshold_m: 40,
     auto_attendance: true,
   },
   GH1: {
@@ -41,9 +41,9 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     name: "Girls' Hostel 1 (Indrayani)",
     // 18°45'54.4"N 73°41'56.8"E
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 22,
-    buffer_m: 0,
-    accuracy_threshold_m: 25,
+    radius_m: 60,
+    buffer_m: 15,
+    accuracy_threshold_m: 40,
     auto_attendance: true,
   },
   GH2: {
@@ -51,18 +51,18 @@ const AUTHORITATIVE_HOSTEL_GEOFENCES = {
     name: "Girls' Hostel 2 (Sindhu)",
     // 18°45'54.4"N 73°41'56.8"E
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 22,
-    buffer_m: 0,
-    accuracy_threshold_m: 25,
+    radius_m: 60,
+    buffer_m: 15,
+    accuracy_threshold_m: 40,
     auto_attendance: true,
   },
   GH: {
     hostel: 'GH',
     name: "Girls' Hostel (GH)",
     center: { lat: 18.7651111, lng: 73.6991111 },
-    radius_m: 22,
-    buffer_m: 0,
-    accuracy_threshold_m: 25,
+    radius_m: 60,
+    buffer_m: 15,
+    accuracy_threshold_m: 40,
     auto_attendance: true,
   },
 };
@@ -227,11 +227,11 @@ const verifyHostelGeofence = async (hostel, coords, overrideGeofence = null) => 
   const hasActiveCenter = activeGeofence.center && typeof activeGeofence.center.lat === 'number' && typeof activeGeofence.center.lng === 'number';
   const targetCenter = hasActiveCenter ? activeGeofence.center : fallbackGeofence.center;
 
-  const radiusMeters = activeGeofence.radius_m ?? fallbackGeofence.radius_m ?? 22;
-  const bufferMeters = activeGeofence.buffer_m ?? fallbackGeofence.buffer_m ?? 0;
-  const accuracyThreshold = activeGeofence.accuracy_threshold_m ?? fallbackGeofence.accuracy_threshold_m ?? 25;
+  const radiusMeters = activeGeofence.radius_m ?? fallbackGeofence.radius_m ?? 60;
+  const bufferMeters = activeGeofence.buffer_m ?? fallbackGeofence.buffer_m ?? 15;
+  const accuracyThreshold = activeGeofence.accuracy_threshold_m ?? fallbackGeofence.accuracy_threshold_m ?? 40;
 
-  // 1. Accuracy Check: reject cellular/IP coarse drift (> threshold, default 25m)
+  // 1. Accuracy Check: reject cellular/IP coarse drift (> threshold, default 40m)
   if (typeof accuracy === 'number' && accuracy > accuracyThreshold) {
     logger.warn('[Geofence] Rejected due to low GPS accuracy:', { accuracy, accuracyThreshold, hostel: normHostel });
     return {
