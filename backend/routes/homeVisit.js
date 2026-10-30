@@ -29,6 +29,7 @@ const {
   issueHomeVisitGatePass,
   findHomeVisitByScanToken,
   createHomeVisitCompactToken,
+  syncHomeVisitActiveQR,
 } = require('../services/homeVisitQrService');
 const { normalizeToE164 } = require('../utils/phone');
 const { validatePlaceGeo } = require('../utils/placeValidator');
@@ -1291,6 +1292,16 @@ router.post('/warden-approve', protect, authorize('warden', 'hostel_staff', 'adm
       ).populate('student_id');
 
       if (!updatedVisit) {
+        const existingRecord = await HomeVisitLog.findById(visit._id).populate('student_id');
+        if (existingRecord && existingRecord.overall_status === 'approved' && existingRecord.warden_decision === 'approved') {
+          await invalidateLogsCache().catch(() => {});
+          return res.json({
+            success: true,
+            message: 'Home visit request has already been approved by warden. Gate pass is active.',
+            visit: existingRecord,
+          });
+        }
+
         return res.status(400).json({
           success: false,
           message: 'Unable to approve: Request was already finalized or gating prerequisites not satisfied.',
@@ -1321,7 +1332,9 @@ router.post('/warden-approve', protect, authorize('warden', 'hostel_staff', 'adm
         { upsert: true }
       ).catch(() => {});
 
-      await syncHomeVisitActiveQR(updatedVisit, token).catch(() => {});
+      if (typeof syncHomeVisitActiveQR === 'function') {
+        await syncHomeVisitActiveQR(updatedVisit, token).catch(() => {});
+      }
 
       // Audit logs
       await ApprovalAuditLog.create({

@@ -215,8 +215,15 @@ export default function HomeVisits() {
       handleCloseApproveModal();
       fetchVisits();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Approval failed');
-      setApproveModal((m) => ({ ...m, submitting: false }));
+      const msg = err.response?.data?.message || 'Approval failed';
+      if (msg.includes('already finalized') || msg.includes('already')) {
+        toast.success('Request is already approved! Refreshing list.');
+        handleCloseApproveModal();
+        fetchVisits();
+      } else {
+        toast.error(msg);
+        setApproveModal((m) => ({ ...m, submitting: false }));
+      }
     } finally {
       setActioning(null);
     }
