@@ -1180,6 +1180,8 @@ router.post('/:id/call-initiated', protect, authorize('warden', 'hostel_staff', 
       },
     }).catch(() => {});
 
+    await invalidateLogsCache().catch(() => {});
+
     const updatedVisit = await HomeVisitLog.findById(visit._id).lean();
     const eligibility = await computeWardenEligibility(updatedVisit);
 
@@ -1392,6 +1394,8 @@ router.post('/warden-approve', protect, authorize('warden', 'hostel_staff', 'adm
         }).catch((e) => logger.warn('[HomeVisit] Parent outcome email notice on warden decision:', e.message));
       }
 
+      await invalidateLogsCache().catch(() => {});
+
       return res.json({
         success: true,
         message: 'Home visit request successfully approved by warden. Gate pass has been generated.',
@@ -1436,6 +1440,7 @@ router.post('/warden-approve', protect, authorize('warden', 'hostel_staff', 'adm
       }
 
       await GatePass.updateOne({ home_visit_id: updatedVisit._id }, { status: 'CANCELLED' }).catch(() => {});
+      await invalidateLogsCache().catch(() => {});
 
       await ApprovalAuditLog.create({
         event: 'WARDEN_REJECTED',
@@ -1666,7 +1671,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     // ⚡ Lean projection: load fields rendered in the table to minimize response payload
     const [rawVisits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_approval_status final_parent_decision_at parent_decision_source accompanying parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt warden_flow_version warden_call_logged first_call_at warden_decision warden_decided_by warden_decided_at warden_decision_note warden_spoke_with_guardian_id qr_generated_at')
+        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_approval_status final_parent_decision_at parent_decision_source accompanying parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt warden_flow_version warden_call_logged first_call_at warden_decision warden_decided_by warden_decided_at warden_decision_note warden_spoke_with_guardian_id qr_generated_at warden_status')
         .populate('student_id', 'name rollNo hostel roomNo parentPhone parentPhone2 studentPhoto picture')
         .populate('scannedBy', 'name')
         .populate('warden_decided_by', 'name email')
@@ -1718,6 +1723,7 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
         const eligibility = await computeWardenEligibility(v);
         return {
           ...v,
+          warden_status: v.warden_status || (v.warden_decision ? v.warden_decision : (v.overall_status === 'approved' ? 'approved' : v.overall_status === 'rejected' ? 'rejected' : 'pending')),
           parentApprovals: approvalMap.get(String(v._id)) || [],
           guardians: guardianMap.get(String(v.student_id?._id || v.student_id)) || [],
           callLogs: vCallLogs,

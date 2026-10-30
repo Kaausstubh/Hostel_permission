@@ -707,100 +707,134 @@ export default function HomeVisits() {
 
                       {/* Actions */}
                       <td>
-                        {v.warden_status === 'pending' ? (
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* Resend Parent Email Button */}
-                            {v.parent_approval_status === 'pending' && (
+                        {(() => {
+                          const isFinished =
+                            v.overall_status === 'approved' ||
+                            v.overall_status === 'rejected' ||
+                            v.overall_status === 'completed' ||
+                            v.overall_status === 'parent_no_response' ||
+                            v.warden_decision === 'approved' ||
+                            v.warden_decision === 'rejected';
+
+                          if (isFinished) {
+                            return (
+                              <span style={{ color: 'var(--text-secondary, #334155)', fontSize: 12.5, fontWeight: 700, textTransform: 'capitalize' }}>
+                                {v.overall_status === 'completed'
+                                  ? '✅ Completed'
+                                  : v.overall_status === 'approved'
+                                  ? '✅ Approved'
+                                  : v.overall_status === 'rejected'
+                                  ? '❌ Rejected'
+                                  : (v.overall_status || '—').replace(/_/g, ' ')}
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              {/* Resend Parent Email Button */}
+                              {v.parent_approval_status === 'pending' && (
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => handleResendEmail(v._id, v.parent_email)}
+                                  disabled={actioning === v._id + 'resend'}
+                                  title="Resend digital approval email to parent via Google Apps Script"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    color: '#fbbf24',
+                                    background: 'rgba(251, 191, 36, 0.12)',
+                                    border: '1px solid rgba(251, 191, 36, 0.3)',
+                                    padding: '5px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {actioning === v._id + 'resend' ? 'Sending…' : '✉️ Resend'}
+                                </button>
+                              )}
+
+                              {/* For parent-pending requests where a call has been logged: show the "Record parent's verbal decision" action */}
+                              {v.parent_approval_status === 'pending' && v.warden_call_logged && (
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => handleOpenOverrideModal(v)}
+                                  title="Record parent's verbal decision via phone"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    color: '#38bdf8',
+                                    background: 'rgba(56, 189, 248, 0.14)',
+                                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                                    padding: '5px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <MdPhoneInTalk size={13} /> Record Decision
+                                </button>
+                              )}
+
+                              {/* Approve Button */}
                               <button
-                                className="btn btn-ghost btn-sm"
-                                onClick={() => handleResendEmail(v._id, v.parent_email)}
-                                disabled={actioning === v._id + 'resend'}
-                                title="Resend digital approval email to parent via Google Apps Script"
+                                className="btn btn-success btn-sm"
+                                onClick={() => handleOpenApproveModal(v)}
+                                disabled={!v.canWardenApprove || actioning === v._id + 'approve'}
+                                title={getApproveTooltip(v)}
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: 4,
-                                  color: '#fbbf24',
-                                  background: 'rgba(251, 191, 36, 0.12)',
-                                  border: '1px solid rgba(251, 191, 36, 0.3)',
-                                  padding: '5px 8px',
-                                  borderRadius: 6,
-                                  fontSize: 11,
+                                  gap: 5,
+                                  justifyContent: 'center',
+                                  cursor: v.canWardenApprove ? 'pointer' : 'not-allowed',
+                                  opacity: v.canWardenApprove ? 1 : 0.45,
                                   fontWeight: 700,
+                                  fontSize: 12,
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
                                 }}
                               >
-                                {actioning === v._id + 'resend' ? 'Sending…' : '✉️ Resend'}
+                                {actioning === v._id + 'approve' ? (
+                                  <span className="loading-spinner" style={{ width: 12, height: 12 }} />
+                                ) : (
+                                  <>
+                                    <MdCheckCircle size={15} /> Approve
+                                  </>
+                                )}
                               </button>
-                            )}
 
-                            {/* For parent-pending requests where a call has been logged: show the "Record parent's verbal decision" action */}
-                            {v.parent_approval_status === 'pending' && v.warden_call_logged && (
+                              {/* Reject Button */}
                               <button
-                                className="btn btn-ghost btn-sm"
-                                onClick={() => handleOpenOverrideModal(v)}
-                                title="Record parent's verbal decision via phone"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => handleOpenRejectModal(v)}
+                                disabled={actioning === v._id + 'reject'}
+                                title="Reject Home Visit (reason required)"
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: 4,
-                                  color: '#38bdf8',
-                                  background: 'rgba(56, 189, 248, 0.14)',
-                                  border: '1px solid rgba(56, 189, 248, 0.4)',
-                                  padding: '5px 8px',
-                                  borderRadius: 6,
-                                  fontSize: 11,
+                                  gap: 5,
+                                  justifyContent: 'center',
                                   fontWeight: 700,
+                                  fontSize: 12,
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
                                 }}
                               >
-                                <MdPhoneInTalk size={13} /> Record Decision
+                                {actioning === v._id + 'reject' ? (
+                                  <span className="loading-spinner" style={{ width: 12, height: 12 }} />
+                                ) : (
+                                  <>
+                                    <MdCancel size={15} /> Reject
+                                  </>
+                                )}
                               </button>
-                            )}
-
-                            {/* Approve Button */}
-                            <button
-                              className="btn btn-success btn-sm"
-                              onClick={() => handleOpenApproveModal(v)}
-                              disabled={!v.canWardenApprove || actioning === v._id + 'approve'}
-                              title={getApproveTooltip(v)}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: v.canWardenApprove ? 'pointer' : 'not-allowed',
-                                opacity: v.canWardenApprove ? 1 : 0.45,
-                              }}
-                            >
-                              {actioning === v._id + 'approve' ? (
-                                <span className="loading-spinner" style={{ width: 12, height: 12 }} />
-                              ) : (
-                                <MdCheckCircle size={16} />
-                              )}
-                            </button>
-
-                            {/* Reject Button */}
-                            <button
-                              className="btn btn-danger btn-sm"
-                              onClick={() => handleOpenRejectModal(v)}
-                              disabled={actioning === v._id + 'reject'}
-                              title="Reject Home Visit"
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              {actioning === v._id + 'reject' ? (
-                                <span className="loading-spinner" style={{ width: 12, height: 12 }} />
-                              ) : (
-                                <MdCancel size={16} />
-                              )}
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: 'var(--text-secondary, #334155)', fontSize: 12.5, fontWeight: 600, textTransform: 'capitalize' }}>
-                            {v.overall_status === 'completed' ? '✅ Completed' : (v.overall_status || '—').replace(/_/g, ' ')}
-                          </span>
-                        )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );
