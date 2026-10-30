@@ -24,5 +24,14 @@ export function ThemeProvider({ children }) {
 }
 
 export function useTheme() {
-  return useContext(ThemeContext);
+  const context = useContext(ThemeContext);
+  if (!context) {
+    const savedTheme = typeof window !== 'undefined' ? (localStorage.getItem('theme') || 'light') : 'light';
+    return {
+      theme: savedTheme,
+      setTheme: () => {},
+      toggleTheme: () => {},
+    };
+  }
+  return context;
 }
