@@ -17,6 +17,8 @@ const User = require('../models/User');
 const Guardian = require('../models/Guardian');
 const ParentApproval = require('../models/ParentApproval');
 const ApprovalAuditLog = require('../models/ApprovalAuditLog');
+const WardenCallLog = require('../models/WardenCallLog');
+const rateLimit = require('express-rate-limit');
 const { protect, authorize } = require('../middleware/auth');
 const {
   validateQR,
@@ -83,6 +85,92 @@ const getPagination = (query, defaultLimit = 25, maxLimit = 100) => {
   const skip = (page - 1) * limit;
   return { page, limit, skip };
 };
+
+const isWardenCallRequired = () => {
+  const val = process.env.WARDEN_CALL_REQUIRED;
+  if (val === 'false' || val === false) return false;
+  return true;
+};
+
+const computeWardenEligibility = async (visit) => {
+  if (!visit) return { canWardenApprove: false, blockedReason: 'NOT_FOUND' };
+
+  if (visit.warden_flow_version === 1) {
+    if (visit.overall_status === 'approved' || visit.overall_status === 'rejected') {
+      return { canWardenApprove: false, blockedReason: 'ALREADY_DECIDED' };
+    }
+    const isLegacyApproved =
+      visit.parent_approval_status === 'legacy'
+        ? Boolean(visit.parent_call_confirmed)
+        : visit.parent_approval_status === 'parent_approved' || Boolean(visit.parent_call_confirmed);
+    return {
+      canWardenApprove: isLegacyApproved,
+      blockedReason: isLegacyApproved ? null : 'PARENT_PENDING',
+    };
+  }
+
+  // Version 2 flow
+  if (
+    visit.warden_decision ||
+    visit.overall_status === 'approved' ||
+    visit.overall_status === 'rejected' ||
+    visit.overall_status === 'completed'
+  ) {
+    return { canWardenApprove: false, blockedReason: 'ALREADY_DECIDED' };
+  }
+
+  if (visit.parent_approval_status === 'parent_rejected') {
+    return { canWardenApprove: false, blockedReason: 'PARENT_REJECTED' };
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const isExpired =
+    visit.parent_approval_status === 'parent_no_response' ||
+    visit.overall_status === 'parent_no_response' ||
+    (visit.return_date && visit.return_date < today);
+  if (isExpired) {
+    return { canWardenApprove: false, blockedReason: 'EXPIRED' };
+  }
+
+  const callRequired = isWardenCallRequired();
+  const hasCallLogged = Boolean(visit.warden_call_logged);
+  const isParentApproved = visit.parent_approval_status === 'parent_approved';
+
+  if (!hasCallLogged && callRequired) {
+    return { canWardenApprove: false, blockedReason: 'CALL_REQUIRED' };
+  }
+
+  if (!isParentApproved) {
+    return { canWardenApprove: false, blockedReason: 'PARENT_PENDING' };
+  }
+
+  return { canWardenApprove: true, blockedReason: null };
+};
+
+const getBlockedReasonMessage = (reason) => {
+  switch (reason) {
+    case 'CALL_REQUIRED':
+      return 'Warden must initiate a parent phone call before approving this request.';
+    case 'PARENT_PENDING':
+      return 'Waiting for parent approval or staff verbal confirmation override.';
+    case 'PARENT_REJECTED':
+      return 'Cannot approve home visit: Parent has rejected this request.';
+    case 'EXPIRED':
+      return 'This request has expired and cannot be approved.';
+    case 'ALREADY_DECIDED':
+      return 'This request has already received a final decision.';
+    default:
+      return 'Approval prerequisites are not satisfied.';
+  }
+};
+
+const callInitiatedLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { success: false, message: 'Too many call events logged. Please try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ─── Student: Submit Home Visit Request ───────────────────────────────────────
 router.post('/request', protect, authorize('student'), async (req, res) => {
@@ -268,9 +356,8 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
     // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
     const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
 
-    // 3. Create the request record with a unique persistent gate token and pending statuses
+    // 3. Create the request record with pending statuses (NO QR is generated yet)
     const studentPhoto = req.user.studentPhoto || (req.user.picture && !req.user.picture.includes('googleusercontent.com') ? req.user.picture : null) || req.user.picture || null;
-    const persistentToken = createHomeVisitCompactToken();
     const visit = await HomeVisitLog.create({
       student_id: req.user._id,
       reason,
@@ -292,22 +379,20 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       parent_approval_status: 'pending',
       warden_status: 'pending',
       overall_status: 'pending',
+      warden_flow_version: 2,
+      warden_call_logged: false,
+      first_call_at: null,
+      warden_decision: null,
+      warden_decided_by: null,
+      warden_decided_at: null,
+      warden_decision_note: '',
+      warden_spoke_with_guardian_id: null,
       email_notification_status: targetParentEmails.length > 0 ? 'PENDING' : 'FAILED',
       email_failure_reason: targetParentEmails.length > 0 ? null : 'No registered parent email address found for student',
-      qr_token: persistentToken,
+      qr_token: null,
+      qr_generated_at: null,
       accompanying: req.body.accompanying ? String(req.body.accompanying).trim().slice(0, 100) : '',
     });
-
-    // Mirror to GatePass for single MongoDB source of truth
-    await GatePass.create({
-      student_id: req.user._id,
-      pass_type: 'HOME_VISIT',
-      home_visit_id: visit._id,
-      qr_token: persistentToken,
-      status: 'AWAITING_APPROVAL',
-      place: visit.place,
-      reason: visit.reason,
-    }).catch((gpErr) => console.warn('[HomeVisit] GatePass creation notice:', gpErr.message));
 
     // 4. Automated Parent Email Notification via Google Apps Script (Free Tier) to BOTH parents
     let emailDispatchSuccess = false;
@@ -439,10 +524,12 @@ router.post('/warden-confirm-call', protect, authorize('warden', 'admin'), async
 // have no internet, emergency, or did not respond. Works even when no guardian is linked.
 router.post('/staff-phone-override', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
   try {
-    const { visit_id, guardian_id, contact_name, contact_phone, override_reason } = req.body;
+    const { visit_id, guardian_id, contact_name, contact_phone, override_reason, decision, verbal_decision } = req.body;
     if (!visit_id) {
       return res.status(400).json({ success: false, message: 'visit_id is required' });
     }
+
+    const resolvedDecision = (decision || verbal_decision || 'APPROVED').toString().trim().toUpperCase();
 
     const result = await recordStaffPhoneOverride({
       visitId: visit_id,
@@ -451,6 +538,7 @@ router.post('/staff-phone-override', protect, authorize('warden', 'hostel_staff'
       contactName: contact_name || '',
       contactPhone: contact_phone || '',
       overrideReason: override_reason || '',
+      decision: resolvedDecision === 'REJECTED' ? 'REJECTED' : 'APPROVED',
       ip: req.ip,
       userAgent: req.headers['user-agent'] || '',
     });
@@ -607,6 +695,13 @@ router.post('/parent-respond', async (req, res) => {
     const isApprove = finalAction === 'approve';
     const cleanRemarks = String(remarks || '').trim().slice(0, 500);
 
+    const existingBefore = await HomeVisitLog.findById(visit_id).lean();
+    if (!existingBefore) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    const isLegacy = existingBefore.warden_flow_version === 1;
+
     const updateSet = {
       parent_status: isApprove ? 'approved' : 'rejected',
       parent_approval_status: isApprove ? 'parent_approved' : 'parent_rejected',
@@ -620,13 +715,20 @@ router.post('/parent-respond', async (req, res) => {
     };
 
     if (isApprove) {
-      updateSet.overall_status = 'approved';
-      updateSet.warden_status = 'approved';
-      updateSet.warden_decision_time = new Date();
-      updateSet.warden_remarks = 'Auto-approved upon verified digital parent email consent';
+      if (isLegacy) {
+        updateSet.overall_status = 'approved';
+        updateSet.warden_status = 'approved';
+        updateSet.warden_decision_time = new Date();
+        updateSet.warden_remarks = 'Auto-approved upon verified digital parent email consent';
+      } else {
+        updateSet.overall_status = 'pending';
+        updateSet.warden_status = 'pending';
+        updateSet.warden_remarks = 'Parent approved digitally; awaiting warden authorization';
+      }
     } else {
       updateSet.overall_status = 'rejected';
       updateSet.warden_status = 'rejected';
+      updateSet.warden_decision = 'rejected';
       updateSet.warden_decision_time = new Date();
       updateSet.warden_remarks = 'Rejected upon parent disapproval';
     }
@@ -673,21 +775,23 @@ router.post('/parent-respond', async (req, res) => {
 
     try {
       if (isApprove) {
-        await GatePass.findOneAndUpdate(
-          { home_visit_id: updatedVisit._id },
-          {
-            $set: {
-              status: 'APPROVED',
-              approved_at: new Date(),
-              place: updatedVisit.place,
-              reason: updatedVisit.reason,
+        if (isLegacy) {
+          await GatePass.findOneAndUpdate(
+            { home_visit_id: updatedVisit._id },
+            {
+              $set: {
+                status: 'APPROVED',
+                approved_at: new Date(),
+                place: updatedVisit.place,
+                reason: updatedVisit.reason,
+              },
             },
-          },
-          { upsert: true }
-        ).catch(() => {});
+            { upsert: true }
+          ).catch(() => {});
 
-        // Pre-sync active QR in Redis / cache for immediate student & security readiness
-        await syncHomeVisitActiveQR(updatedVisit, updatedVisit.qr_token).catch(() => {});
+          // Pre-sync active QR in Redis / cache for immediate student & security readiness
+          await syncHomeVisitActiveQR(updatedVisit, updatedVisit.qr_token).catch(() => {});
+        }
       } else {
         await GatePass.updateOne({ home_visit_id: updatedVisit._id }, { status: 'CANCELLED' }).catch(() => {});
       }
@@ -785,23 +889,29 @@ router.post('/parent-approve', async (req, res) => {
     visit.parent_token_hash = null; // Invalidate token
 
     if (action === 'approve') {
-      visit.warden_status = 'approved';
-      visit.overall_status = 'approved';
-      visit.warden_remarks = 'Auto-approved upon verified digital parent consent';
-      visit.warden_decision_time = new Date();
-      await GatePass.findOneAndUpdate(
-        { home_visit_id: visit._id },
-        {
-          $set: {
-            status: 'APPROVED',
-            approved_at: new Date(),
-            place: visit.place,
-            reason: visit.reason,
+      if (visit.warden_flow_version === 1) {
+        visit.warden_status = 'approved';
+        visit.overall_status = 'approved';
+        visit.warden_remarks = 'Auto-approved upon verified digital parent consent';
+        visit.warden_decision_time = new Date();
+        await GatePass.findOneAndUpdate(
+          { home_visit_id: visit._id },
+          {
+            $set: {
+              status: 'APPROVED',
+              approved_at: new Date(),
+              place: visit.place,
+              reason: visit.reason,
+            },
           },
-        },
-        { upsert: true }
-      ).catch(() => {});
-      await syncHomeVisitActiveQR(visit, visit.qr_token).catch(() => {});
+          { upsert: true }
+        ).catch(() => {});
+        await syncHomeVisitActiveQR(visit, visit.qr_token).catch(() => {});
+      } else {
+        visit.warden_status = 'pending';
+        visit.overall_status = 'pending';
+        visit.warden_remarks = 'Parent approved digitally; awaiting warden authorization';
+      }
 
       if (visit.student_id?.email) {
         sendLeaveOutcomeEmailToStudent({
@@ -809,7 +919,9 @@ router.post('/parent-approve', async (req, res) => {
           studentName: visit.student_id.name || visit.name,
           decision: 'APPROVED',
           parentName: visit.parent_name || 'Parent / Guardian',
-          remarks: cleanRemarks,
+          remarks: visit.warden_flow_version === 1
+            ? cleanRemarks
+            : (cleanRemarks ? `${cleanRemarks} — Please visit the hostel warden to complete authorization.` : 'Please visit the hostel warden to complete authorization.'),
           place: visit.place,
           leaveDate: visit.leave_date,
           returnDate: visit.return_date,
@@ -818,6 +930,7 @@ router.post('/parent-approve', async (req, res) => {
     } else {
       visit.warden_status = 'rejected';
       visit.overall_status = 'rejected';
+      visit.warden_decision = 'rejected';
       await GatePass.updateOne({ home_visit_id: visit._id }, { status: 'CANCELLED' }).catch(() => {});
 
       if (visit.student_id?.email) {
@@ -965,114 +1078,426 @@ router.post('/resend-notification', protect, async (req, res) => {
   }
 });
 
-// ─── Warden: Approve or Reject ────────────────────────────────────────────────
-router.post('/warden-approve', protect, authorize('warden', 'admin'), async (req, res) => {
+// ─── Warden: Log Parent Call Initiated Event ─────────────────────────────────
+router.post('/:id/call-initiated', protect, authorize('warden', 'hostel_staff', 'admin'), callInitiatedLimiter, async (req, res) => {
   try {
-    const { visit_id, action } = req.body; // action: 'approve' | 'reject'
+    const { id } = req.params;
+    if (!id || !mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: 'Valid visit ID is required' });
+    }
+
+    const visit = await HomeVisitLog.findById(id).populate('student_id');
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+
+    const studentId = visit.student_id?._id || visit.student_id;
+    const guardianId = req.body.guardianId || req.body.guardian_id;
+    const slot = req.body.slot || req.body.guardian_slot;
+
+    let guardian = null;
+    if (guardianId && mongoose.isValidObjectId(guardianId)) {
+      guardian = await Guardian.findOne({ _id: guardianId, student_id: studentId });
+      if (!guardian) {
+        return res.status(400).json({ success: false, message: 'Guardian does not belong to this student' });
+      }
+    } else if (slot) {
+      guardian = await Guardian.findOne({ guardian_slot: Number(slot), student_id: studentId });
+    }
+
+    const phoneCalled = guardian?.phone
+      ? guardian.phone
+      : (visit.parent_phone || visit.student_id?.parentPhone || null);
+
+    const guardianRelationship = guardian?.relationship || (guardian?.name ? 'Guardian' : 'Father');
+    const guardianSlot = guardian?.guardian_slot || (slot ? Number(slot) : 1);
+
+    // 60-second dedupe window for same warden + same guardian (or slot) on this request
+    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000);
+    const dedupeFilter = {
+      home_visit_request_id: visit._id,
+      warden_user_id: req.user._id,
+      initiated_at: { $gte: sixtySecondsAgo },
+    };
+    if (guardian?._id) {
+      dedupeFilter.guardian_id = guardian._id;
+    } else if (phoneCalled) {
+      dedupeFilter.phone_called = phoneCalled;
+    }
+
+    const existingCall = await WardenCallLog.findOne(dedupeFilter).sort({ initiated_at: -1 }).lean();
+    if (existingCall) {
+      const currentVisit = await HomeVisitLog.findById(visit._id).lean();
+      const eligibility = await computeWardenEligibility(currentVisit);
+      return res.json({
+        success: true,
+        deduped: true,
+        callLog: existingCall,
+        ...eligibility,
+      });
+    }
+
+    const callLog = await WardenCallLog.create({
+      home_visit_request_id: visit._id,
+      student_id: studentId,
+      guardian_id: guardian ? guardian._id : null,
+      guardian_slot: guardianSlot,
+      guardian_relationship: guardianRelationship,
+      phone_called: phoneCalled,
+      warden_user_id: req.user._id,
+      warden_name: req.user.name || 'Hostel Staff',
+      warden_email: req.user.email || '',
+      initiated_at: new Date(),
+      ip_address: req.ip || '',
+      user_agent: req.headers['user-agent'] || '',
+      source: 'WARDEN_PORTAL_DIAL_BUTTON',
+    });
+
+    await HomeVisitLog.updateOne(
+      { _id: visit._id, first_call_at: null },
+      { $set: { first_call_at: new Date() } }
+    );
+    await HomeVisitLog.updateOne(
+      { _id: visit._id },
+      { $set: { warden_call_logged: true } }
+    );
+
+    await ApprovalAuditLog.create({
+      event: 'WARDEN_CALL_INITIATED',
+      home_visit_request_id: visit._id,
+      student_id: studentId,
+      guardian_id: guardian ? guardian._id : null,
+      actor_id: req.user._id,
+      actor_role: req.user.role || 'warden',
+      actor_email: req.user.email,
+      ip_address: req.ip,
+      details: {
+        guardianRelationship,
+        guardianSlot,
+        phoneCalled,
+        wardenName: req.user.name,
+        source: 'WARDEN_PORTAL_DIAL_BUTTON',
+      },
+    }).catch(() => {});
+
+    const updatedVisit = await HomeVisitLog.findById(visit._id).lean();
+    const eligibility = await computeWardenEligibility(updatedVisit);
+
+    return res.json({
+      success: true,
+      callLog,
+      ...eligibility,
+    });
+  } catch (err) {
+    logger.error('[HomeVisit] call-initiated error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── Warden: Check Approval Eligibility ──────────────────────────────────────
+router.get('/:id/warden-eligibility', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id || !mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: 'Valid visit ID is required' });
+    }
+    const visit = await HomeVisitLog.findById(id).lean();
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Home visit request not found' });
+    }
+    const eligibility = await computeWardenEligibility(visit);
+    return res.json({ success: true, ...eligibility });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── Warden: Approve or Reject ────────────────────────────────────────────────
+router.post('/warden-approve', protect, authorize('warden', 'hostel_staff', 'admin'), async (req, res) => {
+  try {
+    const { visit_id, action, spokeWithGuardianId, note, reason } = req.body; // action: 'approve' | 'reject'
+    if (!visit_id || !mongoose.isValidObjectId(visit_id)) {
+      return res.status(400).json({ success: false, message: 'Valid visit_id is required' });
+    }
+    const finalAction = (action || '').toString().trim().toLowerCase();
+    if (!['approve', 'reject'].includes(finalAction)) {
+      return res.status(400).json({ success: false, message: "Action must be 'approve' or 'reject'" });
+    }
 
     const visit = await HomeVisitLog.findById(visit_id).populate('student_id');
-    if (!visit) return res.status(404).json({ success: false, message: 'Visit request not found' });
-
-    if (visit.warden_status !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Hostel staff already responded' });
+    if (!visit) {
+      return res.status(404).json({ success: false, message: 'Visit request not found' });
     }
 
     const student = visit.student_id;
     const studentPhone = student?.phone || visit.student_phone || visit.phone || null;
 
-    if (action === 'approve') {
-      const isLegacy = visit.parent_approval_status === 'legacy';
-      if (!isLegacy) {
-        if (visit.parent_approval_status === 'parent_rejected') {
+    if (finalAction === 'approve') {
+      const eligibility = await computeWardenEligibility(visit);
+      if (!eligibility.canWardenApprove) {
+        return res.status(400).json({
+          success: false,
+          blockedReason: eligibility.blockedReason,
+          message: getBlockedReasonMessage(eligibility.blockedReason),
+        });
+      }
+
+      if (visit.warden_flow_version !== 1) {
+        if (!spokeWithGuardianId) {
           return res.status(400).json({
             success: false,
-            message: 'Cannot approve home visit: Parent has rejected this request.',
+            message: 'Please specify which parent or guardian you spoke with before approving.',
           });
-        }
-        const isParentApproved = visit.parent_approval_status === 'parent_approved';
-        const isPhoneOverride = Boolean(visit.parent_call_confirmed);
-        if (!isParentApproved && !isPhoneOverride) {
-          return res.status(400).json({
-            success: false,
-            message: 'Digital parent approval (or staff phone confirmation override) is required before final approval',
-          });
-        }
-      } else {
-        // Legacy record — backwards compatible with original parent call confirmation
-        if (!visit.parent_call_confirmed) {
-          return res.status(400).json({ success: false, message: 'Confirm parent call before approving' });
         }
       }
-      visit.warden_status = 'approved';
-      visit.warden_response_time = new Date();
-      visit.overall_status = 'approved';
 
-      const visitLean = visit.toObject();
+      const cleanNote = note ? String(note).trim().slice(0, 500) : '';
+
+      // Concurrency protection: atomic conditional findOneAndUpdate
+      const filter = {
+        _id: visit._id,
+        overall_status: 'pending',
+      };
+      if (visit.warden_flow_version !== 1) {
+        filter.parent_approval_status = 'parent_approved';
+        filter.warden_decision = null;
+        if (isWardenCallRequired()) {
+          filter.warden_call_logged = true;
+        }
+      }
+
+      const resolvedSpokeId = spokeWithGuardianId && mongoose.isValidObjectId(spokeWithGuardianId)
+        ? spokeWithGuardianId
+        : null;
+
+      const updateSet = {
+        warden_decision: 'approved',
+        overall_status: 'approved',
+        warden_status: 'approved',
+        warden_decided_by: req.user._id,
+        warden_decided_at: new Date(),
+        warden_decision_time: new Date(),
+        warden_decision_note: cleanNote || 'Approved by hostel warden',
+        warden_spoke_with_guardian_id: resolvedSpokeId,
+        qr_generated_at: new Date(),
+      };
+
+      const updatedVisit = await HomeVisitLog.findOneAndUpdate(
+        filter,
+        { $set: updateSet },
+        { new: true }
+      ).populate('student_id');
+
+      if (!updatedVisit) {
+        return res.status(400).json({
+          success: false,
+          message: 'Unable to approve: Request was already finalized or gating prerequisites not satisfied.',
+        });
+      }
+
+      // Generate QR/pass here and nowhere else
+      const visitLean = updatedVisit.toObject ? updatedVisit.toObject() : updatedVisit;
       visitLean.student_id = student;
       const { token, qrPublicUrl } = await issueHomeVisitGatePass(visitLean);
-      visit.qr_token = token;
+      if (!updatedVisit.qr_token || updatedVisit.qr_token !== token) {
+        updatedVisit.qr_token = token;
+        await HomeVisitLog.updateOne({ _id: updatedVisit._id }, { qr_token: token, qr_generated_at: new Date() });
+      }
 
-      // Send QR to student via WhatsApp if phone is present (non-blocking)
+      // Sync GatePass model
+      await GatePass.findOneAndUpdate(
+        { home_visit_id: updatedVisit._id },
+        {
+          $set: {
+            status: 'APPROVED',
+            qr_token: token,
+            approved_at: new Date(),
+            place: updatedVisit.place,
+            reason: updatedVisit.reason,
+          },
+        },
+        { upsert: true }
+      ).catch(() => {});
+
+      await syncHomeVisitActiveQR(updatedVisit, token).catch(() => {});
+
+      // Audit logs
+      await ApprovalAuditLog.create({
+        event: 'WARDEN_APPROVED',
+        home_visit_request_id: updatedVisit._id,
+        student_id: updatedVisit.student_id?._id || updatedVisit.student_id,
+        guardian_id: resolvedSpokeId,
+        actor_id: req.user._id,
+        actor_role: req.user.role || 'warden',
+        actor_email: req.user.email,
+        ip_address: req.ip,
+        details: {
+          note: cleanNote,
+          spokeWithGuardianId,
+          flowVersion: updatedVisit.warden_flow_version,
+        },
+      }).catch(() => {});
+
+      await ApprovalAuditLog.create({
+        event: 'PASS_GENERATED',
+        home_visit_request_id: updatedVisit._id,
+        student_id: updatedVisit.student_id?._id || updatedVisit.student_id,
+        actor_id: req.user._id,
+        actor_role: req.user.role || 'warden',
+        actor_email: req.user.email,
+        ip_address: req.ip,
+        details: {
+          tokenSnippet: token ? token.substring(0, 16) : null,
+          qrPublicUrl,
+        },
+      }).catch(() => {});
+
+      // Non-blocking notifications
       if (studentPhone) {
         try {
           await enqueueWhatsAppMessage({
             to: studentPhone,
-            body: `✅ *Home Visit Approved!*\n\nHostel staff has confirmed permission via parent call.\n📅 Leave: ${visit.leave_date}\n📅 Return: ${visit.return_date}\n\nYour QR gate pass is ready.\n\nQR Token (for dashboard scan): ${token.substring(0, 30)}...\nQR Image (if accessible): ${qrPublicUrl || '(configured locally)'}`,
+            body: `✅ *Home Visit Approved!*\n\nHostel warden has approved your leave.\n📅 Leave: ${updatedVisit.leave_date}\n📅 Return: ${updatedVisit.return_date}\n\nYour QR gate pass is ready on your student dashboard.`,
           });
         } catch (msgErr) {
-          console.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
+          logger.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
         }
       }
+
+      if (student?.email) {
+        sendLeaveOutcomeEmailToStudent({
+          to: student.email,
+          studentName: student.name || updatedVisit.name,
+          decision: 'APPROVED',
+          parentName: `Hostel Warden (${req.user.name || 'Warden'})`,
+          remarks: cleanNote || 'Approved by hostel warden. Your QR gate pass is ready.',
+          place: updatedVisit.place,
+          leaveDate: updatedVisit.leave_date,
+          returnDate: updatedVisit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Student outcome email notice on warden decision:', e.message));
+      }
+
+      const parentTargetEmail = updatedVisit.parent_email || student?.parentEmail;
+      if (parentTargetEmail) {
+        sendLeaveOutcomeEmailToParent({
+          to: parentTargetEmail,
+          guardianName: updatedVisit.parent_name || student?.parentName || 'Parent / Guardian',
+          studentName: student?.name || updatedVisit.name,
+          decision: 'APPROVED',
+          decidedBy: `Hostel Warden (${req.user.name || 'Staff'})`,
+          remarks: cleanNote || 'Official warden approval recorded',
+          place: updatedVisit.place,
+          leaveDate: updatedVisit.leave_date,
+          returnDate: updatedVisit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Parent outcome email notice on warden decision:', e.message));
+      }
+
+      return res.json({
+        success: true,
+        message: 'Home visit request successfully approved by warden. Gate pass has been generated.',
+        visit: updatedVisit,
+      });
     } else {
-      visit.overall_status = 'rejected';
+      // Reject action
+      const reasonText = String(reason || note || '').trim().slice(0, 500);
+      if (reasonText.length < 5) {
+        return res.status(400).json({
+          success: false,
+          message: 'A rejection reason of at least 5 characters is required.',
+        });
+      }
+
+      const updatedVisit = await HomeVisitLog.findOneAndUpdate(
+        {
+          _id: visit._id,
+          overall_status: { $in: ['pending', 'parent_approved'] },
+          warden_decision: null,
+        },
+        {
+          $set: {
+            warden_decision: 'rejected',
+            overall_status: 'rejected',
+            warden_status: 'rejected',
+            warden_decided_by: req.user._id,
+            warden_decided_at: new Date(),
+            warden_decision_time: new Date(),
+            warden_decision_note: reasonText,
+            warden_remarks: reasonText,
+          },
+        },
+        { new: true }
+      ).populate('student_id');
+
+      if (!updatedVisit) {
+        return res.status(400).json({
+          success: false,
+          message: 'Unable to reject: Request has already received a final decision.',
+        });
+      }
+
+      await GatePass.updateOne({ home_visit_id: updatedVisit._id }, { status: 'CANCELLED' }).catch(() => {});
+
+      await ApprovalAuditLog.create({
+        event: 'WARDEN_REJECTED',
+        home_visit_request_id: updatedVisit._id,
+        student_id: updatedVisit.student_id?._id || updatedVisit.student_id,
+        actor_id: req.user._id,
+        actor_role: req.user.role || 'warden',
+        actor_email: req.user.email,
+        ip_address: req.ip,
+        details: {
+          reason: reasonText,
+        },
+      }).catch(() => {});
+
       if (studentPhone) {
         try {
           await enqueueWhatsAppMessage({
             to: studentPhone,
-            body: `❌ Your home visit request has been *rejected by the hostel staff*.\nDates: ${visit.leave_date} → ${visit.return_date}`,
+            body: `❌ Your home visit request has been *rejected by the hostel warden*.\nReason: ${reasonText}\nDates: ${updatedVisit.leave_date} → ${updatedVisit.return_date}`,
           });
         } catch (msgErr) {
-          console.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
+          logger.warn('[HomeVisit] WhatsApp notification error (non-fatal):', msgErr.message);
         }
       }
+
+      if (student?.email) {
+        sendLeaveOutcomeEmailToStudent({
+          to: student.email,
+          studentName: student.name || updatedVisit.name,
+          decision: 'REJECTED',
+          parentName: `Hostel Warden (${req.user.name || 'Warden'})`,
+          remarks: reasonText,
+          place: updatedVisit.place,
+          leaveDate: updatedVisit.leave_date,
+          returnDate: updatedVisit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Student rejection outcome notice:', e.message));
+      }
+
+      const parentTargetEmail = updatedVisit.parent_email || student?.parentEmail;
+      if (parentTargetEmail) {
+        sendLeaveOutcomeEmailToParent({
+          to: parentTargetEmail,
+          guardianName: updatedVisit.parent_name || student?.parentName || 'Parent / Guardian',
+          studentName: student?.name || updatedVisit.name,
+          decision: 'REJECTED',
+          decidedBy: `Hostel Warden (${req.user.name || 'Staff'})`,
+          remarks: reasonText,
+          place: updatedVisit.place,
+          leaveDate: updatedVisit.leave_date,
+          returnDate: updatedVisit.return_date,
+        }).catch((e) => logger.warn('[HomeVisit] Parent outcome email notice on rejection:', e.message));
+      }
+
+      return res.json({
+        success: true,
+        message: 'Home visit request rejected by warden.',
+        visit: updatedVisit,
+      });
     }
-
-    await visit.save();
-
-    // Send leave outcome email to student
-    if (student?.email) {
-      sendLeaveOutcomeEmailToStudent({
-        to: student.email,
-        studentName: student.name || visit.name,
-        decision: action === 'approve' ? 'APPROVED' : 'REJECTED',
-        parentName: `Hostel Staff (${req.user.name || 'Warden'})`,
-        remarks: visit.warden_remarks || `Decided by Hostel Staff`,
-        place: visit.place,
-        leaveDate: visit.leave_date,
-        returnDate: visit.return_date,
-      }).catch((e) => logger.warn('[HomeVisit] Student outcome email notice on warden decision:', e.message));
-    }
-
-    // Send leave outcome email to parent if email on file
-    const parentTargetEmail = visit.parent_email || student?.parentEmail;
-    if (parentTargetEmail) {
-      sendLeaveOutcomeEmailToParent({
-        to: parentTargetEmail,
-        guardianName: visit.parent_name || student?.parentName || 'Parent / Guardian',
-        studentName: student?.name || visit.name,
-        decision: action === 'approve' ? 'APPROVED' : 'REJECTED',
-        decidedBy: `Hostel Warden (${req.user.name || 'Staff'})`,
-        remarks: visit.warden_remarks || `Official warden decision recorded`,
-        place: visit.place,
-        leaveDate: visit.leave_date,
-        returnDate: visit.return_date,
-      }).catch((e) => logger.warn('[HomeVisit] Parent outcome email notice on warden decision:', e.message));
-    }
-
-    res.json({ success: true, message: `Hostel staff ${action}d the request`, visit });
   } catch (error) {
-    console.error('Warden approve error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error('Warden approve/reject error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1094,8 +1519,20 @@ router.post('/scan', protect, authorize('security', 'warden'), async (req, res) 
       visit = await HomeVisitLog.findById(payload.visit_id).populate('student_id');
     }
 
-    if (!visit || (visit.overall_status !== 'approved' && visit.parent_approval_status !== 'parent_approved')) {
-      return res.status(400).json({ success: false, message: 'Visit not found or not approved' });
+    if (!visit) {
+      return res.status(400).json({ success: false, message: 'Visit not found' });
+    }
+
+    const isApprovedVisit =
+      visit.warden_flow_version === 1
+        ? (visit.overall_status === 'approved' || visit.parent_approval_status === 'parent_approved')
+        : (visit.warden_decision === 'approved' && visit.overall_status === 'approved');
+
+    if (!isApprovedVisit) {
+      const msg = visit.warden_flow_version === 1
+        ? 'Visit not found or not approved'
+        : 'Campus exit blocked: Home visit request has not received final warden approval.';
+      return res.status(400).json({ success: false, message: msg });
     }
 
     let scanResult;
@@ -1171,7 +1608,24 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     }
 
     const conditions = [];
-    if (status) conditions.push({ overall_status: status });
+    if (status && status !== 'all') {
+      if (status === 'waiting_parent') {
+        conditions.push({ overall_status: 'pending', parent_approval_status: 'pending' });
+      } else if (status === 'waiting_call') {
+        conditions.push({ overall_status: 'pending', parent_approval_status: 'parent_approved', warden_call_logged: { $ne: true } });
+      } else if (status === 'ready_approval') {
+        conditions.push({ overall_status: 'pending', parent_approval_status: 'parent_approved', warden_call_logged: true, warden_decision: null });
+      } else if (status === 'expired') {
+        conditions.push({
+          $or: [
+            { overall_status: 'parent_no_response' },
+            { parent_approval_status: 'parent_no_response' },
+          ],
+        });
+      } else {
+        conditions.push({ overall_status: status });
+      }
+    }
     if (parentApprovalStatus && parentApprovalStatus !== 'all') {
       conditions.push({ parent_approval_status: parentApprovalStatus });
     }
@@ -1212,9 +1666,10 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
     // ⚡ Lean projection: load fields rendered in the table to minimize response payload
     const [rawVisits, count] = await Promise.all([
       HomeVisitLog.find(filter)
-        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_approval_status final_parent_decision_at parent_decision_source accompanying parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt')
+        .select('_id student_id name rollNo hostel roomNo place reason leave_date return_date parentPhone parentPhone2 overall_status parent_approval_status final_parent_decision_at parent_decision_source accompanying parent_call_confirmed actual_out_time actual_in_time qr_used_out qr_used_in scanned_by_name scannedBy student_photo createdAt warden_flow_version warden_call_logged first_call_at warden_decision warden_decided_by warden_decided_at warden_decision_note warden_spoke_with_guardian_id qr_generated_at')
         .populate('student_id', 'name rollNo hostel roomNo parentPhone parentPhone2 studentPhoto picture')
         .populate('scannedBy', 'name')
+        .populate('warden_decided_by', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -1226,13 +1681,14 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
             : HomeVisitLog.countDocuments(filter)),
     ]);
 
-    // Attach linked guardians & parent approvals for audit inspection
+    // Attach linked guardians, parent approvals, and warden call logs
     const visitIds = rawVisits.map((v) => v._id);
     const studentIds = rawVisits.map((v) => v.student_id?._id || v.student_id).filter(Boolean);
 
-    const [approvals, guardians] = await Promise.all([
+    const [approvals, guardians, callLogs] = await Promise.all([
       ParentApproval.find({ home_visit_request_id: { $in: visitIds } }).lean(),
       Guardian.find({ student_id: { $in: studentIds } }).lean(),
+      WardenCallLog.find({ home_visit_request_id: { $in: visitIds } }).sort({ initiated_at: 1 }).lean(),
     ]);
 
     const approvalMap = new Map();
@@ -1249,11 +1705,27 @@ router.get('/list', protect, authorize('warden', 'security'), async (req, res) =
       guardianMap.get(sId).push(g);
     });
 
-    const visits = rawVisits.map((v) => ({
-      ...v,
-      parentApprovals: approvalMap.get(String(v._id)) || [],
-      guardians: guardianMap.get(String(v.student_id?._id || v.student_id)) || [],
-    }));
+    const callLogMap = new Map();
+    callLogs.forEach((c) => {
+      const vId = String(c.home_visit_request_id);
+      if (!callLogMap.has(vId)) callLogMap.set(vId, []);
+      callLogMap.get(vId).push(c);
+    });
+
+    const visits = await Promise.all(
+      rawVisits.map(async (v) => {
+        const vCallLogs = callLogMap.get(String(v._id)) || [];
+        const eligibility = await computeWardenEligibility(v);
+        return {
+          ...v,
+          parentApprovals: approvalMap.get(String(v._id)) || [],
+          guardians: guardianMap.get(String(v.student_id?._id || v.student_id)) || [],
+          callLogs: vCallLogs,
+          canWardenApprove: eligibility.canWardenApprove,
+          blockedReason: eligibility.blockedReason,
+        };
+      })
+    );
 
     const finalCount = count !== null ? count : visits.length;
     const hasMore = (skip + visits.length) < finalCount;

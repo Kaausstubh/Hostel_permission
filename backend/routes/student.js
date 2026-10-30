@@ -226,11 +226,14 @@ router.get('/status', async (req, res) => {
 
     const isApprovedVisit = (visit) => {
       if (!visit) return false;
-      return (
-        visit.overall_status === 'approved' ||
-        visit.overall_status === 'parent_approved' ||
-        visit.parent_approval_status === 'parent_approved'
-      );
+      if (visit.warden_flow_version === 1) {
+        return (
+          visit.overall_status === 'approved' ||
+          visit.overall_status === 'parent_approved' ||
+          visit.parent_approval_status === 'parent_approved'
+        );
+      }
+      return visit.warden_decision === 'approved' && visit.overall_status === 'approved' && Boolean(visit.qr_token);
     };
 
     const attachHomeVisitQR = async (visit) => {
@@ -403,21 +406,47 @@ router.get('/active-qr-pass', async (req, res) => {
     const studentId = user._id.toString();
     const today = todayStr();
 
-    // 1. Check for active approved Home Visit first (requires verified digital parent approval)
-    const activeHomeVisit = await HomeVisitLog.findOne({
+    // 1. Check for active Home Visit first
+    const homeVisits = await HomeVisitLog.find({
       student_id: user._id,
-      $or: [
-        { overall_status: 'approved' },
-        { overall_status: 'parent_approved' },
-        { parent_approval_status: 'parent_approved' },
-      ],
       qr_used_in: false,
-    }).sort({ leave_date: -1, createdAt: -1 });
+    }).sort({ leave_date: -1, createdAt: -1 }).limit(5);
 
-    if (activeHomeVisit && (activeHomeVisit.qr_used_out || activeHomeVisit.return_date >= today)) {
-      const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
+    let activeApprovedHomeVisit = null;
+    let pendingWardenHomeVisit = null;
+    let pendingParentHomeVisit = null;
+
+    for (const hv of homeVisits) {
+      const isApproved =
+        hv.warden_flow_version === 1
+          ? (hv.overall_status === 'approved' || hv.parent_approval_status === 'parent_approved')
+          : (hv.warden_decision === 'approved' && hv.overall_status === 'approved' && Boolean(hv.qr_token));
+
+      if (isApproved && (hv.qr_used_out || hv.return_date >= today)) {
+        activeApprovedHomeVisit = hv;
+        break;
+      }
+      if (
+        !pendingWardenHomeVisit &&
+        hv.parent_approval_status === 'parent_approved' &&
+        hv.overall_status === 'pending' &&
+        hv.warden_flow_version !== 1
+      ) {
+        pendingWardenHomeVisit = hv;
+      }
+      if (
+        !pendingParentHomeVisit &&
+        hv.parent_approval_status === 'pending' &&
+        hv.overall_status === 'pending'
+      ) {
+        pendingParentHomeVisit = hv;
+      }
+    }
+
+    if (activeApprovedHomeVisit) {
+      const scanPhase = activeApprovedHomeVisit.qr_used_out ? 'return' : 'departure';
       const scanType = scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT';
-      const hvData = await getHomeVisitPassData(activeHomeVisit);
+      const hvData = await getHomeVisitPassData(activeApprovedHomeVisit);
 
       return res.json({
         success: true,
@@ -425,10 +454,10 @@ router.get('/active-qr-pass', async (req, res) => {
         passKind: 'home_visit',
         scanType,
         scanPhase,
-        token: hvData?.token || activeHomeVisit.qr_token,
-        qrToken: hvData?.token || activeHomeVisit.qr_token,
+        token: hvData?.token || activeApprovedHomeVisit.qr_token,
+        qrToken: hvData?.token || activeApprovedHomeVisit.qr_token,
         qrDataUrl: hvData?.qrDataUrl,
-        homeVisit: activeHomeVisit,
+        homeVisit: activeApprovedHomeVisit,
         student: {
           name: user.name,
           rollNo: user.rollNo,
@@ -438,19 +467,21 @@ router.get('/active-qr-pass', async (req, res) => {
       });
     }
 
-    // 1b. Check if student has a pending home visit awaiting parent approval
-    const pendingHomeVisit = await HomeVisitLog.findOne({
-      student_id: user._id,
-      parent_approval_status: 'pending',
-      overall_status: 'pending',
-      qr_used_in: false,
-    });
-    if (pendingHomeVisit) {
+    if (pendingWardenHomeVisit) {
       return res.json({
         success: true,
         hasActivePass: false,
         pendingApproval: true,
-        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
+        message: 'Parents approved. Visit the warden to complete approval.',
+      });
+    }
+
+    if (pendingParentHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent and authorized by the warden.',
       });
     }
 
@@ -505,58 +536,86 @@ router.post('/get-or-create-pass', async (req, res) => {
     const studentId = user._id.toString();
     const today = todayStr();
 
-    // 1. Check for active approved Home Visit first
-    const activeHomeVisit = await HomeVisitLog.findOne({
+    // 1. Check for active Home Visit first
+    const homeVisits = await HomeVisitLog.find({
       student_id: user._id,
-      $or: [
-        { overall_status: 'approved' },
-        { overall_status: 'parent_approved' },
-        { parent_approval_status: 'parent_approved' },
-      ],
       qr_used_in: false,
-    }).sort({ leave_date: -1, createdAt: -1 });
+    }).sort({ leave_date: -1, createdAt: -1 }).limit(5);
 
-    if (activeHomeVisit) {
-      if (!activeHomeVisit.qr_used_out && activeHomeVisit.return_date < today) {
-        // Departure expired, continue to daily pass check
-      } else {
-        const scanPhase = activeHomeVisit.qr_used_out ? 'return' : 'departure';
-        const scanType = scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT';
-        const hvData = await getHomeVisitPassData(activeHomeVisit);
+    let activeApprovedHomeVisit = null;
+    let pendingWardenHomeVisit = null;
+    let pendingParentHomeVisit = null;
 
-        return res.json({
-          success: true,
-          hasActivePass: true,
-          passKind: 'home_visit',
-          scanType,
-          scanPhase,
-          token: hvData?.token || activeHomeVisit.qr_token,
-          qrToken: hvData?.token || activeHomeVisit.qr_token,
-          qrDataUrl: hvData?.qrDataUrl,
-          homeVisit: activeHomeVisit,
-          student: {
-            name: user.name,
-            rollNo: user.rollNo,
-            hostel: user.hostel,
-            picture: user.studentPhoto || user.picture || null,
-          },
-        });
+    for (const hv of homeVisits) {
+      const isApproved =
+        hv.warden_flow_version === 1
+          ? (hv.overall_status === 'approved' || hv.parent_approval_status === 'parent_approved')
+          : (hv.warden_decision === 'approved' && hv.overall_status === 'approved' && Boolean(hv.qr_token));
+
+      if (isApproved) {
+        if (!hv.qr_used_out && hv.return_date < today) {
+          // Departure expired
+        } else {
+          activeApprovedHomeVisit = hv;
+          break;
+        }
+      }
+      if (
+        !pendingWardenHomeVisit &&
+        hv.parent_approval_status === 'parent_approved' &&
+        hv.overall_status === 'pending' &&
+        hv.warden_flow_version !== 1
+      ) {
+        pendingWardenHomeVisit = hv;
+      }
+      if (
+        !pendingParentHomeVisit &&
+        hv.parent_approval_status === 'pending' &&
+        hv.overall_status === 'pending'
+      ) {
+        pendingParentHomeVisit = hv;
       }
     }
 
-    // 1b. Check if student has a pending home visit awaiting parent approval
-    const pendingHomeVisit = await HomeVisitLog.findOne({
-      student_id: user._id,
-      parent_approval_status: 'pending',
-      overall_status: 'pending',
-      qr_used_in: false,
-    });
-    if (pendingHomeVisit) {
+    if (activeApprovedHomeVisit) {
+      const scanPhase = activeApprovedHomeVisit.qr_used_out ? 'return' : 'departure';
+      const scanType = scanPhase === 'return' ? 'HOME RETURN' : 'HOME VISIT';
+      const hvData = await getHomeVisitPassData(activeApprovedHomeVisit);
+
+      return res.json({
+        success: true,
+        hasActivePass: true,
+        passKind: 'home_visit',
+        scanType,
+        scanPhase,
+        token: hvData?.token || activeApprovedHomeVisit.qr_token,
+        qrToken: hvData?.token || activeApprovedHomeVisit.qr_token,
+        qrDataUrl: hvData?.qrDataUrl,
+        homeVisit: activeApprovedHomeVisit,
+        student: {
+          name: user.name,
+          rollNo: user.rollNo,
+          hostel: user.hostel,
+          picture: user.studentPhoto || user.picture || null,
+        },
+      });
+    }
+
+    if (pendingWardenHomeVisit) {
       return res.json({
         success: true,
         hasActivePass: false,
         pendingApproval: true,
-        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent.',
+        message: 'Parents approved. Visit the warden to complete approval.',
+      });
+    }
+
+    if (pendingParentHomeVisit) {
+      return res.json({
+        success: true,
+        hasActivePass: false,
+        pendingApproval: true,
+        message: 'Your home visit request is awaiting parent approval. Digital QR pass will appear here once approved by your parent and authorized by the warden.',
       });
     }
 
@@ -957,8 +1016,7 @@ router.post('/home-visit', async (req, res) => {
     // 2. Generate cryptographically random, high-entropy approval token (stored as SHA-256 hash)
     const { rawToken, tokenHash, expiresAt } = generateParentApprovalToken();
 
-    // 3. Create the request record with unique persistent token and pending statuses
-    const persistentToken = createHomeVisitCompactToken();
+    // 3. Create the request record with pending statuses (QR will only be generated upon warden approval)
     const visit = await HomeVisitLog.create({
       student_id: user._id,
       name: user.name,
@@ -975,7 +1033,10 @@ router.post('/home-visit', async (req, res) => {
       leave_date,
       return_date,
       place: String(place).trim().slice(0, 200),
-      qr_token: persistentToken,
+      qr_token: null,
+      warden_flow_version: 2,
+      warden_call_logged: false,
+      warden_decision: null,
       parent_token_hash: tokenHash,
       parent_token_expires_at: expiresAt,
       parent_approval_status: 'pending',
@@ -992,7 +1053,7 @@ router.post('/home-visit', async (req, res) => {
       student_id: user._id,
       pass_type: 'HOME_VISIT',
       home_visit_id: visit._id,
-      qr_token: persistentToken,
+      qr_token: null,
       status: 'AWAITING_APPROVAL',
       place: visit.place,
       reason: visit.reason,
@@ -1321,7 +1382,11 @@ router.get('/home-visits', async (req, res) => {
     }
 
     const attachQr = async (visit) => {
-      if (visit.overall_status !== 'approved' || visit.qr_used_in) return visit;
+      const isApproved =
+        visit.warden_flow_version === 1
+          ? visit.overall_status === 'approved'
+          : (visit.warden_decision === 'approved' && visit.overall_status === 'approved');
+      if (!isApproved || visit.qr_used_in) return visit;
       try {
         if (!visit.qr_token || isLegacyHomeJwtToken(visit.qr_token)) {
           const issued = await issueHomeVisitGatePass(visit);

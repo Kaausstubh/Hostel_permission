@@ -2561,8 +2561,9 @@ export default function StudentDashboard() {
       if (s?.approvedVisits?.length > 0) {
         s.approvedVisits.forEach((v) => {
           const isApproved =
-            v.parent_approval_status === 'parent_approved' &&
-            (v.overall_status === 'approved' || v.overall_status === 'parent_approved');
+            v.warden_flow_version === 1
+              ? (v.parent_approval_status === 'parent_approved' && (v.overall_status === 'approved' || v.overall_status === 'parent_approved'))
+              : (v.warden_decision === 'approved' && v.overall_status === 'approved');
           if (v.qrDataUrl && isApproved) {
             const phase = v.qr_used_out ? 'return' : 'departure';
             qrMap[`qr_${v._id}`] = {
@@ -2592,7 +2593,11 @@ export default function StudentDashboard() {
       // No active pass found -> clear any stale zoomedQR and open Generate QR modal
       setZoomedQR(null);
       if (s?.pendingVisits?.length > 0) {
-        toast('Your Home Visit request is pending parent approval. Daily pass options are available below.', { icon: '⏳' });
+        const hasParentApproved = s.pendingVisits.some(v => v.parent_approval_status === 'parent_approved');
+        const msg = hasParentApproved
+          ? 'Parents approved. Visit the warden to complete approval.'
+          : 'Your Home Visit request is pending parent approval. Daily pass options are available below.';
+        toast(msg, { icon: '⏳' });
       } else {
         toast('No valid pass currently. Please select a destination to generate a pass.', {
           icon: 'ℹ️',
@@ -2661,10 +2666,11 @@ export default function StudentDashboard() {
           let statusText = '⏳ Awaiting Parent Approval';
           if (v.email_notification_status === 'FAILED') {
             statusText = '⚠️ Email Failed — Resend Available';
-          } else if (v.parent_approval_status === 'parent_approved' && v.warden_status === 'pending') {
-            statusText = '✅ Parent Approved — Awaiting Warden';
-          } else if (v.parent_approval_status === 'parent_rejected') {
-            statusText = '❌ Parent Rejected';
+          } else if (v.parent_approval_status === 'parent_approved' && (v.warden_status === 'pending' || !v.warden_decision)) {
+            statusText = 'Parents approved. Visit the warden to complete approval';
+          } else if (v.parent_approval_status === 'parent_rejected' || v.warden_decision === 'rejected') {
+            const reason = v.warden_decision_note || v.parent_decision_remarks;
+            statusText = `❌ Rejected${reason ? `: "${reason}"` : ''}`;
           }
           statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ${statusText}`;
           if (v.parent_approval_status === 'pending' || v.email_notification_status === 'FAILED') {
@@ -2685,7 +2691,7 @@ export default function StudentDashboard() {
       if (s.approvedVisits?.length > 0) {
         statusMsg += `\n\n✅ *Active Home Visit Passes:*`;
         s.approvedVisits.forEach((v, i) => {
-          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ✅ Parent Approved (Pass Ready)`;
+          statusMsg += `\n${i + 1}. ${v.leave_date} → ${v.return_date} — ✅ Warden Approved (Pass Ready)`;
           if (v.parent_decision_remarks) {
             statusMsg += `\n   💬 Parent Note: "${v.parent_decision_remarks}"`;
           }

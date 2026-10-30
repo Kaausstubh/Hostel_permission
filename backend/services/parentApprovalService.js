@@ -65,10 +65,31 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
   const policy = getApprovalPolicy();
 
   // ── ANY_ONE Policy (Default) ────────────────────────────────────────────────
+  // ── ANY_ONE Policy (Default) ────────────────────────────────────────────────
   if (policy === 'ANY_ONE') {
+    const isLegacy = visit.warden_flow_version === 1;
     // Conditional atomic update on parent_approval_status === 'pending'
     const finalParentStatus = decision === 'APPROVED' ? 'parent_approved' : 'parent_rejected';
-    const finalOverallStatus = decision === 'APPROVED' ? 'approved' : 'rejected';
+    const finalOverallStatus = decision === 'APPROVED'
+      ? (isLegacy ? 'approved' : 'pending')
+      : 'rejected';
+    const finalWardenStatus = decision === 'APPROVED'
+      ? (isLegacy ? 'approved' : 'pending')
+      : 'rejected';
+
+    const updateSet = {
+      parent_approval_status: finalParentStatus,
+      overall_status: finalOverallStatus,
+      warden_status: finalWardenStatus,
+      parent_decision_source: 'PARENT_PORTAL',
+      final_parent_decision_at: new Date(),
+    };
+    if (decision === 'REJECTED') {
+      updateSet.warden_decision = 'rejected';
+      updateSet.warden_response_time = new Date();
+    } else if (isLegacy) {
+      updateSet.warden_response_time = new Date();
+    }
 
     const updatedVisit = await HomeVisitLog.findOneAndUpdate(
       {
@@ -76,14 +97,7 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
         parent_approval_status: 'pending',
       },
       {
-        $set: {
-          parent_approval_status: finalParentStatus,
-          overall_status: finalOverallStatus,
-          warden_status: decision === 'APPROVED' ? 'approved' : 'rejected',
-          warden_response_time: new Date(),
-          parent_decision_source: 'PARENT_PORTAL',
-          final_parent_decision_at: new Date(),
-        },
+        $set: updateSet,
       },
       { new: true }
     );
@@ -100,24 +114,26 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
     }
 
     if (decision === 'APPROVED') {
-      const visitLean = updatedVisit.toObject ? updatedVisit.toObject() : updatedVisit;
-      visitLean.student_id = visit.student_id;
-      const qrPass = await issueHomeVisitGatePass(visitLean).catch((err) => {
-        logger.warn('[ParentApproval] QR gate pass issuance error:', err.message);
-        return null;
-      });
-      if (qrPass?.token && qrPass.token !== updatedVisit.qr_token) {
-        updatedVisit.qr_token = qrPass.token;
-        await HomeVisitLog.updateOne({ _id: updatedVisit._id }, { qr_token: qrPass.token });
+      if (isLegacy) {
+        const visitLean = updatedVisit.toObject ? updatedVisit.toObject() : updatedVisit;
+        visitLean.student_id = visit.student_id;
+        const qrPass = await issueHomeVisitGatePass(visitLean).catch((err) => {
+          logger.warn('[ParentApproval] QR gate pass issuance error:', err.message);
+          return null;
+        });
+        if (qrPass?.token && qrPass.token !== updatedVisit.qr_token) {
+          updatedVisit.qr_token = qrPass.token;
+          await HomeVisitLog.updateOne({ _id: updatedVisit._id }, { qr_token: qrPass.token });
+        }
+        await GatePass.updateOne(
+          { home_visit_id: updatedVisit._id },
+          { status: 'APPROVED', qr_token: qrPass?.token || updatedVisit.qr_token }
+        ).catch(() => {});
       }
-      await GatePass.updateOne(
-        { home_visit_id: updatedVisit._id },
-        { status: 'APPROVED', qr_token: qrPass?.token || updatedVisit.qr_token }
-      ).catch(() => {});
     } else {
       await GatePass.updateOne(
         { home_visit_id: updatedVisit._id },
-        { status: 'REJECTED' }
+        { status: 'CANCELLED' }
       ).catch(() => {});
     }
 
@@ -149,27 +165,6 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       details: { decision, remarks: cleanRemarks, policy: 'ANY_ONE' },
     });
 
-    // If approved, issue scannable QR gate pass immediately; if rejected, cancel GatePass
-    if (decision === 'APPROVED') {
-      try {
-        const passLean = updatedVisit.toObject ? updatedVisit.toObject() : { ...updatedVisit };
-        passLean.student_id = visit.student_id;
-        const { token } = await issueHomeVisitGatePass(passLean);
-        updatedVisit.qr_token = token;
-        await GatePass.updateOne(
-          { home_visit_id: updatedVisit._id },
-          { $set: { status: 'PENDING', qr_token: token } }
-        ).catch(() => {});
-      } catch (passErr) {
-        logger.warn('[ParentApproval] GatePass generation notice:', { error: passErr.message });
-      }
-    } else {
-      await GatePass.updateOne(
-        { home_visit_id: updatedVisit._id },
-        { $set: { status: 'CANCELLED' } }
-      ).catch(() => {});
-    }
-
     // Notify student via email
     if (visit.student_id?.email) {
       sendLeaveOutcomeEmailToStudent({
@@ -177,7 +172,9 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
         studentName: visit.student_id.name || visit.name,
         decision,
         parentName: guardian.name,
-        remarks: cleanRemarks,
+        remarks: decision === 'APPROVED' && !isLegacy
+          ? `${cleanRemarks ? cleanRemarks + ' — ' : ''}Parents approved. Visit the warden to complete approval.`
+          : cleanRemarks,
         place: visit.place,
         leaveDate: visit.leave_date,
         returnDate: visit.return_date,
@@ -263,15 +260,16 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
 
   let finalVisit = visit;
   if (approvedDecisionsCount >= totalGuardians) {
+    const isLegacy = visit.warden_flow_version === 1;
     // All guardians have approved!
     finalVisit = await HomeVisitLog.findByIdAndUpdate(
       visitId,
       {
         $set: {
           parent_approval_status: 'parent_approved',
-          overall_status: 'approved',
-          warden_status: 'approved',
-          warden_response_time: new Date(),
+          overall_status: isLegacy ? 'approved' : 'pending',
+          warden_status: isLegacy ? 'approved' : 'pending',
+          ...(isLegacy ? { warden_response_time: new Date() } : {}),
           parent_decision_source: 'PARENT_PORTAL',
           final_parent_decision_at: new Date(),
         },
@@ -279,20 +277,22 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
       { new: true }
     );
 
-    const finalVisitLean = finalVisit.toObject ? finalVisit.toObject() : finalVisit;
-    finalVisitLean.student_id = visit.student_id;
-    const qrPass = await issueHomeVisitGatePass(finalVisitLean).catch((err) => {
-      logger.warn('[ParentApproval] QR gate pass issuance error:', err.message);
-      return null;
-    });
-    if (qrPass?.token && qrPass.token !== finalVisit.qr_token) {
-      finalVisit.qr_token = qrPass.token;
-      await HomeVisitLog.updateOne({ _id: finalVisit._id }, { qr_token: qrPass.token });
+    if (isLegacy) {
+      const finalVisitLean = finalVisit.toObject ? finalVisit.toObject() : finalVisit;
+      finalVisitLean.student_id = visit.student_id;
+      const qrPass = await issueHomeVisitGatePass(finalVisitLean).catch((err) => {
+        logger.warn('[ParentApproval] QR gate pass issuance error:', err.message);
+        return null;
+      });
+      if (qrPass?.token && qrPass.token !== finalVisit.qr_token) {
+        finalVisit.qr_token = qrPass.token;
+        await HomeVisitLog.updateOne({ _id: finalVisit._id }, { qr_token: qrPass.token });
+      }
+      await GatePass.updateOne(
+        { home_visit_id: finalVisit._id },
+        { status: 'APPROVED', qr_token: qrPass?.token || finalVisit.qr_token }
+      ).catch(() => {});
     }
-    await GatePass.updateOne(
-      { home_visit_id: finalVisit._id },
-      { status: 'APPROVED', qr_token: qrPass?.token || finalVisit.qr_token }
-    ).catch(() => {});
 
     if (visit.student_id?.email) {
       sendLeaveOutcomeEmailToStudent({
@@ -300,7 +300,9 @@ const recordParentDecision = async ({ visitId, parentUser, decision, remarks = '
         studentName: visit.student_id.name || visit.name,
         decision: 'APPROVED',
         parentName: 'Both Guardians',
-        remarks: cleanRemarks,
+        remarks: isLegacy
+          ? cleanRemarks
+          : `${cleanRemarks ? cleanRemarks + ' — ' : ''}Both parents approved. Visit the warden to complete approval.`,
         place: visit.place,
         leaveDate: visit.leave_date,
         returnDate: visit.return_date,
@@ -335,6 +337,7 @@ const recordStaffPhoneOverride = async ({
   contactName = '',
   contactPhone = '',
   overrideReason,
+  decision = 'APPROVED',
   ip = '',
   userAgent = '',
 }) => {
@@ -362,6 +365,27 @@ const recordStaffPhoneOverride = async ({
   const decPhone = contactPhone.trim() || guardian?.phone || visit.parent_phone || visit.student_id?.parentPhone || 'N/A';
   const decEmail = guardian?.email || staffUser.email;
 
+  const isLegacy = visit.warden_flow_version === 1;
+  const isApproved = String(decision || 'APPROVED').toUpperCase() === 'APPROVED';
+
+  const updateSet = {
+    parent_approval_status: isApproved ? 'parent_approved' : 'parent_rejected',
+    overall_status: isApproved ? (isLegacy ? 'approved' : 'pending') : 'rejected',
+    warden_status: isApproved ? (isLegacy ? 'approved' : 'pending') : 'rejected',
+    parent_call_confirmed: true,
+    parent_call_confirmed_at: new Date(),
+    parent_call_confirmed_by: staffUser._id,
+    parent_decision_source: 'STAFF_PHONE_OVERRIDE',
+    final_parent_decision_at: new Date(),
+  };
+
+  if (!isApproved) {
+    updateSet.warden_decision = 'rejected';
+    updateSet.warden_response_time = new Date();
+  } else if (isLegacy) {
+    updateSet.warden_response_time = new Date();
+  }
+
   // Atomic update
   const updatedVisit = await HomeVisitLog.findOneAndUpdate(
     {
@@ -369,17 +393,7 @@ const recordStaffPhoneOverride = async ({
       parent_approval_status: { $in: ['pending', 'parent_no_response', 'legacy'] },
     },
     {
-      $set: {
-        parent_approval_status: 'parent_approved',
-        overall_status: 'approved',
-        warden_status: 'approved',
-        warden_response_time: new Date(),
-        parent_call_confirmed: true,
-        parent_call_confirmed_at: new Date(),
-        parent_call_confirmed_by: staffUser._id,
-        parent_decision_source: 'STAFF_PHONE_OVERRIDE',
-        final_parent_decision_at: new Date(),
-      },
+      $set: updateSet,
     },
     { new: true }
   );
@@ -388,27 +402,34 @@ const recordStaffPhoneOverride = async ({
     throw new Error('Failed to apply override — request status was updated concurrently');
   }
 
-  const overrideVisitLean = updatedVisit.toObject ? updatedVisit.toObject() : updatedVisit;
-  overrideVisitLean.student_id = visit.student_id;
-  const qrPass = await issueHomeVisitGatePass(overrideVisitLean).catch((err) => {
-    logger.warn('[ParentApproval] QR gate pass issuance error on override:', err.message);
-    return null;
-  });
-  if (qrPass?.token && qrPass.token !== updatedVisit.qr_token) {
-    updatedVisit.qr_token = qrPass.token;
-    await HomeVisitLog.updateOne({ _id: updatedVisit._id }, { qr_token: qrPass.token });
+  if (isLegacy && isApproved) {
+    const overrideVisitLean = updatedVisit.toObject ? updatedVisit.toObject() : updatedVisit;
+    overrideVisitLean.student_id = visit.student_id;
+    const qrPass = await issueHomeVisitGatePass(overrideVisitLean).catch((err) => {
+      logger.warn('[ParentApproval] QR gate pass issuance error on override:', err.message);
+      return null;
+    });
+    if (qrPass?.token && qrPass.token !== updatedVisit.qr_token) {
+      updatedVisit.qr_token = qrPass.token;
+      await HomeVisitLog.updateOne({ _id: updatedVisit._id }, { qr_token: qrPass.token });
+    }
+    await GatePass.updateOne(
+      { home_visit_id: updatedVisit._id },
+      { status: 'APPROVED', qr_token: qrPass?.token || updatedVisit.qr_token }
+    ).catch(() => {});
+  } else if (!isApproved) {
+    await GatePass.updateOne(
+      { home_visit_id: updatedVisit._id },
+      { status: 'CANCELLED' }
+    ).catch(() => {});
   }
-  await GatePass.updateOne(
-    { home_visit_id: updatedVisit._id },
-    { status: 'APPROVED', qr_token: qrPass?.token || updatedVisit.qr_token }
-  ).catch(() => {});
 
   // Create append-only ParentApproval record (guardian_id can be null)
   const approvalRecord = await ParentApproval.create({
     home_visit_request_id: visit._id,
     student_id: studentId,
     guardian_id: guardian ? guardian._id : null,
-    decision: 'APPROVED',
+    decision: isApproved ? 'APPROVED' : 'REJECTED',
     decided_at: new Date(),
     decided_by_email: decEmail,
     decided_by_name: decName,
@@ -431,6 +452,7 @@ const recordStaffPhoneOverride = async ({
     actor_email: staffUser.email,
     ip_address: ip,
     details: {
+      decision: isApproved ? 'APPROVED' : 'REJECTED',
       overrideReason: overrideReason.trim(),
       contactName: decName,
       contactPhone: decPhone,
@@ -444,9 +466,11 @@ const recordStaffPhoneOverride = async ({
       sendLeaveOutcomeEmailToStudent({
         to: visit.student_id.email,
         studentName: visit.student_id.name || visit.name,
-        decision: 'APPROVED',
+        decision: isApproved ? 'APPROVED' : 'REJECTED',
         parentName: `Parent (Confirmed via Phone by ${staffUser.name || 'Hostel Staff'})`,
-        remarks: overrideReason,
+        remarks: isApproved && !isLegacy
+          ? `${overrideReason} — Visit hostel warden to complete final approval.`
+          : overrideReason,
         place: visit.place,
         leaveDate: visit.leave_date,
         returnDate: visit.return_date,
@@ -458,7 +482,7 @@ const recordStaffPhoneOverride = async ({
         to: parentNoticeEmail,
         guardianName: decName,
         studentName: visit.student_id?.name || visit.name,
-        decision: 'APPROVED',
+        decision: isApproved ? 'APPROVED' : 'REJECTED',
         decidedBy: `Staff Phone Confirmation (${staffUser.name || 'Hostel Staff'})`,
         remarks: overrideReason,
         place: visit.place,

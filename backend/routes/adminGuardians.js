@@ -287,7 +287,11 @@ router.get('/export', async (req, res) => {
     const approvals = await ParentApproval.find(filter)
       .populate('student_id', 'name rollNo hostel roomNo')
       .populate('guardian_id', 'relationship')
-      .populate('home_visit_request_id', 'leave_date return_date place reason')
+      .populate({
+        path: 'home_visit_request_id',
+        select: 'leave_date return_date place reason warden_call_logged first_call_at warden_decision warden_decided_at warden_decided_by warden_decision_note',
+        populate: { path: 'warden_decided_by', select: 'name email' },
+      })
       .populate('staff_user_id', 'name email')
       .sort({ decided_at: -1 })
       .lean();
@@ -313,6 +317,12 @@ router.get('/export', async (req, res) => {
       'Remarks',
       'Staff Override By',
       'Override Reason',
+      'Warden Call Logged',
+      'First Call At (IST)',
+      'Warden Decision',
+      'Warden Decided At (IST)',
+      'Warden Decided By',
+      'Warden Decision Note',
       'IP Address',
     ];
 
@@ -326,16 +336,25 @@ router.get('/export', async (req, res) => {
       const istTime = new Date(a.decided_at).toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
       });
+      const hv = a.home_visit_request_id;
+      const firstCallIst = hv?.first_call_at
+        ? new Date(hv.first_call_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : 'N/A';
+      const wardenDecidedIst = hv?.warden_decided_at
+        ? new Date(hv.warden_decided_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : 'N/A';
+      const wardenDecidedByName = hv?.warden_decided_by?.name || (hv?.warden_decided_by ? String(hv.warden_decided_by) : 'N/A');
+
       return [
         a._id,
         a.student_id?.name || 'N/A',
         a.student_id?.rollNo || 'N/A',
         a.student_id?.hostel || 'N/A',
         a.student_id?.roomNo || 'N/A',
-        a.home_visit_request_id?.leave_date || 'N/A',
-        a.home_visit_request_id?.return_date || 'N/A',
-        a.home_visit_request_id?.place || 'N/A',
-        a.home_visit_request_id?.reason || 'N/A',
+        hv?.leave_date || 'N/A',
+        hv?.return_date || 'N/A',
+        hv?.place || 'N/A',
+        hv?.reason || 'N/A',
         a.decision,
         a.decision_source,
         istTime,
@@ -346,6 +365,12 @@ router.get('/export', async (req, res) => {
         a.remarks || '',
         a.staff_user_id?.name || (a.decision_source === 'STAFF_PHONE_OVERRIDE' ? a.decided_by_email : 'N/A'),
         a.override_reason || '',
+        hv?.warden_call_logged ? 'YES' : 'NO',
+        firstCallIst,
+        hv?.warden_decision || 'PENDING',
+        wardenDecidedIst,
+        wardenDecidedByName,
+        hv?.warden_decision_note || '',
         a.ip_address || '',
       ].map(escapeCsv).join(',');
     });

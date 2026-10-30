@@ -197,7 +197,24 @@ const resolveScanPayload = async (token) => {
 
   // 2. Direct resolution for compact HV-* pass tokens
   if (/^HV-/i.test(trimmed)) {
-    const visit = await findHomeVisitByScanToken(trimmed);
+    let visit = await findHomeVisitByScanToken(trimmed);
+    if (!visit) {
+      // Diagnostic check: check if token belongs to an unapproved or rejected request
+      const unapproved = await HomeVisitLog.findOne({
+        $or: [
+          { qr_token: trimmed },
+          { qr_token: `HV-${trimmed.slice(3)}` },
+        ],
+      }).lean();
+      if (unapproved) {
+        if (unapproved.overall_status === 'rejected' || unapproved.warden_decision === 'rejected') {
+          return { error: 'Campus exit blocked: Home visit request was rejected.', code: 'VISIT_REJECTED' };
+        }
+        if (unapproved.warden_flow_version !== 1 && (unapproved.warden_decision !== 'approved' || unapproved.overall_status !== 'approved')) {
+          return { error: 'Campus exit blocked: Home visit request has not received final warden approval.', code: 'WARDEN_APPROVAL_REQUIRED' };
+        }
+      }
+    }
     if (visit) {
       return {
         payload: {
@@ -633,21 +650,56 @@ const handleHomeVisitScan = async (token, payload, req, scanStart) => {
     }).populate('student_id');
   }
 
-  const isApproved = existing && (
-    (existing.overall_status === 'approved' && existing.parent_approval_status === 'parent_approved') ||
-    existing.overall_status === 'parent_approved' ||
-    existing.parent_approval_status === 'parent_approved' ||
-    existing.overall_status === 'approved'
-  );
-  if (!existing || !isApproved) {
+  if (!existing) {
     return {
       status: 400,
       body: {
         success: false,
-        code: 'PARENT_APPROVAL_REQUIRED',
-        message: 'Campus exit blocked: Home visit request must be approved by parents before student can leave campus.',
+        code: 'NOT_FOUND',
+        message: 'Home visit request not found.',
       },
     };
+  }
+
+  // Version 1 (legacy) vs Version 2
+  if (existing.warden_flow_version === 1) {
+    const isLegacyApproved =
+      (existing.overall_status === 'approved' && existing.parent_approval_status === 'parent_approved') ||
+      existing.overall_status === 'parent_approved' ||
+      existing.parent_approval_status === 'parent_approved' ||
+      existing.overall_status === 'approved';
+    if (!isLegacyApproved) {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          code: 'PARENT_APPROVAL_REQUIRED',
+          message: 'Campus exit blocked: Home visit request must be approved by parents before student can leave campus.',
+        },
+      };
+    }
+  } else {
+    // Version 2: MUST have warden_decision: 'approved' and overall_status: 'approved'
+    if (existing.overall_status === 'rejected' || existing.warden_decision === 'rejected') {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          code: 'VISIT_REJECTED',
+          message: 'Campus exit blocked: Home visit request was rejected.',
+        },
+      };
+    }
+    if (existing.warden_decision !== 'approved' || existing.overall_status !== 'approved') {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          code: 'WARDEN_APPROVAL_REQUIRED',
+          message: 'Campus exit blocked: Home visit request has not received final warden approval.',
+        },
+      };
+    }
   }
   if (existing.qr_used_in) {
     return { status: 400, body: { success: false, code: 'ALREADY_USED', message: 'QR code already fully used' } };
@@ -885,4 +937,8 @@ router.post('/scan', async (req, res) => {
   }
 });
 
+router.resolveScanPayload = resolveScanPayload;
+router.handleHomeVisitScan = handleHomeVisitScan;
+
 module.exports = router;
+

@@ -35,6 +35,51 @@ const homeVisitLogSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ── Warden Call & Final Approval Workflow (Version 2) ─────────────────────
+    warden_flow_version: {
+      type: Number,
+      default: 2,
+      index: true,
+    },
+    warden_call_logged: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    first_call_at: {
+      type: Date,
+      default: null,
+    },
+    warden_decision: {
+      type: String,
+      enum: ['approved', 'rejected', null],
+      default: null,
+      index: true,
+    },
+    warden_decided_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    warden_decided_at: {
+      type: Date,
+      default: null,
+    },
+    warden_decision_note: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    warden_spoke_with_guardian_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Guardian',
+      default: null,
+    },
+    qr_generated_at: {
+      type: Date,
+      default: null,
+    },
+
     // ── Request details ───────────────────────────────────────────────────────
     place: {
       type: String,
@@ -249,5 +294,8 @@ homeVisitLogSchema.index({ student_id: 1, overall_status: 1, createdAt: -1 });
 homeVisitLogSchema.index({ overall_status: 1, leave_date: 1, return_date: 1 });
 homeVisitLogSchema.index({ overall_status: 1, qr_used_in: 1, createdAt: -1 });
 homeVisitLogSchema.index({ student_id: 1, overall_status: 1, leave_date: -1, createdAt: -1 });
+homeVisitLogSchema.index({ warden_flow_version: 1, overall_status: 1 });
+homeVisitLogSchema.index({ warden_call_logged: 1, overall_status: 1 });
+homeVisitLogSchema.index({ warden_decision: 1, createdAt: -1 });
 
 module.exports = mongoose.model('HomeVisitLog', homeVisitLogSchema);

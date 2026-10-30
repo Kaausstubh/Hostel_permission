@@ -28,8 +28,18 @@ const findHomeVisitByScanToken = async (token) => {
   if (!trimmed) return null;
 
   const approvedFilter = {
-    parent_approval_status: 'parent_approved',
-    overall_status: { $in: ['approved', 'parent_approved'] },
+    $or: [
+      {
+        warden_flow_version: 1,
+        parent_approval_status: 'parent_approved',
+        overall_status: { $in: ['approved', 'parent_approved'] },
+      },
+      {
+        warden_flow_version: { $ne: 1 },
+        warden_decision: 'approved',
+        overall_status: 'approved',
+      },
+    ],
     qr_used_in: false,
   };
 
@@ -117,12 +127,22 @@ const syncHomeVisitActiveQR = async (visit, token) => {
  * Issue or refresh a scannable home-visit QR (short HV-* string in the image).
  * Migrates legacy JWT qr_token to compact automatically.
  */
+const isVisitApprovedForPass = (visit) => {
+  if (!visit) return false;
+  if (visit.warden_flow_version === 1) {
+    return (
+      visit.overall_status === 'approved' ||
+      visit.overall_status === 'parent_approved' ||
+      visit.parent_approval_status === 'parent_approved'
+    );
+  }
+  return visit.warden_decision === 'approved' && visit.overall_status === 'approved';
+};
+
 const issueHomeVisitGatePass = async (visit) => {
-  const isApproved =
-    (visit.overall_status === 'approved' || visit.overall_status === 'parent_approved') &&
-    visit.parent_approval_status === 'parent_approved';
+  const isApproved = isVisitApprovedForPass(visit);
   if (!isApproved || visit.qr_used_in) {
-    throw new Error('Visit not approved by parent or pass already closed');
+    throw new Error('Visit not finally approved by warden or pass already closed');
   }
 
   let token = visit.qr_token;
@@ -137,22 +157,12 @@ const issueHomeVisitGatePass = async (visit) => {
     margin: 4,
   });
 
-  await HomeVisitLog.updateOne({ _id: visit._id }, { qr_token: token });
-  await GatePass.updateOne({ home_visit_id: visit._id }, { qr_token: token }).catch(() => {});
+  await HomeVisitLog.updateOne({ _id: visit._id }, { qr_token: token, qr_generated_at: new Date() });
+  await GatePass.updateOne({ home_visit_id: visit._id }, { qr_token: token, status: 'APPROVED' }).catch(() => {});
   const withToken = { ...visit, qr_token: token };
   await syncHomeVisitActiveQR(withToken, token);
 
   return { token, qrDataUrl, qrPublicUrl, qrFilename };
-};
-
-/** Get or render pass data (token, qrDataUrl) for an approved home visit */
-const isVisitApprovedForPass = (visit) => {
-  if (!visit) return false;
-  return (
-    visit.overall_status === 'approved' ||
-    visit.overall_status === 'parent_approved' ||
-    visit.parent_approval_status === 'parent_approved'
-  );
 };
 
 const getHomeVisitPassData = async (visit) => {

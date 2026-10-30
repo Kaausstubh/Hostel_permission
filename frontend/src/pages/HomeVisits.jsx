@@ -1,10 +1,13 @@
 /**
  * Home Visits Page (Hostel Staff / Warden Command Centre)
- * Integrated with the Digital Parent Approval Module:
- * - Parent Approval panel showing guardians, digital decision status, IST timestamps, remarks, and decision source.
- * - Multi-criteria filters: Overall Status & Parent Approval Status.
- * - Staff Manual Phone Confirmation Override modal with fallback for unlinked guardians.
- * - Direct CSV export of approval audit records.
+ * Integrated with the Digital Parent Approval Module & Warden Call-Gated Approval Flow:
+ * - Parent Approval panel showing guardians with 📞 Call button (tel: link) and Copy button.
+ * - Server logging of call-initiated events with honest wording ("Call initiated by <warden> at <IST>").
+ * - Multi-criteria filters: Waiting for parent, Waiting for warden call, Ready for warden approval, etc.
+ * - Warden Approval confirmation modal with mandatory "Which parent did you speak to?" selection & optional note.
+ * - Warden Rejection modal with mandatory reason (min 5 chars).
+ * - Staff Manual Phone Confirmation Override modal for recording verbal decisions.
+ * - Direct CSV export of approval audit records with warden call & decision columns.
  */
 
 import { useState, useEffect } from 'react';
@@ -18,15 +21,25 @@ import {
   MdCancel,
   MdPhone,
   MdPhoneInTalk,
+  MdContentCopy,
   MdDownload,
   MdShield,
   MdExpandMore,
   MdExpandLess,
+  MdInfoOutline,
 } from 'react-icons/md';
 import StudentAvatar from '../components/StudentAvatar';
 import { getHostelLabel } from '../utils/hostel';
 
-const STATUS_FILTERS = ['all', 'pending', 'approved', 'rejected', 'completed'];
+const STATUS_FILTERS = [
+  { value: 'all', label: 'All Requests' },
+  { value: 'waiting_parent', label: 'Waiting for parent' },
+  { value: 'waiting_call', label: 'Waiting for warden call' },
+  { value: 'ready_approval', label: 'Ready for warden approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'expired', label: 'Expired' },
+];
 
 const PARENT_STATUS_OPTIONS = [
   { value: 'all', label: 'All Parent Statuses' },
@@ -44,6 +57,38 @@ const maskPhone = (phone) => {
   return clean.slice(0, 5) + '*** **' + clean.slice(-3);
 };
 
+const formatIst = (rawDate) => {
+  if (!rawDate) return '';
+  const d = new Date(rawDate);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+};
+
+const getApproveTooltip = (visit) => {
+  if (visit.canWardenApprove) return 'Approve Home Visit';
+  switch (visit.blockedReason) {
+    case 'CALL_REQUIRED':
+      return 'Call a parent first before approving';
+    case 'PARENT_PENDING':
+      return 'Waiting for parent decision or verbal phone override';
+    case 'PARENT_REJECTED':
+      return 'Parent rejected this request';
+    case 'EXPIRED':
+      return 'This request has expired and cannot be approved';
+    case 'ALREADY_DECIDED':
+      return 'This request has already received a final decision';
+    default:
+      return 'Prerequisites not met for approval';
+  }
+};
+
 export default function HomeVisits() {
   const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,15 +96,32 @@ export default function HomeVisits() {
   const [filter, setFilter] = useState('all');
   const [parentFilter, setParentFilter] = useState('all');
   const [actioning, setActioning] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
 
-  // Override Modal State
+  // Approve Modal State
+  const [approveModal, setApproveModal] = useState({
+    isOpen: false,
+    visit: null,
+    spokeWithGuardianId: '',
+    note: '',
+    submitting: false,
+  });
+
+  // Reject Modal State
+  const [rejectModal, setRejectModal] = useState({
+    isOpen: false,
+    visit: null,
+    reason: '',
+    submitting: false,
+  });
+
+  // Verbal Override Modal State
   const [overrideModal, setOverrideModal] = useState({
     isOpen: false,
     visit: null,
     guardianId: '',
     contactName: '',
     contactPhone: '',
+    decision: 'APPROVED',
     reason: '',
     submitting: false,
   });
@@ -88,29 +150,129 @@ export default function HomeVisits() {
     fetchVisits();
   }, [filter, parentFilter]);
 
-  const handleWardenAction = async (visitId, action) => {
-    setActioning(visitId + action);
+  // Initiate call to guardian & log event asynchronously without blocking browser dialer
+  const handleInitiateCall = (visitId, guardian, fallbackPhone) => {
+    const postCallLog = async (retryCount = 0) => {
+      try {
+        await api.post(`/homevisit/${visitId}/call-initiated`, {
+          guardianId: guardian?._id || undefined,
+          slot: guardian?.guardian_slot || 1,
+        });
+        fetchVisits();
+      } catch (err) {
+        if (retryCount < 1) {
+          setTimeout(() => postCallLog(retryCount + 1), 1000);
+        } else {
+          toast.error('Failed to record call event: ' + (err.response?.data?.message || err.message));
+        }
+      }
+    };
+    postCallLog();
+  };
+
+  const handleCopyPhone = (e, phone, label) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!phone) return;
+    navigator.clipboard.writeText(phone);
+    toast.success(`${label || 'Phone number'} copied!`);
+  };
+
+  // Open Approve Modal
+  const handleOpenApproveModal = (visit) => {
+    const guardians = visit.guardians || [];
+    const defaultSpokeId = guardians[0]?._id ? String(guardians[0]._id) : (guardians[0] ? 'guardian_0' : 'primary_parent');
+    setApproveModal({
+      isOpen: true,
+      visit,
+      spokeWithGuardianId: defaultSpokeId,
+      note: '',
+      submitting: false,
+    });
+  };
+
+  const handleCloseApproveModal = () => {
+    if (!approveModal.submitting) {
+      setApproveModal({ isOpen: false, visit: null, spokeWithGuardianId: '', note: '', submitting: false });
+    }
+  };
+
+  const handleSubmitApprove = async (e) => {
+    e.preventDefault();
+    if (!approveModal.spokeWithGuardianId) {
+      return toast.error('Please specify which parent or guardian you spoke with.');
+    }
+    setApproveModal((m) => ({ ...m, submitting: true }));
+    setActioning(approveModal.visit._id + 'approve');
     try {
-      await api.post('/homevisit/warden-approve', { visit_id: visitId, action });
-      toast.success(`Visit ${action}d successfully`);
+      const res = await api.post('/homevisit/warden-approve', {
+        visit_id: approveModal.visit._id,
+        action: 'approve',
+        spokeWithGuardianId: approveModal.spokeWithGuardianId,
+        note: approveModal.note.trim(),
+      });
+      toast.success(res.data?.message || 'Home visit approved! QR pass generated.');
+      handleCloseApproveModal();
       fetchVisits();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Action failed');
+      toast.error(err.response?.data?.message || 'Approval failed');
+      setApproveModal((m) => ({ ...m, submitting: false }));
     } finally {
       setActioning(null);
     }
   };
 
+  // Open Reject Modal
+  const handleOpenRejectModal = (visit) => {
+    setRejectModal({
+      isOpen: true,
+      visit,
+      reason: '',
+      submitting: false,
+    });
+  };
+
+  const handleCloseRejectModal = () => {
+    if (!rejectModal.submitting) {
+      setRejectModal({ isOpen: false, visit: null, reason: '', submitting: false });
+    }
+  };
+
+  const handleSubmitReject = async (e) => {
+    e.preventDefault();
+    if (!rejectModal.reason || rejectModal.reason.trim().length < 5) {
+      return toast.error('A rejection reason of at least 5 characters is required.');
+    }
+    setRejectModal((m) => ({ ...m, submitting: true }));
+    setActioning(rejectModal.visit._id + 'reject');
+    try {
+      const res = await api.post('/homevisit/warden-approve', {
+        visit_id: rejectModal.visit._id,
+        action: 'reject',
+        reason: rejectModal.reason.trim(),
+      });
+      toast.success(res.data?.message || 'Home visit request rejected.');
+      handleCloseRejectModal();
+      fetchVisits();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Rejection failed');
+      setRejectModal((m) => ({ ...m, submitting: false }));
+    } finally {
+      setActioning(null);
+    }
+  };
+
+  // Open Override Modal
   const handleOpenOverrideModal = (visit) => {
     const guardians = visit.guardians || [];
     const firstGuardian = guardians[0];
-
     setOverrideModal({
       isOpen: true,
       visit,
       guardianId: firstGuardian ? firstGuardian._id : '',
       contactName: firstGuardian ? firstGuardian.name : (visit.student_id?.name ? `Parent of ${visit.student_id.name}` : ''),
       contactPhone: firstGuardian ? firstGuardian.phone : (visit.parent_phone || visit.student_id?.parentPhone || ''),
+      decision: 'APPROVED',
       reason: '',
       submitting: false,
     });
@@ -118,7 +280,7 @@ export default function HomeVisits() {
 
   const handleCloseOverrideModal = () => {
     if (!overrideModal.submitting) {
-      setOverrideModal({ isOpen: false, visit: null, guardianId: '', contactName: '', contactPhone: '', reason: '', submitting: false });
+      setOverrideModal({ isOpen: false, visit: null, guardianId: '', contactName: '', contactPhone: '', decision: 'APPROVED', reason: '', submitting: false });
     }
   };
 
@@ -135,14 +297,15 @@ export default function HomeVisits() {
         guardian_id: overrideModal.guardianId || undefined,
         contact_name: overrideModal.contactName.trim(),
         contact_phone: overrideModal.contactPhone.trim(),
+        decision: overrideModal.decision,
         override_reason: overrideModal.reason.trim(),
       });
 
-      toast.success(res.data?.message || 'Phone confirmation override applied!');
+      toast.success(res.data?.message || 'Phone confirmation recorded!');
       handleCloseOverrideModal();
       fetchVisits();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to apply phone override');
+      toast.error(err.response?.data?.message || 'Failed to record phone decision');
       setOverrideModal((m) => ({ ...m, submitting: false }));
     }
   };
@@ -216,18 +379,43 @@ export default function HomeVisits() {
         </span>
       );
     }
-    if (v.email_notification_status === 'FAILED') {
-      return <span className="badge badge-rejected" style={{ fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', color: '#dc2626', border: '1px solid rgba(239, 68, 68, 0.4)' }}>Notification Failed</span>;
+    if (v.overall_status === 'completed') {
+      return <span className="badge badge-out" style={{ fontWeight: 700 }}>Completed</span>;
     }
-    if (v.parent_approval_status === 'parent_approved' && v.warden_status === 'pending') {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    if (
+      v.overall_status === 'parent_no_response' ||
+      v.parent_approval_status === 'parent_no_response' ||
+      (v.return_date && v.return_date < today)
+    ) {
       return (
-        <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', color: '#0284c7', border: '1px solid rgba(56, 189, 248, 0.4)', whiteSpace: 'nowrap' }}>
-          Parent Approved — Awaiting Warden
+        <span className="badge badge-rejected" style={{ fontWeight: 700, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#dc2626' }}>
+          Expired
         </span>
       );
     }
-    if (v.parent_approval_status === 'pending') {
-      return <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(245, 158, 11, 0.15)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.4)', whiteSpace: 'nowrap' }}>Awaiting Parent Approval</span>;
+    if (v.overall_status === 'pending') {
+      if (v.parent_approval_status === 'pending') {
+        return (
+          <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(245, 158, 11, 0.15)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.4)', whiteSpace: 'nowrap' }}>
+            Waiting for parent
+          </span>
+        );
+      }
+      if (v.parent_approval_status === 'parent_approved') {
+        if (!v.warden_call_logged) {
+          return (
+            <span className="badge badge-pending" style={{ fontWeight: 700, background: 'rgba(56, 189, 248, 0.15)', color: '#0284c7', border: '1px solid rgba(56, 189, 248, 0.4)', whiteSpace: 'nowrap' }}>
+              Waiting for warden call
+            </span>
+          );
+        }
+        return (
+          <span className="badge badge-approved" style={{ fontWeight: 700, background: 'rgba(16, 185, 129, 0.15)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.4)', whiteSpace: 'nowrap' }}>
+            Ready for warden approval
+          </span>
+        );
+      }
     }
     return <span className={`badge badge-${v.overall_status}`} style={{ fontWeight: 700 }}>{v.overall_status?.toUpperCase()}</span>;
   };
@@ -254,14 +442,14 @@ export default function HomeVisits() {
 
         {/* Filters Row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-          <div className="tabs" style={{ marginBottom: 0 }}>
+          <div className="tabs" style={{ marginBottom: 0, flexWrap: 'wrap' }}>
             {STATUS_FILTERS.map((f) => (
               <button
-                key={f}
-                className={`tab ${filter === f ? 'active' : ''}`}
-                onClick={() => setFilter(f)}
+                key={f.value}
+                className={`tab ${filter === f.value ? 'active' : ''}`}
+                onClick={() => setFilter(f.value)}
               >
-                {f.replace('_', ' ')}
+                {f.label}
               </button>
             ))}
           </div>
@@ -311,27 +499,13 @@ export default function HomeVisits() {
                     decided_at: v.parent_decision_at || v.parent_response_time,
                     remarks: v.parent_decision_remarks,
                   } : null);
-                  const isExpanded = expandedId === v._id;
-
-                  const canApprove =
-                    v.parent_approval_status === 'legacy' ||
-                    v.parent_approval_status === 'parent_approved' ||
-                    Boolean(v.parent_call_confirmed);
 
                   const getDecisionTimeStr = () => {
                     const raw = primaryApproval?.decided_at || v.parent_decision_at || v.parent_response_time || v.updatedAt || v.createdAt;
                     if (!raw) return 'Recorded';
                     const d = new Date(raw);
                     if (isNaN(d.getTime())) return 'Recorded';
-                    return d.toLocaleString('en-IN', {
-                      timeZone: 'Asia/Kolkata',
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true,
-                    });
+                    return formatIst(d);
                   };
 
                   return (
@@ -376,7 +550,7 @@ export default function HomeVisits() {
 
                       {/* Parent Approval Panel */}
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 195 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
                           {renderParentStatusBadge(v)}
 
                           {primaryApproval && (
@@ -398,16 +572,129 @@ export default function HomeVisits() {
                             </div>
                           )}
 
-                          {/* Quick Guardian Phone Info */}
-                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 3 }}>
+                          {/* Quick Guardian Phone Info with Call and Copy buttons */}
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 4 }}>
                             {guardians.length > 0 ? (
-                              guardians.map((g, idx) => (
-                                <div key={g._id || idx}>
-                                  {g.relationship}: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(g.phone)}</strong>
-                                </div>
-                              ))
+                              guardians.map((g, idx) => {
+                                const gCalls = (v.callLogs || []).filter(
+                                  (c) => (g._id && String(c.guardian_id) === String(g._id)) || (g.phone && c.phone_called === g.phone)
+                                );
+                                const lastCall = gCalls[gCalls.length - 1];
+                                return (
+                                  <div key={g._id || idx} style={{ marginBottom: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                      <span>{g.relationship}: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(g.phone)}</strong></span>
+                                      {g.phone && (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                          <a
+                                            href={`tel:${g.phone}`}
+                                            onClick={() => handleInitiateCall(v._id, g, g.phone)}
+                                            className="btn btn-ghost btn-xs"
+                                            title={`Dial ${g.relationship} (${g.phone})`}
+                                            style={{
+                                              padding: '2px 6px',
+                                              fontSize: 11,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 3,
+                                              color: '#38bdf8',
+                                              background: 'rgba(56, 189, 248, 0.12)',
+                                              borderRadius: 4,
+                                              textDecoration: 'none',
+                                              fontWeight: 700,
+                                            }}
+                                          >
+                                            <MdPhone size={12} /> Call
+                                          </a>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => handleCopyPhone(e, g.phone, `${g.relationship}'s phone`)}
+                                            className="btn btn-ghost btn-xs"
+                                            title="Copy full phone number"
+                                            style={{
+                                              padding: '2px 5px',
+                                              fontSize: 11,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              color: 'var(--text-secondary, #64748b)',
+                                              background: 'rgba(255, 255, 255, 0.06)',
+                                              borderRadius: 4,
+                                            }}
+                                          >
+                                            <MdContentCopy size={11} />
+                                          </button>
+                                        </span>
+                                      )}
+                                    </div>
+                                    {lastCall && (
+                                      <div style={{ fontSize: 10.5, color: '#38bdf8', marginTop: 2, fontWeight: 600 }}>
+                                        📞 Call initiated by {lastCall.warden_name || 'Staff'} at {formatIst(lastCall.initiated_at)}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
                             ) : (
-                              <div>Phone: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(v.parent_phone || v.student_id?.parentPhone)}</strong></div>
+                              (() => {
+                                const fallbackPhone = v.parent_phone || v.student_id?.parentPhone;
+                                const gCalls = (v.callLogs || []).filter(
+                                  (c) => (fallbackPhone && c.phone_called === fallbackPhone) || !c.guardian_id
+                                );
+                                const lastCall = gCalls[gCalls.length - 1];
+                                return (
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                      <span>Phone: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(fallbackPhone)}</strong></span>
+                                      {fallbackPhone && (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                          <a
+                                            href={`tel:${fallbackPhone}`}
+                                            onClick={() => handleInitiateCall(v._id, null, fallbackPhone)}
+                                            className="btn btn-ghost btn-xs"
+                                            title={`Dial Parent (${fallbackPhone})`}
+                                            style={{
+                                              padding: '2px 6px',
+                                              fontSize: 11,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 3,
+                                              color: '#38bdf8',
+                                              background: 'rgba(56, 189, 248, 0.12)',
+                                              borderRadius: 4,
+                                              textDecoration: 'none',
+                                              fontWeight: 700,
+                                            }}
+                                          >
+                                            <MdPhone size={12} /> Call
+                                          </a>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => handleCopyPhone(e, fallbackPhone, 'Parent phone')}
+                                            className="btn btn-ghost btn-xs"
+                                            title="Copy full phone number"
+                                            style={{
+                                              padding: '2px 5px',
+                                              fontSize: 11,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              color: 'var(--text-secondary, #64748b)',
+                                              background: 'rgba(255, 255, 255, 0.06)',
+                                              borderRadius: 4,
+                                            }}
+                                          >
+                                            <MdContentCopy size={11} />
+                                          </button>
+                                        </span>
+                                      )}
+                                    </div>
+                                    {lastCall && (
+                                      <div style={{ fontSize: 10.5, color: '#38bdf8', marginTop: 2, fontWeight: 600 }}>
+                                        📞 Call initiated by {lastCall.warden_name || 'Staff'} at {formatIst(lastCall.initiated_at)}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()
                             )}
                           </div>
                         </div>
@@ -446,41 +733,41 @@ export default function HomeVisits() {
                               </button>
                             )}
 
-                            {/* Staff Phone Confirmation Override Button */}
-                            {!canApprove && (
+                            {/* For parent-pending requests where a call has been logged: show the "Record parent's verbal decision" action */}
+                            {v.parent_approval_status === 'pending' && v.warden_call_logged && (
                               <button
                                 className="btn btn-ghost btn-sm"
                                 onClick={() => handleOpenOverrideModal(v)}
-                                title="Parent has not approved digitally. Open phone override confirmation modal."
+                                title="Record parent's verbal decision via phone"
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: 4,
                                   color: '#38bdf8',
-                                  background: 'rgba(56, 189, 248, 0.12)',
-                                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                                  background: 'rgba(56, 189, 248, 0.14)',
+                                  border: '1px solid rgba(56, 189, 248, 0.4)',
                                   padding: '5px 8px',
                                   borderRadius: 6,
                                   fontSize: 11,
                                   fontWeight: 700,
                                 }}
                               >
-                                <MdPhone size={13} /> Override
+                                <MdPhoneInTalk size={13} /> Record Decision
                               </button>
                             )}
 
                             {/* Approve Button */}
                             <button
                               className="btn btn-success btn-sm"
-                              onClick={() => handleWardenAction(v._id, 'approve')}
-                              disabled={!canApprove || actioning === v._id + 'approve'}
-                              title={canApprove ? 'Approve Home Visit' : 'Digital parent approval or staff phone override required before final approval'}
+                              onClick={() => handleOpenApproveModal(v)}
+                              disabled={!v.canWardenApprove || actioning === v._id + 'approve'}
+                              title={getApproveTooltip(v)}
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                cursor: canApprove ? 'pointer' : 'not-allowed',
-                                opacity: canApprove ? 1 : 0.45,
+                                cursor: v.canWardenApprove ? 'pointer' : 'not-allowed',
+                                opacity: v.canWardenApprove ? 1 : 0.45,
                               }}
                             >
                               {actioning === v._id + 'approve' ? (
@@ -493,7 +780,7 @@ export default function HomeVisits() {
                             {/* Reject Button */}
                             <button
                               className="btn btn-danger btn-sm"
-                              onClick={() => handleWardenAction(v._id, 'reject')}
+                              onClick={() => handleOpenRejectModal(v)}
                               disabled={actioning === v._id + 'reject'}
                               title="Reject Home Visit"
                               style={{
@@ -520,6 +807,181 @@ export default function HomeVisits() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Warden Approval Modal */}
+        {approveModal.isOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 20,
+          }}>
+            <div style={{
+              background: '#111827',
+              border: '1.5px solid #10b981',
+              borderRadius: 18,
+              padding: 24,
+              maxWidth: 480,
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+            }} className="fade-in">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <span style={{ fontSize: 28 }}>✅</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Confirm Final Warden Approval</h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Student: <strong>{approveModal.visit?.student_id?.name || approveModal.visit?.name}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.5, marginBottom: 16 }}>
+                Approving this request will immediately generate the official Gate Pass QR code for the student and activate campus gate exit.
+              </p>
+
+              <form onSubmit={handleSubmitApprove}>
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="form-label" style={{ fontWeight: 700 }}>Which parent did you speak to? *</label>
+                  <select
+                    className="form-input"
+                    value={approveModal.spokeWithGuardianId}
+                    onChange={(e) => setApproveModal((m) => ({ ...m, spokeWithGuardianId: e.target.value }))}
+                    required
+                  >
+                    {(approveModal.visit?.guardians || []).map((g) => (
+                      <option key={g._id} value={g._id}>
+                        {g.relationship}: {g.name} ({g.phone})
+                      </option>
+                    ))}
+                    {(!approveModal.visit?.guardians || approveModal.visit.guardians.length === 0) && (
+                      <option value="primary_parent">
+                        Parent / Guardian ({approveModal.visit?.parent_phone || approveModal.visit?.student_id?.parentPhone || 'On File'})
+                      </option>
+                    )}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 18 }}>
+                  <label className="form-label">Optional Warden Note / Remarks</label>
+                  <textarea
+                    className="form-input"
+                    rows={2}
+                    placeholder="e.g. Spoke to father, leave approved for family function."
+                    value={approveModal.note}
+                    onChange={(e) => setApproveModal((m) => ({ ...m, note: e.target.value }))}
+                    style={{ resize: 'vertical', fontSize: 13 }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button
+                    type="button"
+                    onClick={handleCloseApproveModal}
+                    disabled={approveModal.submitting}
+                    className="btn btn-ghost"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={approveModal.submitting}
+                    className="btn btn-success"
+                    style={{ fontWeight: 700 }}
+                  >
+                    {approveModal.submitting ? <span className="loading-spinner" /> : 'Confirm Approval'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Warden Rejection Modal */}
+        {rejectModal.isOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 20,
+          }}>
+            <div style={{
+              background: '#111827',
+              border: '1.5px solid #ef4444',
+              borderRadius: 18,
+              padding: 24,
+              maxWidth: 480,
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+            }} className="fade-in">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <span style={{ fontSize: 28 }}>❌</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Reject Home Visit Request</h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Student: <strong>{rejectModal.visit?.student_id?.name || rejectModal.visit?.name}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.5, marginBottom: 16 }}>
+                Rejected requests will not receive a QR gate pass. The student will be notified along with your mandatory reason.
+              </p>
+
+              <form onSubmit={handleSubmitReject}>
+                <div className="form-group" style={{ marginBottom: 18 }}>
+                  <label className="form-label" style={{ fontWeight: 700 }}>Mandatory Rejection Reason *</label>
+                  <textarea
+                    className="form-input"
+                    rows={3}
+                    placeholder="Enter reason for rejecting this leave request (min 5 characters)..."
+                    value={rejectModal.reason}
+                    onChange={(e) => setRejectModal((m) => ({ ...m, reason: e.target.value }))}
+                    required
+                    style={{ resize: 'vertical', fontSize: 13 }}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    Minimum 5 characters. This reason will be visible to the student.
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button
+                    type="button"
+                    onClick={handleCloseRejectModal}
+                    disabled={rejectModal.submitting}
+                    className="btn btn-ghost"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={rejectModal.submitting}
+                    className="btn btn-danger"
+                    style={{ fontWeight: 700 }}
+                  >
+                    {rejectModal.submitting ? <span className="loading-spinner" /> : 'Confirm Rejection'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
@@ -551,13 +1013,13 @@ export default function HomeVisits() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <span style={{ fontSize: 28 }}>📞</span>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Manual Phone Confirmation Override</h3>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Hostel Staff Emergency Fallback</div>
+                  <h3 style={{ margin: 0, fontSize: 17, color: '#ffffff' }}>Record Parent's Verbal Decision</h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Hostel Staff Phone Override</div>
                 </div>
               </div>
 
               <p style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.5, marginBottom: 16 }}>
-                Record verbal parent confirmation obtained via phone call for{' '}
+                Record verbal parent decision obtained via phone call for{' '}
                 <strong>{overrideModal.visit?.student_id?.name || overrideModal.visit?.name}</strong>.
                 This decision will be audited with your staff ID as <code>STAFF_PHONE_OVERRIDE</code>.
               </p>
@@ -617,12 +1079,25 @@ export default function HomeVisits() {
                   </div>
                 </div>
 
+                {/* Verbal Decision Choice */}
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">Verbal Decision Obtained *</label>
+                  <select
+                    className="form-input"
+                    value={overrideModal.decision}
+                    onChange={(e) => setOverrideModal((m) => ({ ...m, decision: e.target.value }))}
+                  >
+                    <option value="APPROVED">Parent Approved (Permit leave)</option>
+                    <option value="REJECTED">Parent Rejected (Do NOT permit leave)</option>
+                  </select>
+                </div>
+
                 <div className="form-group" style={{ marginBottom: 18 }}>
                   <label className="form-label">Mandatory Call Note / Override Reason *</label>
                   <textarea
                     className="form-input"
                     rows={3}
-                    placeholder="e.g. Spoke to father at 2:30 PM. Father confirmed leave dates and destination. Approved due to student medical checkup."
+                    placeholder="e.g. Spoke to father at 2:30 PM. Father confirmed leave dates and destination."
                     value={overrideModal.reason}
                     onChange={(e) => setOverrideModal((m) => ({ ...m, reason: e.target.value }))}
                     required
@@ -648,7 +1123,7 @@ export default function HomeVisits() {
                     className="btn btn-primary"
                     style={{ fontWeight: 700 }}
                   >
-                    {overrideModal.submitting ? <span className="loading-spinner" /> : 'Confirm Override'}
+                    {overrideModal.submitting ? <span className="loading-spinner" /> : 'Confirm Verbal Decision'}
                   </button>
                 </div>
               </form>
