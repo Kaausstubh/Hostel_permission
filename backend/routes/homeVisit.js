@@ -212,6 +212,33 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       });
     }
 
+    // Debounce / Idempotency guard: If an identical home-visit request was created within the last 30 seconds
+    // for this student, return it to prevent duplicate creation, token invalidation, and redundant emails.
+    const recentDuplicate = await HomeVisitLog.findOne({
+      student_id: req.user._id,
+      leave_date,
+      return_date,
+      createdAt: { $gte: new Date(Date.now() - 30 * 1000) },
+      overall_status: { $in: ['parent_pending', 'warden_pending', 'approved'] },
+    }).sort({ createdAt: -1 });
+
+    if (recentDuplicate) {
+      logger.info(`[HomeVisit] Debounce: returning recently created visit ${recentDuplicate._id} to avoid duplicate submission and duplicate emails.`);
+      const cleanDuplicate = recentDuplicate.toObject ? recentDuplicate.toObject() : { ...recentDuplicate };
+      delete cleanDuplicate.parent_token_hash;
+      return res.status(200).json({
+        success: true,
+        message: 'Home visit request already submitted. Digital approval request sent to parent.',
+        guardianEmails: cleanDuplicate.guardian_emails || [],
+        parentEmail: cleanDuplicate.parent_email,
+        hasGuardians: (cleanDuplicate.guardian_emails?.length > 0) || Boolean(cleanDuplicate.parent_email),
+        emailSent: true,
+        email_notification_status: cleanDuplicate.email_notification_status,
+        visit: cleanDuplicate,
+        alreadySubmitted: true,
+      });
+    }
+
     const shouldCancelPrevious =
       req.body.cancel_previous === true ||
       req.body.cancel_previous === 'true' ||
@@ -400,10 +427,17 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
     let approvalPageUrl = null;
     const dispatchResults = [];
 
-    if (targetParentEmails.length > 0) {
+    // Strictly deduplicate parent emails so that no recipient receives duplicate emails
+    const uniqueParentEmails = Array.from(new Set(
+      targetParentEmails
+        .map((e) => (typeof e === 'string' ? e.trim().toLowerCase() : ''))
+        .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+    ));
+
+    if (uniqueParentEmails.length > 0) {
       const baseUrl = getCleanFrontendUrl();
 
-      for (const email of targetParentEmails) {
+      for (const email of uniqueParentEmails) {
         try {
           const emailResult = await sendParentApprovalEmail({
             visit,
@@ -457,7 +491,8 @@ router.post('/request', protect, authorize('student'), async (req, res) => {
       const requestUrl = `${baseUrl}/parent/requests/${visit._id}`;
 
       for (const g of guardians) {
-        if (targetParentEmails.includes(g.email.trim().toLowerCase())) {
+        const gEmail = g.email ? g.email.trim().toLowerCase() : '';
+        if (!gEmail || uniqueParentEmails.includes(gEmail)) {
           continue;
         }
         sendLeaveRequestEmail({

@@ -344,11 +344,11 @@ router.post('/verify-registration-otp', async (req, res) => {
         hostel: user.hostel,
         roomNo: user.roomNo,
         phone: user.phone,
-        parentPhone: user.parentPhone,
-        parentPhone2: user.parentPhone2,
-        parentEmail: user.parentEmail || null,
-        parentName: user.parentName || null,
-        hasGuardians: Boolean(guardianResult?.guardian1),
+        parentPhone: guardianResult?.guardian1?.phone || user.parentPhone || null,
+        parentPhone2: guardianResult?.guardian2?.phone || user.parentPhone2 || null,
+        parentEmail: guardianResult?.guardian1?.email || user.parentEmail || null,
+        parentName: guardianResult?.guardian1?.name || user.parentName || null,
+        hasGuardians: Boolean(guardianResult?.guardian1 || guardianResult?.alreadyInvited || user.parentEmail),
       },
     });
   } catch (err) {

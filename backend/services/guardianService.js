@@ -138,13 +138,6 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     throw new Error('A verified guardian account is already active for your profile. Please contact the Hostel Warden to update your registered guardian details.');
   }
 
-  // Clean up any previous unactivated or stale guardian records before re-linking
-  if (existingGuardians.length > 0) {
-    const existingIds = existingGuardians.map((g) => g._id);
-    await GuardianInvitation.deleteMany({ guardian_id: { $in: existingIds } });
-    await Guardian.deleteMany({ _id: { $in: existingIds } });
-  }
-
   const student = await User.findById(studentId);
   if (!student) throw new Error('Student record not found');
 
@@ -154,6 +147,46 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
     guardian1,
     guardian2,
   });
+
+  // Idempotency guard: If identical guardians were linked within the last 3 minutes
+  // and valid unconsumed invitations exist, reuse them to prevent duplicate emails and token invalidation.
+  if (existingGuardians.length > 0) {
+    const isSameG1 = existingGuardians.some(
+      (g) => g.guardian_slot === 1 && g.email?.toLowerCase() === normG1E && g.phone === g1PhoneE164
+    );
+    const isSameG2 = !normG2E || existingGuardians.some(
+      (g) => g.guardian_slot === 2 && g.email?.toLowerCase() === normG2E && g.phone === g2PhoneE164
+    );
+    const isRecent = existingGuardians.some(
+      (g) => g.last_invite_sent_at && Date.now() - new Date(g.last_invite_sent_at).getTime() < 180_000
+    );
+
+    if (isSameG1 && isSameG2 && isRecent) {
+      logger.info(`[GuardianService] Idempotency: identical guardians already linked within 3 minutes for student ${studentId}. Reusing active invitations to avoid duplicate emails.`);
+      const existingIds = existingGuardians.map((g) => g._id);
+      const activeInvs = await GuardianInvitation.find({
+        guardian_id: { $in: existingIds },
+        used_at: null,
+        expires_at: { $gt: new Date() },
+      });
+
+      if (activeInvs.length > 0) {
+        return {
+          guardian1: existingGuardians.find((g) => g.guardian_slot === 1),
+          guardian2: existingGuardians.find((g) => g.guardian_slot === 2) || null,
+          alreadyInvited: true,
+          inviteUrls: {},
+        };
+      }
+    }
+  }
+
+  // Clean up any previous unactivated or stale guardian records before re-linking
+  if (existingGuardians.length > 0) {
+    const existingIds = existingGuardians.map((g) => g._id);
+    await GuardianInvitation.deleteMany({ guardian_id: { $in: existingIds } });
+    await Guardian.deleteMany({ _id: { $in: existingIds } });
+  }
 
   // Check if parents already have an activated parent user account with a password (Sibling support)
   const existingUser1 = await User.findOne({ email: normG1E, role: 'parent', passwordHash: { $exists: true, $ne: null } });
@@ -265,7 +298,7 @@ const linkInitialGuardians = async ({ studentId, guardian1, guardian2, ip = '', 
   };
 
   await sendInviteFor(g1, existingUser1);
-  if (g2) {
+  if (g2 && (!g1 || g1.email.toLowerCase() !== g2.email.toLowerCase())) {
     await new Promise((resolve) => setTimeout(resolve, 300));
     await sendInviteFor(g2, existingUser2);
   }

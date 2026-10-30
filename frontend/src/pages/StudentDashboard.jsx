@@ -636,6 +636,7 @@ export default function StudentDashboard() {
   const menuTimerRef = useRef(null);
   const bootTimerRef = useRef(null);
   const lastBotRef = useRef({ content: '', type: '', at: 0 });
+  const isSubmittingHvRef = useRef(false);
   const [chatHydrated, setChatHydrated] = useState(false);
   // Safe initial mobile check — avoids SSR/layout-shift issues
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -1013,6 +1014,7 @@ export default function StudentDashboard() {
   };
   // ── Button click handler ──────────────────────────────────────────────────
   const handleButton = async (id, label) => {
+    if (loading || isSubmittingHvRef.current) return;
     const silentAction = ['flow_menu', 'flow_restart_hv'].includes(id);
     if (!silentAction) userSay(label);
 
@@ -1546,6 +1548,8 @@ export default function StudentDashboard() {
   };
 
   const submitHomeVisit = async (data) => {
+    if (isSubmittingHvRef.current) return;
+    isSubmittingHvRef.current = true;
     setLoading(true);
     lastAttemptedHvDataRef.current = data;
     try {
@@ -1682,6 +1686,7 @@ export default function StudentDashboard() {
 
       showFlowExitOptions(`❌ ${err.response?.data?.message || 'Submission failed. Try again.'}`);
     } finally {
+      isSubmittingHvRef.current = false;
       setLoading(false);
     }
   };

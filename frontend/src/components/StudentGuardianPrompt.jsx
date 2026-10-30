@@ -24,12 +24,13 @@ export default function StudentGuardianPrompt({ user, onComplete }) {
   });
 
   // Only render if student has not verified guardians
-  if (user?.hasGuardians === true || !modalOpen) {
+  if (user?.hasGuardians === true || Boolean(user?.parentEmail) || !modalOpen) {
     return null;
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     const g1Name = (formData.guardian1.name || '').trim();
     const g1Phone = (formData.guardian1.phone || '').trim().replace(/\D/g, '');
     const g1Email = (formData.guardian1.email || '').trim().toLowerCase();
