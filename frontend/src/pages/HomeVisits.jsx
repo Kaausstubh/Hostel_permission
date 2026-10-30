@@ -725,7 +725,6 @@ export default function HomeVisits() {
                                 <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>No parent phone on file</div>
                               )
                             )}
-                            )}
                           </div>
                         </div>
                       </td>
