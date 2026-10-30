@@ -30,7 +30,7 @@ export default function GlobalStudentAttendanceModal({
   onVerified,
 }) {
   const [remainingSeconds, setRemainingSeconds] = useState(
-    request?.remainingSeconds || 300
+    request?.remainingSeconds || 7200
   );
   const [verifying, setVerifying] = useState(false);
   const [verifyingStage, setVerifyingStage] = useState('');
@@ -67,9 +67,11 @@ export default function GlobalStudentAttendanceModal({
   }, [request?.expiresAt, request?.id, onDismiss]);
 
   const formatTimer = (totalSecs) => {
-    const mins = Math.floor(totalSecs / 60);
+    if (isNaN(totalSecs) || totalSecs <= 0) return '00:00:00';
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
     const secs = totalSecs % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
   // 1-Click GPS Location Verification
@@ -98,7 +100,8 @@ export default function GlobalStudentAttendanceModal({
             gps_lat: latitude,
             gps_lng: longitude,
             gps_accuracy: accuracy,
-            timestamp: new Date().toISOString(),
+            timestamp: typeof pos.timestamp === 'number' ? pos.timestamp : Date.now(),
+            clientNow: Date.now(),
           };
 
           const res = await api.post(`/attendance/requests/${request.id}/approve`, payload);
@@ -174,7 +177,7 @@ export default function GlobalStudentAttendanceModal({
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 15000,
         maximumAge: 0,
       }
     );

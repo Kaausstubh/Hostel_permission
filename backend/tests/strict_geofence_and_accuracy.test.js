@@ -302,21 +302,21 @@ async function runStrictGeofenceTests() {
     console.log(`  ✔ Distance: ${res.distanceMeters}m (within 22m). Status: PRESENT.`);
   }
 
-  // 3. Just outside the authorized geofence boundary (26m from center, radius 22m)
-  console.log('\nScenario 3: Just outside the authorized geofence boundary (26m from center)');
+  // 3. Outside the authorized geofence boundary (130m from center, exceeds 100m + 20m buffer)
+  console.log('\nScenario 3: Outside the authorized geofence boundary (130m from center)');
   {
     const engine = new StrictAttendanceEngine();
     const student = { _id: 's3', hostel: 'BH2' };
-    const p26m = offsetCoords(bh2Center, 26);
+    const pOutside = offsetCoords(bh2Center, 130);
 
-    const res = await engine.verifyPresence({ student, coords: p26m, accuracy: 10 });
+    const res = await engine.verifyPresence({ student, coords: pOutside, accuracy: 10 });
     assert.strictEqual(res.status, 'ABSENT');
     assert.strictEqual(res.isMarked, true);
     assert.strictEqual(res.componentVisible, false);
 
     const frontendStatus = engine.getTodayStatus(student);
     assert.strictEqual(frontendStatus.status, 'ABSENT');
-    console.log(`  ✔ Distance: ${res.distanceMeters}m (>22m). Status: ABSENT. Component removed.`);
+    console.log(`  ✔ Distance: ${res.distanceMeters}m (>120m boundary). Status: ABSENT. Component removed.`);
   }
 
   // 4. In another hostel (BH2 student physically inside BH1 building, 115m away)

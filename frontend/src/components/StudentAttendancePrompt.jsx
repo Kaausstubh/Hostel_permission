@@ -201,16 +201,18 @@ export default function StudentAttendancePrompt({
         }
       } else {
         if (isUserAction || count > 0) {
+          const isTech = Boolean(data.technicalError || count === 0);
           const reasonMsg = data.message || (data.locationStatus === 'OUTSIDE HOSTEL' ? 'Outside hostel geofence.' : 'Location check recorded.');
           if (data.locationStatus === 'OUTSIDE HOSTEL') {
             toast.error(`Outside hostel geofence! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
           } else if (data.locationStatus === 'LOCATION UNAVAILABLE') {
-            toast.error(`Location unavailable! Location checks remaining: ${remaining}/3`, { id: 'attendance-geofence-toast', icon: '⚠️' });
+            toast.error(reasonMsg, { id: 'attendance-geofence-toast', icon: '⚠️' });
           }
           setAttemptNotice({
             count,
             remaining,
             message: reasonMsg,
+            isTechnical: isTech,
           });
 
           // Smoothly auto-minimize to discreet banner after showing attempt result for 2.2 seconds
@@ -390,11 +392,23 @@ export default function StudentAttendancePrompt({
         try {
           setVerifyingStage('📍 Validating coordinates with hostel geofence...');
           const { latitude, longitude, accuracy } = position.coords;
+
+          const clientNow = Date.now();
+          const rawGpsTime = position.timestamp;
+          let safeGpsTime = clientNow;
+          if (typeof rawGpsTime === 'number' && Number.isFinite(rawGpsTime)) {
+            const ms = rawGpsTime < 1e11 ? rawGpsTime * 1000 : rawGpsTime;
+            if (Math.abs(clientNow - ms) < 300_000) {
+              safeGpsTime = ms;
+            }
+          }
+
           const res = await api.post('/attendance/auto-verify', {
             lat: latitude,
             lng: longitude,
             accuracy,
-            timestamp: position.timestamp,
+            timestamp: safeGpsTime,
+            clientNow,
             hostel: assignedHostel,
             verificationSessionId: sessionData.verificationSessionId,
           });
@@ -418,13 +432,13 @@ export default function StudentAttendancePrompt({
         let code = 'GPS_FETCH_FAILED';
 
         if (error.code === error.PERMISSION_DENIED) {
-          msg = 'Location permission was denied. Please allow location access in your browser settings.';
+          msg = 'Location permission was denied. Please allow location permissions in your browser or device settings.';
           code = 'PERMISSION_DENIED';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          msg = 'Location signal unavailable. Move near a window or open space.';
+          msg = 'GPS location unavailable. Please turn on device location services and move near an open window.';
           code = 'POSITION_UNAVAILABLE';
         } else if (error.code === error.TIMEOUT) {
-          msg = 'GPS location request timed out. Please try again.';
+          msg = 'GPS location request timed out after 15s. Please retry in an area with clear signal.';
           code = 'TIMEOUT';
         }
 
@@ -432,7 +446,7 @@ export default function StudentAttendancePrompt({
         setVerifying(false);
         setVerifyingStage('');
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [verifying, isFinalized, sessionData, assignedHostel, handleGpsFailure, handleServerResponse, fetchAttendanceStatus]);
 
@@ -761,7 +775,9 @@ export default function StudentAttendancePrompt({
             >
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#fbbf24' }}>
-                  ⚠️ Attempt {attemptNotice.count}/3 Recorded
+                  {attemptNotice.isTechnical || attemptNotice.count === 0
+                    ? '⚠️ Location Check Notice'
+                    : `⚠️ Attempt ${attemptNotice.count}/3 Recorded`}
                 </div>
                 <div style={{ fontSize: 12, color: '#fde68a', marginTop: 2 }}>
                   {attemptNotice.message} ({attemptNotice.remaining}/3 checks remaining)

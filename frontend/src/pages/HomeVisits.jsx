@@ -50,13 +50,6 @@ const PARENT_STATUS_OPTIONS = [
   { value: 'legacy', label: 'Legacy Records' },
 ];
 
-const maskPhone = (phone) => {
-  if (!phone) return '—';
-  const clean = String(phone).trim();
-  if (clean.length < 7) return clean;
-  return clean.slice(0, 5) + '*** **' + clean.slice(-3);
-};
-
 const formatIst = (rawDate) => {
   if (!rawDate) return '';
   const d = new Date(rawDate);
@@ -579,43 +572,57 @@ export default function HomeVisits() {
                             </div>
                           )}
 
-                          {/* Quick Guardian Phone Info with Call and Copy buttons */}
-                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 4 }}>
+{/* Quick Guardian Phone Info with Direct Call & Audit Log */}
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary, #334155)', fontWeight: 600, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {guardians.length > 0 ? (
                               guardians.map((g, idx) => {
+                                const rawPhone = g.phone ? String(g.phone).trim() : '';
+                                const cleanTel = rawPhone.replace(/[^\d+]/g, '');
                                 const gCalls = (v.callLogs || []).filter(
                                   (c) => (g._id && String(c.guardian_id) === String(g._id)) || (g.phone && c.phone_called === g.phone)
                                 );
                                 const lastCall = gCalls[gCalls.length - 1];
                                 return (
-                                  <div key={g._id || idx} style={{ marginBottom: 6 }}>
+                                  <div key={g._id || idx}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <span>{g.relationship}: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(g.phone)}</strong></span>
-                                      {g.phone && (
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <span style={{ color: 'var(--text-muted, #64748b)', fontSize: 11.5 }}>{g.relationship}:</span>
+                                      {rawPhone ? (
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                           <a
-                                            href={`tel:${g.phone}`}
-                                            onClick={() => handleInitiateCall(v._id, g, g.phone)}
-                                            className="btn btn-ghost btn-xs"
-                                            title={`Dial ${g.relationship} (${g.phone})`}
+                                            href={`tel:${cleanTel}`}
+                                            onClick={() => handleInitiateCall(v._id, g, rawPhone)}
+                                            title={`Call ${g.relationship} (${g.name || ''}): ${rawPhone}`}
                                             style={{
-                                              padding: '2px 6px',
-                                              fontSize: 11,
                                               display: 'inline-flex',
                                               alignItems: 'center',
-                                              gap: 3,
-                                              color: '#38bdf8',
-                                              background: 'rgba(56, 189, 248, 0.12)',
-                                              borderRadius: 4,
-                                              textDecoration: 'none',
+                                              gap: 5,
+                                              color: 'var(--primary, #4f46e5)',
                                               fontWeight: 700,
+                                              textDecoration: 'none',
+                                              padding: '2px 8px',
+                                              borderRadius: 6,
+                                              background: 'rgba(79, 70, 229, 0.08)',
+                                              border: '1px solid rgba(79, 70, 229, 0.2)',
+                                              fontSize: 12,
+                                              transition: 'all 0.15s ease',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+                                              e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                                              e.currentTarget.style.color = '#059669';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.currentTarget.style.background = 'rgba(79, 70, 229, 0.08)';
+                                              e.currentTarget.style.borderColor = 'rgba(79, 70, 229, 0.2)';
+                                              e.currentTarget.style.color = 'var(--primary, #4f46e5)';
                                             }}
                                           >
-                                            <MdPhone size={12} /> Call
+                                            <MdPhone size={13} style={{ color: '#10b981' }} />
+                                            <span>{rawPhone}</span>
                                           </a>
                                           <button
                                             type="button"
-                                            onClick={(e) => handleCopyPhone(e, g.phone, `${g.relationship}'s phone`)}
+                                            onClick={(e) => handleCopyPhone(e, rawPhone, `${g.relationship}'s phone`)}
                                             className="btn btn-ghost btn-xs"
                                             title="Copy full phone number"
                                             style={{
@@ -630,7 +637,9 @@ export default function HomeVisits() {
                                           >
                                             <MdContentCopy size={11} />
                                           </button>
-                                        </span>
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: 'var(--text-muted)' }}>—</span>
                                       )}
                                     </div>
                                     {lastCall && (
@@ -642,57 +651,68 @@ export default function HomeVisits() {
                                 );
                               })
                             ) : (
-                              (() => {
-                                const fallbackPhone = v.parent_phone || v.student_id?.parentPhone;
+                              (v.parent_phone || v.student_id?.parentPhone) ? (() => {
+                                const rawPhone = String(v.parent_phone || v.student_id?.parentPhone).trim();
+                                const cleanTel = rawPhone.replace(/[^\d+]/g, '');
                                 const gCalls = (v.callLogs || []).filter(
-                                  (c) => (fallbackPhone && c.phone_called === fallbackPhone) || !c.guardian_id
+                                  (c) => (rawPhone && c.phone_called === rawPhone) || !c.guardian_id
                                 );
                                 const lastCall = gCalls[gCalls.length - 1];
                                 return (
                                   <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <span>Phone: <strong style={{ color: 'var(--text-primary, #0f172a)', fontWeight: 700 }}>{maskPhone(fallbackPhone)}</strong></span>
-                                      {fallbackPhone && (
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                          <a
-                                            href={`tel:${fallbackPhone}`}
-                                            onClick={() => handleInitiateCall(v._id, null, fallbackPhone)}
-                                            className="btn btn-ghost btn-xs"
-                                            title={`Dial Parent (${fallbackPhone})`}
-                                            style={{
-                                              padding: '2px 6px',
-                                              fontSize: 11,
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: 3,
-                                              color: '#38bdf8',
-                                              background: 'rgba(56, 189, 248, 0.12)',
-                                              borderRadius: 4,
-                                              textDecoration: 'none',
-                                              fontWeight: 700,
-                                            }}
-                                          >
-                                            <MdPhone size={12} /> Call
-                                          </a>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => handleCopyPhone(e, fallbackPhone, 'Parent phone')}
-                                            className="btn btn-ghost btn-xs"
-                                            title="Copy full phone number"
-                                            style={{
-                                              padding: '2px 5px',
-                                              fontSize: 11,
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              color: 'var(--text-secondary, #64748b)',
-                                              background: 'rgba(255, 255, 255, 0.06)',
-                                              borderRadius: 4,
-                                            }}
-                                          >
-                                            <MdContentCopy size={11} />
-                                          </button>
-                                        </span>
-                                      )}
+                                      <span style={{ color: 'var(--text-muted, #64748b)', fontSize: 11.5 }}>Parent:</span>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <a
+                                          href={`tel:${cleanTel}`}
+                                          onClick={() => handleInitiateCall(v._id, null, rawPhone)}
+                                          title={`Call Parent: ${rawPhone}`}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            color: 'var(--primary, #4f46e5)',
+                                            fontWeight: 700,
+                                            textDecoration: 'none',
+                                            padding: '2px 8px',
+                                            borderRadius: 6,
+                                            background: 'rgba(79, 70, 229, 0.08)',
+                                            border: '1px solid rgba(79, 70, 229, 0.2)',
+                                            fontSize: 12,
+                                            transition: 'all 0.15s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+                                            e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                                            e.currentTarget.style.color = '#059669';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'rgba(79, 70, 229, 0.08)';
+                                            e.currentTarget.style.borderColor = 'rgba(79, 70, 229, 0.2)';
+                                            e.currentTarget.style.color = 'var(--primary, #4f46e5)';
+                                          }}
+                                        >
+                                          <MdPhone size={13} style={{ color: '#10b981' }} />
+                                          <span>{rawPhone}</span>
+                                        </a>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleCopyPhone(e, rawPhone, 'Parent phone')}
+                                          className="btn btn-ghost btn-xs"
+                                          title="Copy full phone number"
+                                          style={{
+                                            padding: '2px 5px',
+                                            fontSize: 11,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            color: 'var(--text-secondary, #64748b)',
+                                            background: 'rgba(255, 255, 255, 0.06)',
+                                            borderRadius: 4,
+                                          }}
+                                        >
+                                          <MdContentCopy size={11} />
+                                        </button>
+                                      </div>
                                     </div>
                                     {lastCall && (
                                       <div style={{ fontSize: 10.5, color: '#38bdf8', marginTop: 2, fontWeight: 600 }}>
@@ -701,7 +721,10 @@ export default function HomeVisits() {
                                     )}
                                   </div>
                                 );
-                              })()
+                              })() : (
+                                <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>No parent phone on file</div>
+                              )
+                            )}
                             )}
                           </div>
                         </div>
@@ -1108,7 +1131,26 @@ export default function HomeVisits() {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Contact Phone *</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="form-label" style={{ marginBottom: 4 }}>Contact Phone *</label>
+                      {overrideModal.contactPhone && (
+                        <a
+                          href={`tel:${String(overrideModal.contactPhone).replace(/[^\d+]/g, '')}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            color: '#10b981',
+                            textDecoration: 'none',
+                            marginBottom: 4,
+                          }}
+                        >
+                          <MdPhone size={13} /> Call Directly
+                        </a>
+                      )}
+                    </div>
                     <input
                       type="text"
                       className="form-input"

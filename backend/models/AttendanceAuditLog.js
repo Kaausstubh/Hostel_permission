@@ -37,6 +37,8 @@ const attendanceAuditLogSchema = new mongoose.Schema(
         'DEVICE_APPROVED',
         'DEVICE_REVOKED',
         'GEOFENCE_UPDATED',
+        'ATTENDANCE_RECORD_DELETED',
+        'ATTENDANCE_RECORDS_CLEARED',
       ],
     },
     entity: {
